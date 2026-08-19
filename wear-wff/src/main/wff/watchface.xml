@@ -22,6 +22,20 @@
     complications listed in wear/src/main/AndroidManifest.xml); the delta ring below defaults to
     SgvComplication as a placeholder provider until a proper delta-only complication exists.
 -->
+<!--
+    NOTE: this file is a TEMPLATE, not a compiled resource. It lives in src/main/wff/ and the build
+    generates the real res/raw/watchface.xml per product flavor, substituting
+    __AAPS_APPLICATION_ID__ for that flavor's AAPS application id (see build.gradle.kts).
+
+    This exists because the complication providers are referenced by fully qualified component name,
+    and the AAPS application id differs per flavor (info.nightscout.androidaps for full, but
+    info.nightscout.aapspumpcontrol / aapsclient / aapsclient2 for the others). Hardcoding the "full"
+    id would ship three flavors whose rings and bezel silently point at a package that is not
+    installed, which looks identical to "no data" and would be very hard to diagnose.
+
+    The placeholder is schema-valid (primaryProvider is just xs:string), so the WFF validator can
+    still be run directly against this template.
+-->
 <WatchFace width="450" height="450">
     <Metadata key="CLOCK_TYPE" value="DIGITAL" />
     <Metadata key="PREVIEW_TIME" value="10:09:00" />
@@ -35,7 +49,7 @@
                  not actually serve PHOTO_IMAGE, so on such a device this slot simply stays empty,
                  which is the desired behaviour (a full-bleed battery graphic would be nonsense). -->
             <DefaultProviderPolicy
-                primaryProvider="info.nightscout.androidaps/app.aaps.wear.complications.BezelHistoryComplicationService"
+                primaryProvider="__AAPS_APPLICATION_ID__/app.aaps.wear.complications.BezelHistoryComplicationService"
                 primaryProviderType="PHOTO_IMAGE"
                 defaultSystemProvider="EMPTY"
                 defaultSystemProviderType="PHOTO_IMAGE" />
@@ -101,7 +115,7 @@
         <ComplicationSlot slotId="3" supportedTypes="RANGED_VALUE" x="0" y="0" width="450" height="450">
             <BoundingBox x="0" y="0" width="450" height="450" />
             <DefaultProviderPolicy
-                primaryProvider="info.nightscout.androidaps/app.aaps.wear.complications.SgvComplication"
+                primaryProvider="__AAPS_APPLICATION_ID__/app.aaps.wear.complications.SgvComplication"
                 primaryProviderType="RANGED_VALUE"
                 defaultSystemProvider="EMPTY"
                 defaultSystemProviderType="RANGED_VALUE" />
@@ -119,7 +133,7 @@
         <ComplicationSlot slotId="4" supportedTypes="RANGED_VALUE" x="0" y="0" width="450" height="450">
             <BoundingBox x="0" y="0" width="450" height="450" />
             <DefaultProviderPolicy
-                primaryProvider="info.nightscout.androidaps/app.aaps.wear.complications.DeltaComplication"
+                primaryProvider="__AAPS_APPLICATION_ID__/app.aaps.wear.complications.DeltaComplication"
                 primaryProviderType="RANGED_VALUE"
                 defaultSystemProvider="EMPTY"
                 defaultSystemProviderType="RANGED_VALUE" />
@@ -137,7 +151,7 @@
         <ComplicationSlot slotId="5" supportedTypes="RANGED_VALUE" x="0" y="0" width="450" height="450">
             <BoundingBox x="0" y="0" width="450" height="450" />
             <DefaultProviderPolicy
-                primaryProvider="info.nightscout.androidaps/app.aaps.wear.complications.IobDetailedComplication"
+                primaryProvider="__AAPS_APPLICATION_ID__/app.aaps.wear.complications.IobDetailedComplication"
                 primaryProviderType="RANGED_VALUE"
                 defaultSystemProvider="EMPTY"
                 defaultSystemProviderType="RANGED_VALUE" />
@@ -155,7 +169,7 @@
         <ComplicationSlot slotId="6" supportedTypes="RANGED_VALUE" x="0" y="0" width="450" height="450">
             <BoundingBox x="0" y="0" width="450" height="450" />
             <DefaultProviderPolicy
-                primaryProvider="info.nightscout.androidaps/app.aaps.wear.complications.CobDetailedComplication"
+                primaryProvider="__AAPS_APPLICATION_ID__/app.aaps.wear.complications.CobDetailedComplication"
                 primaryProviderType="RANGED_VALUE"
                 defaultSystemProvider="EMPTY"
                 defaultSystemProviderType="RANGED_VALUE" />
