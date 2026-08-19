@@ -1,30 +1,37 @@
 package app.aaps.wear.tile
 
+import android.graphics.Bitmap
+import androidx.wear.protolayout.ActionBuilders
 import androidx.wear.protolayout.ColorBuilders.argb
 import androidx.wear.protolayout.DeviceParametersBuilders.DeviceParameters
 import androidx.wear.protolayout.DimensionBuilders.dp
 import androidx.wear.protolayout.DimensionBuilders.expand
 import androidx.wear.protolayout.DimensionBuilders.sp
+import androidx.wear.protolayout.LayoutElementBuilders.Box
 import androidx.wear.protolayout.LayoutElementBuilders.Column
 import androidx.wear.protolayout.LayoutElementBuilders.FONT_WEIGHT_BOLD
 import androidx.wear.protolayout.LayoutElementBuilders.FONT_WEIGHT_MEDIUM
 import androidx.wear.protolayout.LayoutElementBuilders.FontStyle
 import androidx.wear.protolayout.LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER
+import androidx.wear.protolayout.LayoutElementBuilders.Image
 import androidx.wear.protolayout.LayoutElementBuilders.LayoutElement
 import androidx.wear.protolayout.LayoutElementBuilders.Row
 import androidx.wear.protolayout.LayoutElementBuilders.Spacer
 import androidx.wear.protolayout.LayoutElementBuilders.Text
+import androidx.wear.protolayout.LayoutElementBuilders.VERTICAL_ALIGN_CENTER
+import androidx.wear.protolayout.ModifiersBuilders.Background
 import androidx.wear.protolayout.ModifiersBuilders.Clickable
+import androidx.wear.protolayout.ModifiersBuilders.Corner
 import androidx.wear.protolayout.ModifiersBuilders.Modifiers
 import androidx.wear.protolayout.ModifiersBuilders.Semantics
 import androidx.wear.protolayout.TimelineBuilders.Timeline
-import androidx.wear.protolayout.ActionBuilders
 import androidx.wear.tiles.RequestBuilders
 import androidx.wear.tiles.ResourceBuilders
 import androidx.wear.tiles.TileBuilders.Tile
 import androidx.wear.tiles.TileService
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
+import app.aaps.wear.R
 import app.aaps.wear.data.ComplicationDataRepository
 import app.aaps.wear.interaction.menus.MainMenuActivity
 import com.google.common.util.concurrent.ListenableFuture
@@ -34,20 +41,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.future
+import java.io.ByteArrayOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
 
 /**
- * Glanceable glucose tile, styled after the platform's own heart-rate tile: one large value, a unit
- * caption, and a small supporting row, on a flat dark surface.
+ * Glanceable glucose tile, laid out like the platform's own heart rate tile: icon, title, a rounded
+ * pill holding a smooth time series with its min and max labelled on the trace, the period covered,
+ * then the current reading.
  *
- * This is deliberately NOT built on [TileBase]. Every other AAPS tile is an *action* tile whose job is
- * to lay out a grid of tappable buttons, and [TileBase] is structured entirely around that (it takes a
- * `TileSource` supplying a list of `Action`s and arranges 1-4 circular buttons). A glanceable readout
- * has no actions to arrange and needs a completely different layout, so reusing that base class would
- * have meant bending it out of shape for both use cases.
+ * Deliberately not built on [TileBase]: that class exists to arrange 1-4 circular action buttons from
+ * a `TileSource`, which a glanceable readout has no use for.
  *
- * Data comes from the same [ComplicationDataRepository]-backed DataStore the complications read, so
- * the tile can never disagree with the watch face about the current reading.
+ * Data comes from the same [ComplicationDataRepository] DataStore the complications read, so the tile
+ * and the watch face can never disagree about the current reading.
  */
 class GlucoseTileService : TileService() {
 
@@ -68,30 +77,16 @@ class GlucoseTileService : TileService() {
     }
 
     override fun onTileRequest(requestParams: RequestBuilders.TileRequest): ListenableFuture<Tile> =
-        // NOTE: anything thrown in here surfaces as a silently blank tile with no logcat entry of its
-        // own, so the body is wrapped and logged explicitly. Debugging a blank tile without this is
-        // guesswork.
         serviceScope.future {
-            aapsLogger.debug(LTag.WEAR, "GlucoseTileService.onTileRequest entered")
-            val data = try {
-                complicationDataRepository.complicationData.first()
-            } catch (e: Exception) {
-                aapsLogger.error(LTag.WEAR, "GlucoseTileService: DataStore read failed", e)
-                null
-            }
-
-            val layout = layout(data, requestParams.deviceConfiguration)
-            aapsLogger.debug(
-                LTag.WEAR,
-                "GlucoseTileService built layout: data=${data != null} sgv=${data?.bgData?.sgvString} " +
-                    "screen=${requestParams.deviceConfiguration.screenWidthDp}x${requestParams.deviceConfiguration.screenHeightDp}dp"
-            )
+            val data = readData()
+            val entries = data?.graphData?.entries.orEmpty().sortedBy { it.timeStamp }
 
             Tile.Builder()
-                .setResourcesVersion(RESOURCE_VERSION)
-                .setTileTimeline(Timeline.fromLayoutElement(layout))
-                // Matches the 5 minute CGM cadence; there is no point refreshing faster than data
-                // can possibly arrive.
+                // The sparkline is a resource, and resources are cached per version string. A fixed
+                // version would pin the chart to whatever data happened to be present on first render,
+                // so the version tracks the newest reading.
+                .setResourcesVersion(resourceVersion(entries.lastOrNull()?.timeStamp ?: 0L))
+                .setTileTimeline(Timeline.fromLayoutElement(layout(data, requestParams.deviceConfiguration)))
                 .setFreshnessIntervalMillis(REFRESH_MS)
                 .build()
         }
@@ -99,139 +94,150 @@ class GlucoseTileService : TileService() {
     @Deprecated("Deprecated in TileService but still required for now")
     override fun onResourcesRequest(requestParams: RequestBuilders.ResourcesRequest): ListenableFuture<ResourceBuilders.Resources> =
         serviceScope.future {
-            // Text-only tile: no image resources to map.
-            ResourceBuilders.Resources.Builder().setVersion(RESOURCE_VERSION).build()
+            val data = readData()
+            val entries = data?.graphData?.entries.orEmpty().sortedBy { it.timeStamp }
+            val builder = ResourceBuilders.Resources.Builder()
+                .setVersion(resourceVersion(entries.lastOrNull()?.timeStamp ?: 0L))
+                .addIdToImageMapping(
+                    ID_ICON,
+                    ResourceBuilders.ImageResource.Builder()
+                        .setAndroidResourceByResId(
+                            ResourceBuilders.AndroidImageResourceByResId.Builder()
+                                .setResourceId(R.drawable.ic_sgv)
+                                .build()
+                        )
+                        .build()
+                )
+
+            if (entries.size >= 2) {
+                val values = entries.map { it.sgv * MGDL_TO_MMOL }
+                val bitmap = GlucoseSparkRenderer.render(values) { formatValue(it) }
+                builder.addIdToImageMapping(ID_SPARK, inlineImage(bitmap))
+            }
+            builder.build()
         }
+
+    private suspend fun readData(): app.aaps.wear.data.ComplicationData? = try {
+        complicationDataRepository.complicationData.first()
+    } catch (e: Exception) {
+        aapsLogger.error(LTag.WEAR, "GlucoseTileService: DataStore read failed", e)
+        null
+    }
+
+    /** protolayout wants raw ARGB_8888 bytes rather than an encoded image. */
+    private fun inlineImage(bitmap: Bitmap): ResourceBuilders.ImageResource {
+        val buffer = ByteArrayOutputStream(bitmap.byteCount)
+        val pixels = java.nio.ByteBuffer.allocate(bitmap.byteCount)
+        bitmap.copyPixelsToBuffer(pixels)
+        buffer.write(pixels.array())
+        return ResourceBuilders.ImageResource.Builder()
+            .setInlineResource(
+                ResourceBuilders.InlineImageResource.Builder()
+                    .setData(buffer.toByteArray())
+                    .setWidthPx(bitmap.width)
+                    .setHeightPx(bitmap.height)
+                    .setFormat(ResourceBuilders.IMAGE_FORMAT_RGB_565)
+                    .build()
+            )
+            .build()
+    }
 
     private fun layout(data: app.aaps.wear.data.ComplicationData?, device: DeviceParameters): LayoutElement {
         val bg = data?.bgData
-        val status = data?.statusData
-
+        val entries = data?.graphData?.entries.orEmpty().sortedBy { it.timeStamp }
         val hasReading = bg != null && bg.sgv > 0.0
+        val hasSeries = entries.size >= 2
+
         // "---" rather than a fabricated number: an unavailable reading must never be presentable as
         // a real one on a device used for insulin dosing.
         val valueText = if (hasReading) bg.sgvString else NO_DATA_TEXT
-        val arrowText = if (hasReading) bg.slopeArrow + VARIATION_SELECTOR_TEXT else ""
-        val unitText = if (hasReading && bg.glucoseUnits.isNotBlank() && bg.glucoseUnits != "-") bg.glucoseUnits else ""
-
+        val arrowText = if (hasReading && bg.slopeArrow.isNotBlank() && bg.slopeArrow != "--") bg.slopeArrow + VARIATION_SELECTOR else ""
         val accent = when {
-            !hasReading                          -> COLOR_NO_DATA
-            bg.low > 0.0 && bg.sgv < bg.low      -> COLOR_LOW
-            bg.high > 0.0 && bg.sgv > bg.high    -> COLOR_HIGH
-            else                                 -> COLOR_IN_RANGE
+            !hasReading                       -> COLOR_NO_DATA
+            bg.low > 0.0 && bg.sgv < bg.low   -> COLOR_LOW
+            bg.high > 0.0 && bg.sgv > bg.high -> COLOR_HIGH
+            else                              -> COLOR_IN_RANGE
         }
-
-        // These arrive pre-formatted for display and already carry their own label or unit (observed
-        // on-device: iobSum == "IOB", cob == "--g"), so adding our own prefix produced "IOB IOB".
-        // Show them as-is and drop the bare placeholders rather than presenting them as readings.
-        val supporting = listOf(bg?.delta, status?.iobSum, status?.cob)
-            .filterNotNull()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() && it !in PLACEHOLDER_STRINGS }
-            .joinToString("   ")
-
-        val valueSize = if (isLargeScreen(device)) VALUE_SP_LARGE else VALUE_SP
+        val period = if (hasSeries) {
+            "${clock(entries.first().timeStamp)}–${clock(entries.last().timeStamp)}"
+        } else ""
 
         val column = Column.Builder()
             .setHorizontalAlignment(HORIZONTAL_ALIGN_CENTER)
             .setWidth(expand())
-            .addContent(
-                Text.Builder()
-                    .setText(TITLE_TEXT)
-                    .setFontStyle(
-                        FontStyle.Builder()
-                            .setSize(sp(LABEL_SP))
-                            .setWeight(FONT_WEIGHT_MEDIUM)
-                            .setColor(argb(COLOR_LABEL))
-                            .build()
-                    )
+
+        // Icon in a soft circle, matching the platform tile's header treatment.
+        column.addContent(
+            Box.Builder()
+                .setWidth(dp(ICON_CIRCLE_DP))
+                .setHeight(dp(ICON_CIRCLE_DP))
+                .setModifiers(
+                    Modifiers.Builder()
+                        .setBackground(
+                            Background.Builder()
+                                .setColor(argb(COLOR_ICON_BG))
+                                .setCorner(Corner.Builder().setRadius(dp(ICON_CIRCLE_DP / 2f)).build())
+                                .build()
+                        )
+                        .build()
+                )
+                .addContent(
+                    Image.Builder()
+                        .setResourceId(ID_ICON)
+                        .setWidth(dp(ICON_DP))
+                        .setHeight(dp(ICON_DP))
+                        .build()
+                )
+                .build()
+        )
+        column.addContent(Spacer.Builder().setHeight(dp(GAP_S)).build())
+        column.addContent(text(TITLE_TEXT, TITLE_SP, FONT_WEIGHT_MEDIUM, COLOR_TITLE))
+
+        if (hasSeries) {
+            column.addContent(Spacer.Builder().setHeight(dp(GAP_M)).build())
+            column.addContent(
+                // The pill surface is painted into the bitmap (see GlucoseSparkRenderer), so this is
+                // just the image at its final size.
+                Image.Builder()
+                    .setResourceId(ID_SPARK)
+                    .setWidth(dp(PILL_W))
+                    .setHeight(dp(PILL_H))
                     .build()
             )
-            .addContent(Spacer.Builder().setHeight(dp(GAP_TITLE)).build())
-            .addContent(
-                // Value and arrow on one row so the arrow hangs off the number like the HR tile's
-                // bpm caption does, rather than being centred underneath it.
-                Row.Builder()
-                    .addContent(
-                        Text.Builder()
-                            .setText(valueText)
-                            .setFontStyle(
-                                FontStyle.Builder()
-                                    .setSize(sp(valueSize))
-                                    .setWeight(FONT_WEIGHT_BOLD)
-                                    .setColor(argb(accent))
-                                    .build()
-                            )
-                            .build()
-                    )
-                    .apply {
-                        if (arrowText.isNotEmpty()) {
-                            addContent(Spacer.Builder().setWidth(dp(GAP_ARROW)).build())
-                            addContent(
-                                Text.Builder()
-                                    .setText(arrowText)
-                                    .setFontStyle(
-                                        FontStyle.Builder()
-                                            .setSize(sp(ARROW_SP))
-                                            .setWeight(FONT_WEIGHT_MEDIUM)
-                                            .setColor(argb(accent))
-                                            .build()
-                                    )
-                                    .build()
-                            )
-                        }
+            if (period.isNotEmpty()) {
+                column.addContent(Spacer.Builder().setHeight(dp(GAP_S)).build())
+                column.addContent(text(period, CAPTION_SP, FONT_WEIGHT_MEDIUM, COLOR_CAPTION))
+            }
+        }
+
+        column.addContent(Spacer.Builder().setHeight(dp(GAP_M)).build())
+        column.addContent(text(CURRENT_LABEL, CAPTION_SP, FONT_WEIGHT_MEDIUM, COLOR_TITLE))
+        column.addContent(
+            Row.Builder()
+                .setVerticalAlignment(VERTICAL_ALIGN_CENTER)
+                .addContent(text(valueText, VALUE_SP, FONT_WEIGHT_BOLD, accent))
+                .apply {
+                    if (arrowText.isNotEmpty()) {
+                        addContent(Spacer.Builder().setWidth(dp(GAP_XS)).build())
+                        addContent(text(arrowText, ARROW_SP, FONT_WEIGHT_MEDIUM, accent))
                     }
-                    .build()
-            )
+                }
+                .build()
+        )
 
-        if (unitText.isNotEmpty()) {
-            column.addContent(
-                Text.Builder()
-                    .setText(unitText)
-                    .setFontStyle(
-                        FontStyle.Builder()
-                            .setSize(sp(UNIT_SP))
-                            .setWeight(FONT_WEIGHT_MEDIUM)
-                            .setColor(argb(COLOR_LABEL))
-                            .build()
-                    )
-                    .build()
-            )
-        }
-
-        if (supporting.isNotEmpty()) {
-            column.addContent(Spacer.Builder().setHeight(dp(GAP_SUPPORTING)).build())
-            column.addContent(
-                Text.Builder()
-                    .setText(supporting)
-                    .setFontStyle(
-                        FontStyle.Builder()
-                            .setSize(sp(SUPPORTING_SP))
-                            .setWeight(FONT_WEIGHT_MEDIUM)
-                            .setColor(argb(COLOR_SUPPORTING))
-                            .build()
-                    )
-                    .build()
-            )
-        }
-
-        // The root is the Column itself, deliberately. An earlier version wrapped this in a
-        // Box(expand, expand) carrying Background/Corner/Padding/Semantics/Clickable, and that
-        // rendered a completely blank tile with no error anywhere: onTileRequest ran, the layout was
-        // built, the renderer inflated nothing. Bisecting proved the content tree here is fine and the
-        // wrapper was at fault. The background it provided was 0xFF11121A against a black tile
-        // surface, i.e. invisible in practice, so nothing of value is lost by dropping it.
+        // The root is the Column itself. An earlier version wrapped this in a Box(expand, expand)
+        // carrying Background/Corner/Padding/Clickable and rendered a completely blank tile with no
+        // error anywhere; bisecting proved the wrapper was at fault, not the content.
         return column
             .setModifiers(
                 Modifiers.Builder()
                     .setSemantics(
                         Semantics.Builder()
                             .setContentDescription(
-                                if (hasReading) "Glucose $valueText $unitText $supporting" else "Glucose unavailable"
+                                if (hasReading) "Glucose $valueText" else "Glucose unavailable"
                             )
                             .build()
                     )
-                    // Tapping opens the AAPS menu, consistent with the complications' tap action.
                     .setClickable(
                         Clickable.Builder()
                             .setId(CLICK_ID)
@@ -252,40 +258,58 @@ class GlucoseTileService : TileService() {
             .build()
     }
 
-    private fun isLargeScreen(device: DeviceParameters): Boolean = device.screenWidthDp >= LARGE_SCREEN_DP
+    private fun text(value: String, size: Float, weight: Int, color: Int) =
+        Text.Builder()
+            .setText(value)
+            .setFontStyle(
+                FontStyle.Builder()
+                    .setSize(sp(size))
+                    .setWeight(weight)
+                    .setColor(argb(color))
+                    .build()
+            )
+            .build()
+
+    private fun clock(ts: Long): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ts))
+
+    private fun formatValue(v: Double): String = String.format(Locale.getDefault(), "%.1f", v)
+
+    private fun resourceVersion(latest: Long) = "$RESOURCE_PREFIX$latest"
 
     companion object {
 
-        private const val RESOURCE_VERSION = "GlucoseTileService"
+        private const val RESOURCE_PREFIX = "glucose-"
         private const val REFRESH_MS = 5 * 60 * 1000L
         private const val CLICK_ID = "aaps_glucose_tile"
+        private const val ID_ICON = "aaps_glucose_icon"
+        private const val ID_SPARK = "aaps_glucose_spark"
 
-        // Values the wear Status/SingleBg strings use to mean "nothing to show". Rendering these
-        // verbatim would dress up absent data as a reading.
-        private val PLACEHOLDER_STRINGS = setOf("--", "---", "-", "IOB", "COB", "?", "??")
+        private const val MGDL_TO_MMOL = 0.0555
 
         private const val TITLE_TEXT = "Glucose"
+        private const val CURRENT_LABEL = "Current glucose"
         private const val NO_DATA_TEXT = "---"
+        private const val VARIATION_SELECTOR = "︎"
 
-        // Keeps the trend arrow rendering as text rather than being substituted with a colour emoji,
-        // same trick SgvComplication uses.
-        private const val VARIATION_SELECTOR_TEXT = "︎"
+        private const val ICON_CIRCLE_DP = 32f
+        private const val ICON_DP = 17f
+        private const val PILL_W = 150f
+        private const val PILL_H = 54f
+        private const val PILL_INSET = 8f
 
-        private const val LARGE_SCREEN_DP = 210
+        private const val TITLE_SP = 13f
+        private const val CAPTION_SP = 11f
+        private const val VALUE_SP = 25f
+        private const val ARROW_SP = 18f
 
-        private const val VALUE_SP = 44f
-        private const val VALUE_SP_LARGE = 54f
-        private const val ARROW_SP = 26f
-        private const val UNIT_SP = 14f
-        private const val LABEL_SP = 14f
-        private const val SUPPORTING_SP = 13f
+        private const val GAP_XS = 4f
+        private const val GAP_S = 5f
+        private const val GAP_M = 8f
 
-        private const val GAP_TITLE = 4f
-        private const val GAP_ARROW = 4f
-        private const val GAP_SUPPORTING = 6f
-
-        private const val COLOR_LABEL = 0xFF9AA0AE.toInt()
-        private const val COLOR_SUPPORTING = 0xFFC9CEDA.toInt()
+        private const val COLOR_TITLE = 0xFFECE8F7.toInt()
+        private const val COLOR_CAPTION = 0xFF8F89A3.toInt()
+        private const val COLOR_ICON_BG = 0x24B8A6F5
+        private const val COLOR_PILL_BG = 0x14B8A6F5
         private const val COLOR_IN_RANGE = 0xFF8FE3B0.toInt()
         private const val COLOR_HIGH = 0xFFF0C674.toInt()
         private const val COLOR_LOW = 0xFFF08A7F.toInt()

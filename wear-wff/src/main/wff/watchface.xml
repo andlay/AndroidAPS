@@ -60,6 +60,36 @@
             </Complication>
         </ComplicationSlot>
 
+        <!-- Current reading, set on an arc across the top like the system charging clock.
+
+             This is a real ComplicationSlot rather than being baked into the bezel bitmap, which
+             gets two things the bitmap could not: its own tap target (the bezel slot is full bleed
+             450x450, so a tap anywhere on the face hits it and the number could never be
+             distinguished), and live text between the bitmap's 5 minute refreshes.
+
+             WFF renders curved text natively via TextCircular, so no bitmap trickery is needed. The
+             trade is colour: SHORT_TEXT carries no zone information, so this is white rather than
+             red/amber/green. The zone colour still reads on the BG gauge ring and the bezel trace.
+        -->
+        <ComplicationSlot slotId="7" supportedTypes="SHORT_TEXT" x="105" y="70" width="240" height="100">
+            <BoundingBox x="105" y="70" width="240" height="100" />
+            <DefaultProviderPolicy
+                primaryProvider="__AAPS_APPLICATION_ID__/app.aaps.wear.complications.SgvComplication"
+                primaryProviderType="SHORT_TEXT"
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="SHORT_TEXT" />
+            <Complication type="SHORT_TEXT">
+                <PartText x="0" y="0" width="450" height="450">
+                    <TextCircular centerX="225" centerY="225" width="270" height="270"
+                                  startAngle="310" endAngle="50" direction="CLOCKWISE" align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="24" weight="MEDIUM" color="#ffffffff">
+                            <Template><![CDATA[%s]]><Parameter expression="[COMPLICATION.TEXT]" /></Template>
+                        </Font>
+                    </TextCircular>
+                </PartText>
+            </Complication>
+        </ComplicationSlot>
+
         <!-- Four gauge rings, ported from RingComplicationView's geometry (200x200 logical space
              scaled to this 450x450 canvas: scale = 450/200 = 2.25).
 

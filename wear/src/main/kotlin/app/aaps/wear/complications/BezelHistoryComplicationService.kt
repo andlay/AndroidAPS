@@ -84,15 +84,7 @@ class BezelHistoryComplicationService : ModernBaseComplicationProviderService() 
         val low = if (bg.low > 0.0) bg.low * MGDL_TO_MMOL else BezelHistoryRenderer.DEFAULT_LOW
         val high = if (bg.high > 0.0) bg.high * MGDL_TO_MMOL else BezelHistoryRenderer.DEFAULT_HIGH
 
-        // Same three parts the standard SGV complication shows: value, trend arrow, delta. The
-        // variation selector stops the arrow being substituted with a colour emoji glyph.
-        val label = listOf(
-            bg.sgvString.takeIf { it.isNotBlank() && it != "---" },
-            bg.slopeArrow.takeIf { it.isNotBlank() && it != "--" }?.plus("\uFE0E"),
-            bg.delta.takeIf { it.isNotBlank() && it != "--" }
-        ).filterNotNull().joinToString(" ")
-
-        val bitmap = renderBitmap(points, low, high, label)
+        val bitmap = renderBitmap(points, low, high)
         // byteCount is what actually has to cross the Binder boundary; log it so the headroom against
         // the ~1MB transaction limit is a measured number rather than an assumption (see file header).
         aapsLogger.debug(
@@ -109,7 +101,7 @@ class BezelHistoryComplicationService : ModernBaseComplicationProviderService() 
             .build()
     }
 
-    private fun renderBitmap(points: List<GlucosePoint>, low: Double, high: Double, label: String): Bitmap {
+    private fun renderBitmap(points: List<GlucosePoint>, low: Double, high: Double): Bitmap {
         // Screen-bounds-derived size, same approach WallpaperComplication uses below for its
         // LARGE_IMAGE/PHOTO_IMAGE complications, rather than a hardcoded constant -- this project's
         // exact target-device resolution isn't nailed down elsewhere in the repo (see the "Confirm
@@ -131,8 +123,10 @@ class BezelHistoryComplicationService : ModernBaseComplicationProviderService() 
             targetValue = BezelHistoryRenderer.DEFAULT_TARGET,
             ambient = false,
             revealFraction = 1f,
-            paints = BezelHistoryRenderer.Paints(),
-            currentLabel = label
+            paints = BezelHistoryRenderer.Paints()
+            // No currentLabel: the reading is now a real TextCircular ComplicationSlot on the WFF
+            // face, which is independently tappable and updates live. The renderer keeps the
+            // capability for the classic Canvas face, which has no such element available.
         )
         return bitmap
     }
