@@ -82,7 +82,7 @@
                 <PartText x="0" y="0" width="450" height="450">
                     <TextCircular centerX="225" centerY="225" width="270" height="270"
                                   startAngle="310" endAngle="50" direction="CLOCKWISE" align="CENTER">
-                        <Font family="SYNC_TO_DEVICE" size="24" weight="MEDIUM" color="#ffffffff">
+                        <Font family="google-sans-flex" size="24" weight="MEDIUM" color="#ffffffff">
                             <Template><![CDATA[%s]]><Parameter expression="[COMPLICATION.TEXT]" /></Template>
                         </Font>
                     </TextCircular>
@@ -219,7 +219,7 @@
             <Complication type="SHORT_TEXT">
                 <PartText x="0" y="0" width="90" height="40">
                     <Text align="CENTER">
-                        <Font family="SYNC_TO_DEVICE" size="30" weight="MEDIUM" color="#fff4f2f8">
+                        <Font family="google-sans-flex" size="30" weight="MEDIUM" color="#fff4f2f8">
                             <Template><![CDATA[%s]]><Parameter expression="[COMPLICATION.TEXT]" /></Template>
                         </Font>
                     </Text>
@@ -230,7 +230,7 @@
         <!-- Centered time. -->
         <DigitalClock x="0" y="0" width="450" height="450">
             <TimeText format="hh:mm" hourFormat="SYNC_TO_DEVICE" align="CENTER" x="0" y="185" width="450" height="80" alpha="255">
-                <Font family="SYNC_TO_DEVICE" size="60" weight="MEDIUM" slant="NORMAL" color="#fff4f2f8" />
+                <Font family="google-sans-flex" size="60" weight="MEDIUM" slant="NORMAL" color="#fff4f2f8" />
             </TimeText>
         </DigitalClock>
 

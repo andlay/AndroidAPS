@@ -111,7 +111,10 @@ class GlucoseTileService : TileService() {
 
             if (entries.size >= 2) {
                 val values = entries.map { it.sgv * MGDL_TO_MMOL }
-                val bitmap = GlucoseSparkRenderer.render(values) { formatValue(it) }
+                val bg = data?.bgData
+                val low = if (bg != null && bg.low > 0.0) bg.low * MGDL_TO_MMOL else FALLBACK_LOW
+                val high = if (bg != null && bg.high > 0.0) bg.high * MGDL_TO_MMOL else FALLBACK_HIGH
+                val bitmap = GlucoseSparkRenderer.render(values, low, high) { formatValue(it) }
                 builder.addIdToImageMapping(ID_SPARK, inlineImage(bitmap))
             }
             builder.build()
@@ -291,20 +294,25 @@ class GlucoseTileService : TileService() {
         private const val NO_DATA_TEXT = "---"
         private const val VARIATION_SELECTOR = "︎"
 
-        private const val ICON_CIRCLE_DP = 32f
-        private const val ICON_DP = 17f
-        private const val PILL_W = 150f
-        private const val PILL_H = 54f
-        private const val PILL_INSET = 8f
+        private const val ICON_CIRCLE_DP = 30f
+        private const val ICON_DP = 16f
 
-        private const val TITLE_SP = 13f
-        private const val CAPTION_SP = 11f
-        private const val VALUE_SP = 25f
-        private const val ARROW_SP = 18f
+        // The chart is the point of the tile, so it takes the space. Roughly 78% of a 240dp screen,
+        // matching how far the platform heart rate tile's chart runs.
+        private const val PILL_W = 188f
+        private const val PILL_H = 76f
+
+        private const val TITLE_SP = 15f
+        private const val CAPTION_SP = 12f
+        private const val VALUE_SP = 30f
+        private const val ARROW_SP = 21f
 
         private const val GAP_XS = 4f
-        private const val GAP_S = 5f
-        private const val GAP_M = 8f
+        private const val GAP_S = 4f
+        private const val GAP_M = 6f
+
+        private const val FALLBACK_LOW = 4.0
+        private const val FALLBACK_HIGH = 9.0
 
         private const val COLOR_TITLE = 0xFFECE8F7.toInt()
         private const val COLOR_CAPTION = 0xFF8F89A3.toInt()

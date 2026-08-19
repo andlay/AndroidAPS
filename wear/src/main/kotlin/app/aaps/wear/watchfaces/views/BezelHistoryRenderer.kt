@@ -43,17 +43,28 @@ object BezelHistoryRenderer {
 
     /** Ambient keeps the rings present but restrained, since a permanently lit full-brightness ring
      *  is exactly the burn-in risk OLED watch faces are supposed to avoid. */
-    private const val BOUNDARY_AMBIENT_ALPHA = 140
+    private const val BOUNDARY_AMBIENT_ALPHA = 110
+
+    /** The target line sits inside the band, so it needs presence without shouting. */
+    private const val TARGET_LINE_ALPHA = 175
 
     private val COLOR_RED = Color.parseColor("#FF6B5E")
     private val COLOR_GREEN = Color.parseColor("#8FE3B0")
     private val COLOR_AMBER = Color.parseColor("#F6D55C")
 
-    /** Boundary ring colours. Full alpha and saturated: these are the reference lines the trace is
-     *  read against, so they have to survive being glanced at on a small screen in daylight. */
-    private val COLOR_BOUNDARY_LOW = Color.parseColor("#FF3B30")
+    /**
+     * In-target band and target line.
+     *
+     * The band spans low..high as a single neutral fill rather than three coloured rings. Its own
+     * edges are the low and high thresholds, so the boundaries still read without colour competing
+     * with the trace, which is the only thing on the bezel that should carry clinical colour.
+     */
+    private val COLOR_TARGET_BAND = Color.parseColor("#FFFFFF")
     private val COLOR_BOUNDARY_TARGET = Color.parseColor("#FFFFFF")
-    private val COLOR_BOUNDARY_HIGH = Color.parseColor("#FF9500")
+
+    /** Enough to read as a lighter ring behind the trace, not enough to compete with it. */
+    private const val BAND_ALPHA = 38
+    private const val BAND_AMBIENT_ALPHA = 20
 
     /**
      * Current-reading label, set on an arc across the top like the system's charging clock.
@@ -233,17 +244,35 @@ object BezelHistoryRenderer {
     }
 
     /**
-     * Three concentric reference rings: low, in-range target and high. These replace the previous
-     * translucent zone bands and dashed target ring, which at 9% and 40% alpha were effectively
-     * invisible against a black watch face.
+     * The in-target region drawn as one translucent band, with a thin line at the target value
+     * inside it. Replaces the three saturated boundary rings: those made the bezel read as three
+     * competing signals when only the trace's own position actually matters.
      */
     private fun drawBoundaryRings(
         canvas: Canvas, cx: Float, cy: Float, scale: Float, vScale: Scale,
         lowThreshold: Double, targetValue: Double, highThreshold: Double, ambient: Boolean, paints: Paints
     ) {
-        drawBoundaryRing(canvas, cx, cy, scale, vScale, lowThreshold, COLOR_BOUNDARY_LOW, ambient, paints)
+        val rLow = vScale.radius(lowThreshold)
+        val rHigh = vScale.radius(highThreshold)
+        val inner = minOf(rLow, rHigh)
+        val outer = maxOf(rLow, rHigh)
+        val width = outer - inner
+
+        if (width > 0f) {
+            // Drawn as a single thick stroked circle at the band's midline, which is cheaper and
+            // cleaner-edged than filling an annulus with two paths.
+            val bandPaint = paints.band
+            bandPaint.style = Paint.Style.STROKE
+            bandPaint.isAntiAlias = !ambient
+            bandPaint.strokeWidth = width * scale
+            bandPaint.color = Color.argb(
+                if (ambient) BAND_AMBIENT_ALPHA else BAND_ALPHA,
+                Color.red(COLOR_TARGET_BAND), Color.green(COLOR_TARGET_BAND), Color.blue(COLOR_TARGET_BAND)
+            )
+            canvas.drawCircle(cx, cy, ((inner + outer) / 2f) * scale, bandPaint)
+        }
+
         drawBoundaryRing(canvas, cx, cy, scale, vScale, targetValue, COLOR_BOUNDARY_TARGET, ambient, paints)
-        drawBoundaryRing(canvas, cx, cy, scale, vScale, highThreshold, COLOR_BOUNDARY_HIGH, ambient, paints)
     }
 
     private fun drawBoundaryRing(
@@ -254,11 +283,10 @@ object BezelHistoryRenderer {
         ringPaint.pathEffect = null
         ringPaint.strokeWidth = (if (ambient) BOUNDARY_STROKE_WIDTH * AMBIENT_STROKE_FACTOR else BOUNDARY_STROKE_WIDTH) * scale
         ringPaint.isAntiAlias = !ambient
-        ringPaint.color = if (ambient) {
-            Color.argb(BOUNDARY_AMBIENT_ALPHA, Color.red(color), Color.green(color), Color.blue(color))
-        } else {
-            color
-        }
+        ringPaint.color = Color.argb(
+            if (ambient) BOUNDARY_AMBIENT_ALPHA else TARGET_LINE_ALPHA,
+            Color.red(color), Color.green(color), Color.blue(color)
+        )
         canvas.drawCircle(cx, cy, vScale.radius(value) * scale, ringPaint)
     }
 
