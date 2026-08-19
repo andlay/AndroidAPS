@@ -176,7 +176,12 @@ jobs:
 
           echo "✅ GDRIVE_CLIENT_ID and GDRIVE_REFRESH_TOKEN extracted from GDRIVE_OAUTH2"
 
+      # Google refresh tokens expire (7 days while the OAuth app is in Testing, 6 months idle
+      # otherwise), which otherwise fails the build 9 seconds in, before anything is even built.
+      # The APKs are also published as workflow artifacts below, so an expired Drive token now
+      # degrades delivery rather than losing the build.
       - name: Retrieving Google Drive access token
+        continue-on-error: true
         run: |
           echo "🔐 Getting Google OAuth2 access token..."
           TOKEN_RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
@@ -291,7 +296,16 @@ jobs:
           # must contain no code, so it cannot live inside :wear. Install it alongside the wear APK.
           mv wear-wff/build/outputs/apk/${{ env.VARIANT_FLAVOR }}/${{ env.VARIANT_TYPE }}/*.apk aaps-wear-wff-${{ env.VERSION }}${{ env.VERSION_SUFFIX }}.apk
 
+      - name: Upload APKs as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aaps-${{ env.VERSION }}${{ env.VERSION_SUFFIX }}-apks
+          path: '*.apk'
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Upload APKs to Google Drive
+        continue-on-error: true
         run: |
           set -e
           echo "🔐 Start uploading APKs to Google Drive..."
