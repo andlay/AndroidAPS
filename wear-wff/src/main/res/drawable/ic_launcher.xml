@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Placeholder launcher/preview icon; swap for a real rendered preview of the face before shipping. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:pathData="M24,4a20,20 0,1 1,0 40a20,20 0,1 1,0 -40Z"
+        android:fillColor="#0A0A0D" />
+    <path
+        android:pathData="M24,10a14,14 0,1 1,0 28a14,14 0,1 1,0 -28Z"
+        android:strokeColor="#B8A6F5"
+        android:strokeWidth="2"
+        android:fillColor="#00000000" />
+</vector>

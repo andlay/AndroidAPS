@@ -1,0 +1,38 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+
+    <!-- Watch body -->
+    <path
+        android:pathData="M48,48m-48,0a48,48 0,1 1,96 0a48,48 0,1 1,-96 0"
+        android:fillColor="#000000" />
+
+    <!-- Accent bezel ring -->
+    <path
+        android:pathData="M48,48m-42,0a42,42 0,1 1,84 0a42,42 0,1 1,-84 0"
+        android:strokeColor="#00E676"
+        android:strokeWidth="3"
+        android:fillColor="#00000000" />
+
+    <!-- Time bars ("12:45") -->
+    <path
+        android:pathData="M24,40h10v16h-10z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M62,40h10v16h-10z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M45,44h6v6h-6z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M45,54h6v6h-6z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- BG value dot -->
+    <path
+        android:pathData="M48,68m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0"
+        android:fillColor="#00E676" />
+
+</vector>

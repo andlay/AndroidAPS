@@ -99,6 +99,30 @@
         </service>
 
         <service
+            android:name=".watchfaces.PixelWatchface"
+            android:allowEmbedded="true"
+            android:exported="true"
+            android:label="@string/label_watchface_pixel"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/watch_face" />
+            <meta-data
+                android:name="com.google.android.wearable.watchface.preview"
+                android:resource="@drawable/watchface_pixel" />
+            <meta-data
+                android:name="com.google.android.wearable.watchface.wearableConfigurationAction"
+                android:value="androidx.wear.watchface.editor.action.WATCH_FACE_EDITOR" />
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+                <category android:name="com.google.android.wearable.watchface.category.WATCH_FACE" />
+
+                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
+                <action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" />
+            </intent-filter>
+        </service>
+
+        <service
             android:name=".comm.DataLayerListenerServiceWear"
             android:exported="true">
             <intent-filter>
@@ -187,7 +211,28 @@
 
             <meta-data
                 android:name="android.support.wearable.complications.SUPPORTED_TYPES"
-                android:value="SHORT_TEXT" />
+                android:value="RANGED_VALUE,SHORT_TEXT" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="300" />
+        </service>
+
+        <!-- Glucose delta as a first-class provider. Serves RANGED_VALUE so the Watch Face Format
+             delta gauge ring can be driven by the numeric delta; SHORT_TEXT is offered too so it is
+             usable as an ordinary complication on any face. -->
+        <service
+            android:name=".complications.DeltaComplication"
+            android:exported="true"
+            android:icon="@drawable/ic_graph"
+            android:label="@string/complication_delta"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="RANGED_VALUE,SHORT_TEXT" />
             <meta-data
                 android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
                 android:value="300" />
@@ -367,7 +412,7 @@
 
             <meta-data
                 android:name="android.support.wearable.complications.SUPPORTED_TYPES"
-                android:value="SHORT_TEXT" />
+                android:value="RANGED_VALUE,SHORT_TEXT" />
             <meta-data
                 android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
                 android:value="300" />
@@ -403,7 +448,7 @@
 
             <meta-data
                 android:name="android.support.wearable.complications.SUPPORTED_TYPES"
-                android:value="SHORT_TEXT" />
+                android:value="RANGED_VALUE,SHORT_TEXT" />
             <meta-data
                 android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
                 android:value="300" />
@@ -482,6 +527,30 @@
         </service>
 
         <service
+            android:name=".complications.BezelHistoryComplicationService"
+            android:exported="true"
+            android:icon="@drawable/ic_graph"
+            android:label="@string/complication_bezel_history"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+
+            <!-- Wire-format name for what the androidx API calls ComplicationType.PHOTO_IMAGE. See
+                 WallpaperComplication's entries above for the same LARGE_IMAGE/PHOTO_IMAGE naming
+                 split. (Note: a literal double-hyphen is illegal inside an XML comment; using one
+                 here is what silently broke every :wear build until 2026-08-19.) -->
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="LARGE_IMAGE" />
+            <!-- 300s (5 minutes) is the documented minimum update period for complication data
+                 sources; do not set it lower. -->
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="300" />
+        </service>
+
+        <service
             android:name=".tile.ActionsTileService"
             android:exported="true"
             android:label="@string/label_actions_tile"
@@ -555,6 +624,18 @@
             <meta-data
                 android:name="androidx.wear.tiles.PREVIEW"
                 android:resource="@drawable/loop_states_tile" />
+        </service>
+
+        <!-- Glanceable glucose readout, styled after the platform heart rate tile. Unlike the other
+             AAPS tiles this is not an action grid, so it does not extend TileBase. -->
+        <service
+            android:name=".tile.GlucoseTileService"
+            android:exported="true"
+            android:label="@string/label_glucose_tile_title"
+            android:permission="com.google.android.wearable.permission.BIND_TILE_PROVIDER">
+            <intent-filter>
+                <action android:name="androidx.wear.tiles.action.BIND_TILE_PROVIDER" />
+            </intent-filter>
         </service>
 
         <!-- Transparent activity to handle complication taps reliably on Android 12+ -->

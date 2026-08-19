@@ -103,7 +103,7 @@ abstract class BaseWatchFace : WatchFace() {
      * Historical BG graph data points.
      * Used to render the glucose trend line on watchface charts.
      */
-    private val graphData get() = complicationData.graphData
+    protected val graphData get() = complicationData.graphData
 
     /**
      * Inflate the watchface layout from XML and return its ViewBinding.

@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    First-draft WFF port of the Pixel watch face's four gauge rings, centered time, and the bezel
+    glucose-history graphic (as a PHOTO_IMAGE complication rendered by BezelHistoryComplicationService
+    in :wear; see that file and BezelHistoryRenderer for what the bitmap actually contains).
+
+    NOT FULLY VALIDATED. Corrected against real, confirmed examples for:
+      - DigitalClock/TimeText (was wrong: originally used a nonexistent <Time> inside <PartText>)
+      - ComplicationSlot bounds as direct x/y/width/height attributes (was wrong: used a nonexistent
+        nested <BoundingBox>/<BoundingRoundRect> child element)
+      - Template/Parameter structure for text complications (was wrong: put the expression as inline
+        text in <Template> instead of a separate <Parameter expression="..."/> child)
+
+    STILL UNCONFIRMED: there is no verified reference anywhere (searched official docs and schema) for
+    binding a RANGED_VALUE complication's numeric value to an Arc's endAngle; the four gauge rings'
+    *_progress arcs below use a fixed placeholder endAngle rather than a guessed and possibly wrong
+    expression token, since a silently wrong binding is worse than an honestly static placeholder.
+    This needs either Android Studio's live WFF schema validator/autocomplete, or the actual androidx
+    Complication XSD reference, to resolve properly; do not guess further here.
+
+    Known gap: there's no existing AAPS complication dedicated to glucose delta alone (see the
+    complications listed in wear/src/main/AndroidManifest.xml); the delta ring below defaults to
+    SgvComplication as a placeholder provider until a proper delta-only complication exists.
+-->
+<WatchFace width="450" height="450">
+    <Metadata key="CLOCK_TYPE" value="DIGITAL" />
+    <Metadata key="PREVIEW_TIME" value="10:09:00" />
+    <Scene backgroundColor="#ff000000">
+
+        <!-- Bezel glucose-history graphic: full-bleed bitmap complication, behind everything else. -->
+        <ComplicationSlot slotId="1" supportedTypes="PHOTO_IMAGE" x="0" y="0" width="450" height="450">
+            <BoundingBox x="0" y="0" width="450" height="450" />
+            <!-- primaryProvider is the real AAPS bezel renderer; defaultSystemProvider is only the
+                 schema-required fallback for devices where AAPS isn't installed. WATCH_BATTERY does
+                 not actually serve PHOTO_IMAGE, so on such a device this slot simply stays empty,
+                 which is the desired behaviour (a full-bleed battery graphic would be nonsense). -->
+            <DefaultProviderPolicy
+                primaryProvider="info.nightscout.androidaps/app.aaps.wear.complications.BezelHistoryComplicationService"
+                primaryProviderType="PHOTO_IMAGE"
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="PHOTO_IMAGE" />
+            <Complication type="PHOTO_IMAGE">
+                <PartImage x="0" y="0" width="450" height="450">
+                    <Image resource="[COMPLICATION.PHOTO_IMAGE]" />
+                </PartImage>
+            </Complication>
+        </ComplicationSlot>
+
+        <!-- Four gauge rings, ported from RingComplicationView's geometry (200x200 logical space
+             scaled to this 450x450 canvas: scale = 450/200 = 2.25).
+
+             Each ring's sweep is driven by a real RANGED_VALUE ComplicationSlot bound to an AAPS
+             provider, not a static angle. The binding uses <Transform target="endAngle">, which is the
+             documented way to attach a dynamic expression to an attribute: Arc accepts Transform
+             children (see arcElement.xsd), and complication values are exposed as
+             [COMPLICATION.RANGED_VALUE_VALUE] / _MIN / _MAX. Those three token names were read out of
+             the shipping DeclarativeWatchFaceRuntime APK's own dex rather than guessed, since the WFF
+             XSD constrains only the token *shape*, not the vocabulary.
+
+             The value is normalised to 0..1 and clamped, so an out of range reading pins the ring full
+             or empty instead of sweeping past its quadrant. Full scale ranges are the provider's
+             responsibility (RANGED_VALUE min/max) and are deliberately NOT hardcoded here, which keeps
+             the clinically meaningful numbers in Kotlin (see GaugeRanges.kt) where they can be unit
+             tested and derived from the user's own profile.
+
+             IMPORTANT structural detail: the dashed tracks live in this plain Group, OUTSIDE the
+             ComplicationSlots, while only the coloured progress arcs live inside them. Anything nested
+             under <Complication> renders only when that slot actually has data, so putting the tracks
+             there would make all four rings vanish whenever a provider reports no data (which the AAPS
+             providers deliberately do rather than reporting a misleading zero). Keeping the tracks out
+             here means a data outage reads as an empty gauge, not as a broken watch face.
+        -->
+        <Group name="ring_tracks" x="0" y="0" width="450" height="450">
+            <!-- BG track -->
+            <PartDraw x="0" y="0" width="450" height="450">
+                <Arc centerX="225" centerY="225" width="225" height="225" startAngle="284" endAngle="356" direction="CLOCKWISE">
+                    <Stroke color="#38313F" thickness="10" cap="ROUND" dashIntervals="2.25 14.4" dashPhase="0" />
+                </Arc>
+            </PartDraw>
+            <!-- Delta track -->
+            <PartDraw x="0" y="0" width="450" height="450">
+                <Arc centerX="225" centerY="225" width="207" height="207" startAngle="4" endAngle="76" direction="CLOCKWISE">
+                    <Stroke color="#302C3A" thickness="7.2" cap="ROUND" dashIntervals="2.25 14.4" dashPhase="0" />
+                </Arc>
+            </PartDraw>
+            <!-- IOB track -->
+            <PartDraw x="0" y="0" width="450" height="450">
+                <Arc centerX="225" centerY="225" width="207" height="207" startAngle="194" endAngle="266" direction="CLOCKWISE">
+                    <Stroke color="#302C3A" thickness="7.2" cap="ROUND" dashIntervals="2.25 14.4" dashPhase="0" />
+                </Arc>
+            </PartDraw>
+            <!-- COB track -->
+            <PartDraw x="0" y="0" width="450" height="450">
+                <Arc centerX="225" centerY="225" width="207" height="207" startAngle="104" endAngle="176" direction="CLOCKWISE">
+                    <Stroke color="#302C3A" thickness="7.2" cap="ROUND" dashIntervals="2.25 14.4" dashPhase="0" />
+                </Arc>
+            </PartDraw>
+        </Group>
+
+        <!-- BG gauge value -->
+        <ComplicationSlot slotId="3" supportedTypes="RANGED_VALUE" x="0" y="0" width="450" height="450">
+            <BoundingBox x="0" y="0" width="450" height="450" />
+            <DefaultProviderPolicy
+                primaryProvider="info.nightscout.androidaps/app.aaps.wear.complications.SgvComplication"
+                primaryProviderType="RANGED_VALUE"
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="RANGED_VALUE" />
+            <Complication type="RANGED_VALUE">
+                <PartDraw x="0" y="0" width="450" height="450">
+                    <Arc centerX="225" centerY="225" width="225" height="225" startAngle="284" endAngle="284" direction="CLOCKWISE">
+                        <Stroke color="#8FE3B0" thickness="10" cap="ROUND" />
+                        <Transform target="endAngle" value="284 + 72 * clamp(([COMPLICATION.RANGED_VALUE_VALUE] - [COMPLICATION.RANGED_VALUE_MIN]) / ([COMPLICATION.RANGED_VALUE_MAX] - [COMPLICATION.RANGED_VALUE_MIN]), 0, 1)" />
+                    </Arc>
+                </PartDraw>
+            </Complication>
+        </ComplicationSlot>
+
+        <!-- Delta gauge value -->
+        <ComplicationSlot slotId="4" supportedTypes="RANGED_VALUE" x="0" y="0" width="450" height="450">
+            <BoundingBox x="0" y="0" width="450" height="450" />
+            <DefaultProviderPolicy
+                primaryProvider="info.nightscout.androidaps/app.aaps.wear.complications.DeltaComplication"
+                primaryProviderType="RANGED_VALUE"
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="RANGED_VALUE" />
+            <Complication type="RANGED_VALUE">
+                <PartDraw x="0" y="0" width="450" height="450">
+                    <Arc centerX="225" centerY="225" width="207" height="207" startAngle="4" endAngle="4" direction="CLOCKWISE">
+                        <Stroke color="#7FB8E8" thickness="7.2" cap="ROUND" />
+                        <Transform target="endAngle" value="4 + 72 * clamp(([COMPLICATION.RANGED_VALUE_VALUE] - [COMPLICATION.RANGED_VALUE_MIN]) / ([COMPLICATION.RANGED_VALUE_MAX] - [COMPLICATION.RANGED_VALUE_MIN]), 0, 1)" />
+                    </Arc>
+                </PartDraw>
+            </Complication>
+        </ComplicationSlot>
+
+        <!-- IOB gauge value -->
+        <ComplicationSlot slotId="5" supportedTypes="RANGED_VALUE" x="0" y="0" width="450" height="450">
+            <BoundingBox x="0" y="0" width="450" height="450" />
+            <DefaultProviderPolicy
+                primaryProvider="info.nightscout.androidaps/app.aaps.wear.complications.IobDetailedComplication"
+                primaryProviderType="RANGED_VALUE"
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="RANGED_VALUE" />
+            <Complication type="RANGED_VALUE">
+                <PartDraw x="0" y="0" width="450" height="450">
+                    <Arc centerX="225" centerY="225" width="207" height="207" startAngle="194" endAngle="194" direction="CLOCKWISE">
+                        <Stroke color="#B8A6F5" thickness="7.2" cap="ROUND" />
+                        <Transform target="endAngle" value="194 + 72 * clamp(([COMPLICATION.RANGED_VALUE_VALUE] - [COMPLICATION.RANGED_VALUE_MIN]) / ([COMPLICATION.RANGED_VALUE_MAX] - [COMPLICATION.RANGED_VALUE_MIN]), 0, 1)" />
+                    </Arc>
+                </PartDraw>
+            </Complication>
+        </ComplicationSlot>
+
+        <!-- COB gauge value -->
+        <ComplicationSlot slotId="6" supportedTypes="RANGED_VALUE" x="0" y="0" width="450" height="450">
+            <BoundingBox x="0" y="0" width="450" height="450" />
+            <DefaultProviderPolicy
+                primaryProvider="info.nightscout.androidaps/app.aaps.wear.complications.CobDetailedComplication"
+                primaryProviderType="RANGED_VALUE"
+                defaultSystemProvider="EMPTY"
+                defaultSystemProviderType="RANGED_VALUE" />
+            <Complication type="RANGED_VALUE">
+                <PartDraw x="0" y="0" width="450" height="450">
+                    <Arc centerX="225" centerY="225" width="207" height="207" startAngle="104" endAngle="104" direction="CLOCKWISE">
+                        <Stroke color="#F0C674" thickness="7.2" cap="ROUND" />
+                        <Transform target="endAngle" value="104 + 72 * clamp(([COMPLICATION.RANGED_VALUE_VALUE] - [COMPLICATION.RANGED_VALUE_MIN]) / ([COMPLICATION.RANGED_VALUE_MAX] - [COMPLICATION.RANGED_VALUE_MIN]), 0, 1)" />
+                    </Arc>
+                </PartDraw>
+            </Complication>
+        </ComplicationSlot>
+
+        <ComplicationSlot slotId="2" supportedTypes="SHORT_TEXT" x="153" y="153" width="90" height="90">
+            <BoundingBox x="153" y="153" width="90" height="90" />
+            <DefaultProviderPolicy defaultSystemProvider="WATCH_BATTERY" defaultSystemProviderType="SHORT_TEXT" />
+            <Complication type="SHORT_TEXT">
+                <PartText x="0" y="0" width="90" height="40">
+                    <Text align="CENTER">
+                        <Font family="SYNC_TO_DEVICE" size="30" weight="MEDIUM" color="#fff4f2f8">
+                            <Template><![CDATA[%s]]><Parameter expression="[COMPLICATION.TEXT]" /></Template>
+                        </Font>
+                    </Text>
+                </PartText>
+            </Complication>
+        </ComplicationSlot>
+
+        <!-- Centered time. -->
+        <DigitalClock x="0" y="0" width="450" height="450">
+            <TimeText format="hh:mm" hourFormat="SYNC_TO_DEVICE" align="CENTER" x="0" y="185" width="450" height="80" alpha="255">
+                <Font family="SYNC_TO_DEVICE" size="60" weight="MEDIUM" slant="NORMAL" color="#fff4f2f8" />
+            </TimeText>
+        </DigitalClock>
+
+    </Scene>
+</WatchFace>

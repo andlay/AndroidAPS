@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Native "Pixel Watch 2" style watch face, v8 quadrant layout: a centered time with a continuous
+    glucose-history line wrapped around the bezel (BezelHistoryView), four quadrant gauge
+    complications (BG hero, delta, IOB, COB via RingComplicationView), a boxed date chip, and a
+    loop-status dot next to the reading age under the time. Geometry for the rings/bezel is
+    configured in PixelWatchface.kt; this file only lays out their containers plus the overlay text.
+-->
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/black"
+    tools:context=".watchfaces.PixelWatchface">
+
+    <!-- Bezel history line + zone bands + target ring, full-bleed, behind everything else -->
+    <app.aaps.wear.watchfaces.views.BezelHistoryView
+        android:id="@+id/bezel_history"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Four quadrant gauge rings, each full-bleed and sharing the face's own center; geometry
+         (angles/radius/stroke/track color) is set once from PixelWatchface.kt -->
+    <app.aaps.wear.watchfaces.views.RingComplicationView
+        android:id="@+id/ring_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <app.aaps.wear.watchfaces.views.RingComplicationView
+        android:id="@+id/ring_delta"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <app.aaps.wear.watchfaces.views.RingComplicationView
+        android:id="@+id/ring_iob"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <app.aaps.wear.watchfaces.views.RingComplicationView
+        android:id="@+id/ring_cob"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Whole-face tap target for the AAPS menu (no separate hub button in this design) -->
+    <View
+        android:id="@+id/main_menu_tap"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Date chip: day name + boxed day number -->
+    <LinearLayout
+        android:id="@+id/date_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.16">
+
+        <TextView
+            android:id="@+id/day_name"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.08"
+            android:textAllCaps="true"
+            android:textColor="@color/pixel_lavender"
+            android:textSize="@dimen/pixel_date_text_size"
+            tools:text="THU" />
+
+        <TextView
+            android:id="@+id/day"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="5dp"
+            android:background="@drawable/pixel_date_chip_bg"
+            android:fontFamily="sans-serif-medium"
+            android:paddingStart="6dp"
+            android:paddingTop="1dp"
+            android:paddingEnd="6dp"
+            android:paddingBottom="1dp"
+            android:textColor="@color/pixel_date_chip_text"
+            android:textSize="@dimen/pixel_date_text_size"
+            android:textStyle="bold"
+            tools:text="24" />
+
+    </LinearLayout>
+
+    <!-- Hero time, dead center: the one thing every quadrant complication is arranged around -->
+    <TextView
+        android:id="@+id/time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:fontFamily="sans-serif-medium"
+        android:includeFontPadding="false"
+        android:letterSpacing="-0.02"
+        android:textColor="@color/pixel_time_text"
+        android:textSize="@dimen/pixel_time_text_size"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        tools:text="10:09" />
+
+    <!-- Reading age + loop-status dot, directly under the time -->
+    <LinearLayout
+        android:id="@+id/caption_row"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/time">
+
+        <View
+            android:id="@+id/loop_dot"
+            android:layout_width="@dimen/pixel_loop_dot_size"
+            android:layout_height="@dimen/pixel_loop_dot_size"
+            android:background="@drawable/pixel_loop_dot" />
+
+        <TextView
+            android:id="@+id/timestamp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="5dp"
+            android:fontFamily="sans-serif"
+            android:textColor="@color/pixel_caption_text"
+            android:textSize="@dimen/pixel_timestamp_text_size"
+            tools:ignore="HardcodedText"
+            tools:text="3'" />
+
+    </LinearLayout>
+
+    <!-- BG quadrant: icon + value, top-left -->
+    <LinearLayout
+        android:id="@+id/lbl_bg"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.28"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.28">
+
+        <ImageView
+            android:id="@+id/icon_bg"
+            android:layout_width="@dimen/pixel_ring_icon_bg_size"
+            android:layout_height="@dimen/pixel_ring_icon_bg_size"
+            android:contentDescription="@string/complication_blood_glucose"
+            android:src="@drawable/ic_pixel_bg" />
+
+        <TextView
+            android:id="@+id/val_bg"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:fontFamily="sans-serif-medium"
+            android:includeFontPadding="false"
+            android:textColor="@color/pixel_time_text"
+            android:textSize="@dimen/pixel_ring_value_bg_text_size"
+            android:textStyle="bold"
+            tools:text="112" />
+
+    </LinearLayout>
+
+    <!-- Delta quadrant: icon over value, top-right -->
+    <LinearLayout
+        android:id="@+id/lbl_delta"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.72"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.28">
+
+        <ImageView
+            android:id="@+id/icon_delta"
+            android:layout_width="@dimen/pixel_ring_icon_size"
+            android:layout_height="@dimen/pixel_ring_icon_size"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_pixel_delta" />
+
+        <TextView
+            android:id="@+id/val_delta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:fontFamily="sans-serif-medium"
+            android:includeFontPadding="false"
+            android:textColor="@color/pixel_time_text"
+            android:textSize="@dimen/pixel_ring_value_text_size"
+            tools:ignore="HardcodedText"
+            tools:text="+2" />
+
+    </LinearLayout>
+
+    <!-- IOB quadrant: icon over value, bottom-left -->
+    <LinearLayout
+        android:id="@+id/lbl_iob"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.28"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.72">
+
+        <ImageView
+            android:id="@+id/icon_iob"
+            android:layout_width="@dimen/pixel_ring_icon_size"
+            android:layout_height="@dimen/pixel_ring_icon_size"
+            android:contentDescription="@string/activity_IOB"
+            android:src="@drawable/ic_pixel_iob" />
+
+        <TextView
+            android:id="@+id/val_iob"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:fontFamily="sans-serif-medium"
+            android:includeFontPadding="false"
+            android:textColor="@color/pixel_time_text"
+            android:textSize="@dimen/pixel_ring_value_text_size"
+            android:text="@string/iob_0_00u" />
+
+    </LinearLayout>
+
+    <!-- COB quadrant: icon over value, bottom-right -->
+    <LinearLayout
+        android:id="@+id/lbl_cob"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.72"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.72">
+
+        <ImageView
+            android:id="@+id/icon_cob"
+            android:layout_width="@dimen/pixel_ring_icon_size"
+            android:layout_height="@dimen/pixel_ring_icon_size"
+            android:contentDescription="@string/activity_carb"
+            android:src="@drawable/ic_pixel_cob" />
+
+        <TextView
+            android:id="@+id/val_cob"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:fontFamily="sans-serif-medium"
+            android:includeFontPadding="false"
+            android:textColor="@color/pixel_time_text"
+            android:textSize="@dimen/pixel_ring_value_text_size"
+            android:text="@string/cob_000g" />
+
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

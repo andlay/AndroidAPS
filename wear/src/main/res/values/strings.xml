@@ -5,6 +5,7 @@
     <string name="label_watchface_circle">AAPS(Circle)</string>
     <string name="label_watchface_digital_style">AAPS(DigitalStyle)</string>
     <string name="label_watchface_custom">AAPS(Custom)</string>
+    <string name="label_watchface_pixel">AAPS(Pixel)</string>
     <string name="label_actions_tile">AAPS(Actions)</string>
     <string name="label_temp_target_tile">AAPS(Temp Target)</string>
     <string name="label_quick_wizard_tile">AAPS(Quick Wizard)</string>
@@ -288,6 +289,7 @@
     <string name="complication_iob_icon">IoB Icon</string>
     <string name="complication_iob_detailed">IoB Detailed</string>
     <string name="complication_uploader_phone_battery">Uploader/Phone Battery</string>
+    <string name="complication_bezel_history">Glucose History (Bezel)</string>
     <string name="status_loop_state">Loop state</string>
     <string name="key_loop_states_data" translatable="false">loop_states</string>
     <string name="label_loop_state_title">AAPS(Loop state)</string>
@@ -342,4 +344,6 @@
     <string name="loop_status_target_range">Range</string>
     <string name="loop_status_target">Target</string>
     <string name="loop_status">Loop status</string>
+    <string name="complication_delta">Glucose delta</string>
+    <string name="label_glucose_tile_title">AAPS(Glucose)</string>
 </resources>

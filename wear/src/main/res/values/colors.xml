@@ -36,6 +36,23 @@
     <color name="dark_midColor">@color/grey_50</color>
     <color name="dark_gridColor">@color/grey_50</color>
 
+    <!-- Pixel watch face colors -->
+    <color name="pixel_in_range">#00E676</color>
+    <color name="pixel_no_data">@color/grey_500</color>
+    <color name="pixel_lavender">#B8A6F5</color>
+    <color name="pixel_track_hero">#38313F</color>
+    <color name="pixel_track">#302C3A</color>
+    <color name="pixel_zone_red">#FF6B5E</color>
+    <color name="pixel_zone_green">#8FE3B0</color>
+    <color name="pixel_zone_amber">#F6D55C</color>
+    <color name="pixel_loop_ok">#7FD99A</color>
+    <color name="pixel_loop_warn">#FF6B5E</color>
+    <color name="pixel_loop_none">#83838D</color>
+    <color name="pixel_date_chip_bg">#201F2B</color>
+    <color name="pixel_date_chip_text">#D9CFFB</color>
+    <color name="pixel_caption_text">#6F6D7C</color>
+    <color name="pixel_time_text">#F4F2F8</color>
+
     <!-- basal colors -->
     <color name="basal_light">@color/blue_300</color>
     <color name="basal_dark">@color/BLUE</color>

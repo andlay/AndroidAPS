@@ -7,6 +7,7 @@ import androidx.wear.watchface.complications.data.PlainComplicationText
 import androidx.wear.watchface.complications.data.ShortTextComplicationData
 import app.aaps.core.interfaces.logging.LTag
 import dagger.android.AndroidInjection
+import androidx.wear.watchface.complications.data.RangedValueComplicationData
 
 /**
  * IOB Detailed Complication
@@ -46,6 +47,29 @@ class IobDetailedComplication : ModernBaseComplicationProviderService() {
                 builder.build()
             }
 
+
+            // Drives the IOB gauge ring on the Watch Face Format face.
+            ComplicationType.RANGED_VALUE    -> {
+                // The wear Status strings are display-formatted (e.g. "1.25U", "12g"), so pull the
+                // leading number out. A null result means "no data", which hides the ring instead of
+                // rendering an empty gauge that would read as a genuine zero.
+                val raw = GaugeRanges.leadingNumber(data.statusData.iobSum)
+                if (raw == null) {
+                    aapsLogger.debug(LTag.WEAR, "IOB RANGED_VALUE skipped: unparseable '${data.statusData.iobSum}'")
+                    null
+                } else {
+                    val (value, min, max) = GaugeRanges.ranged(raw, 0.0, GaugeRanges.IOB_MAX_UNITS)
+                    RangedValueComplicationData.Builder(
+                        value = value,
+                        min = min,
+                        max = max,
+                        contentDescription = PlainComplicationText.Builder(text = "Insulin on board").build()
+                    )
+                        .setText(PlainComplicationText.Builder(text = data.statusData.iobSum).build())
+                        .setTapAction(complicationPendingIntent)
+                        .build()
+                }
+            }
             else                             -> {
                 aapsLogger.warn(LTag.WEAR, "Unexpected complication type $type")
                 null

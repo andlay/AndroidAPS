@@ -7,6 +7,7 @@ import androidx.wear.watchface.complications.data.PlainComplicationText
 import androidx.wear.watchface.complications.data.ShortTextComplicationData
 import app.aaps.core.interfaces.logging.LTag
 import dagger.android.AndroidInjection
+import androidx.wear.watchface.complications.data.RangedValueComplicationData
 
 /**
  * COB Detailed Complication
@@ -46,6 +47,29 @@ class CobDetailedComplication : ModernBaseComplicationProviderService() {
                 builder.build()
             }
 
+
+            // Drives the COB gauge ring on the Watch Face Format face.
+            ComplicationType.RANGED_VALUE    -> {
+                // The wear Status strings are display-formatted (e.g. "1.25U", "12g"), so pull the
+                // leading number out. A null result means "no data", which hides the ring instead of
+                // rendering an empty gauge that would read as a genuine zero.
+                val raw = GaugeRanges.leadingNumber(data.statusData.cob)
+                if (raw == null) {
+                    aapsLogger.debug(LTag.WEAR, "COB RANGED_VALUE skipped: unparseable '${data.statusData.cob}'")
+                    null
+                } else {
+                    val (value, min, max) = GaugeRanges.ranged(raw, 0.0, GaugeRanges.COB_MAX_GRAMS)
+                    RangedValueComplicationData.Builder(
+                        value = value,
+                        min = min,
+                        max = max,
+                        contentDescription = PlainComplicationText.Builder(text = "Carbs on board").build()
+                    )
+                        .setText(PlainComplicationText.Builder(text = data.statusData.cob).build())
+                        .setTapAction(complicationPendingIntent)
+                        .build()
+                }
+            }
             else                             -> {
                 aapsLogger.warn(LTag.WEAR, "Unexpected complication type $type")
                 null

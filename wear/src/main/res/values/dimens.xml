@@ -45,4 +45,18 @@ Google Pixel Watch: 1.2", 450 x 450 px =  192 dp
     <dimen name="watch_face_large_time_period_text_size">11sp</dimen>
     <dimen name="watch_face_large_status_size">14sp</dimen>
 
+    <!-- Pixel watch face (native Pixel Watch 2 style, v8 quadrant layout) -->
+    <dimen name="pixel_date_text_size">11sp</dimen>
+    <dimen name="pixel_time_text_size">34sp</dimen>
+    <dimen name="pixel_timestamp_text_size">10sp</dimen>
+    <dimen name="pixel_chip_label_text_size">9sp</dimen>
+    <dimen name="pixel_chip_value_text_size">14sp</dimen>
+
+    <!-- Ring-label (quadrant complication) icon + value -->
+    <dimen name="pixel_ring_icon_size">12dp</dimen>
+    <dimen name="pixel_ring_icon_bg_size">13dp</dimen>
+    <dimen name="pixel_ring_value_text_size">12sp</dimen>
+    <dimen name="pixel_ring_value_bg_text_size">17sp</dimen>
+    <dimen name="pixel_loop_dot_size">6dp</dimen>
+
 </resources>

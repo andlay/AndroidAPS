@@ -15,6 +15,7 @@ import dagger.android.AndroidInjection
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+import androidx.wear.watchface.complications.data.RangedValueComplicationData
 
 /**
  * SGV (Sensor Glucose Value) Complication
@@ -48,11 +49,50 @@ class SgvComplication : ModernBaseComplicationProviderService() {
                 buildShortTextComplication(bgData, complicationPendingIntent)
             }
 
+            // Drives the BG gauge ring on the Watch Face Format face. The range is derived from the
+            // profile's own low/high thresholds (padded either side) rather than a fixed 40-400
+            // span, so the in-range band sits around the middle of the ring's sweep and small
+            // excursions are actually visible instead of being lost in a huge scale.
+            ComplicationType.RANGED_VALUE -> {
+                buildRangedValueComplication(bgData, complicationPendingIntent)
+            }
+
             else -> {
                 aapsLogger.warn(LTag.WEAR, "SgvComplication unexpected type: $type")
                 null
             }
         }
+    }
+
+    private fun buildRangedValueComplication(
+        bgData: app.aaps.core.interfaces.rx.weardata.EventData.SingleBg,
+        pendingIntent: PendingIntent
+    ): ComplicationData? {
+        // sgv == 0.0 is the "no reading yet" default from ComplicationStore, not a real glucose of
+        // zero. Returning null hides the ring rather than pinning it at empty, which would otherwise
+        // look exactly like a genuine dangerous low.
+        if (bgData.sgv <= 0.0) {
+            aapsLogger.debug(LTag.WEAR, "SgvComplication RANGED_VALUE skipped: no reading")
+            return null
+        }
+
+        val low = if (bgData.low > 0.0) bgData.low else GaugeRanges.BG_FALLBACK_LOW_MGDL
+        val high = if (bgData.high > low) bgData.high else GaugeRanges.BG_FALLBACK_HIGH_MGDL
+        val (value, min, max) = GaugeRanges.ranged(
+            value = bgData.sgv,
+            min = low - GaugeRanges.BG_RANGE_PADDING_MGDL,
+            max = high + GaugeRanges.BG_RANGE_PADDING_MGDL
+        )
+
+        return RangedValueComplicationData.Builder(
+            value = value,
+            min = min,
+            max = max,
+            contentDescription = PlainComplicationText.Builder(text = "Glucose ${bgData.sgvString}").build()
+        )
+            .setText(PlainComplicationText.Builder(text = bgData.sgvString).build())
+            .setTapAction(pendingIntent)
+            .build()
     }
 
     private fun buildShortTextComplication(

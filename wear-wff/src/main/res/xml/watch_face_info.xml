@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Required by Wear OS 5+ for a resource-only (Watch Face Format) watch face to be recognised at
+    all. WearServices' DeclarativeWatchFaceResolver looks this file up by name:
+
+        resources.getXml(resources.getIdentifier("watch_face_info", "xml", packageName))
+
+    so it must live at exactly res/xml/watch_face_info.xml. If it is absent, getIdentifier returns 0
+    and the resolver fails with "could not be parsed - Resource ID #0x0" before res/raw/watchface.xml
+    is ever read. Google's 2023-era WatchFaceFormat/SimpleDigital sample predates this file, which is
+    why copying that sample's manifest verbatim is not sufficient on Wear OS 6.
+
+    Preview is mandatory (the parser throws without it) and its value must resolve to a resource of
+    type "drawable".
+-->
+<WatchFaceInfo>
+    <Preview value="@drawable/preview" />
+    <Category value="empty_category_meta" />
+    <AvailableInRetail value="false" />
+    <MultipleInstancesAllowed value="false" />
+    <!-- Must be true: this is what makes WearServices expose the customisation/edit flow for a
+         resource-only watch face (it maps to setResourceOnlyWatchFaceEditable). With it false the
+         face has complication slots that the user has no way to assign a provider to, and any slot
+         whose DefaultProviderPolicy did not resolve at favourite-creation time stays empty forever. -->
+    <Editable value="true" />
+</WatchFaceInfo>

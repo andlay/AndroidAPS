@@ -1,6 +1,7 @@
 package app.aaps.wear.di
 
 import app.aaps.wear.comm.DataLayerListenerServiceWear
+import app.aaps.wear.complications.BezelHistoryComplicationService
 import app.aaps.wear.complications.BrCobIobComplication
 import app.aaps.wear.complications.BrCobIobComplicationExt1
 import app.aaps.wear.complications.BrCobIobComplicationExt2
@@ -13,6 +14,7 @@ import app.aaps.wear.complications.IobDetailedComplication
 import app.aaps.wear.complications.IobIconComplication
 import app.aaps.wear.complications.LongStatusComplication
 import app.aaps.wear.complications.LongStatusFlippedComplication
+import app.aaps.wear.complications.DeltaComplication
 import app.aaps.wear.complications.SgvComplication
 import app.aaps.wear.complications.SgvComplicationExt1
 import app.aaps.wear.complications.SgvComplicationExt2
@@ -20,6 +22,7 @@ import app.aaps.wear.complications.UploaderBatteryComplication
 import app.aaps.wear.complications.WallpaperComplication
 import app.aaps.wear.heartrate.HeartRateListener
 import app.aaps.wear.tile.ActionsTileService
+import app.aaps.wear.tile.GlucoseTileService
 import app.aaps.wear.tile.LoopStateTileService
 import app.aaps.wear.tile.QuickWizardTileService
 import app.aaps.wear.tile.TempTargetTileService
@@ -28,6 +31,7 @@ import app.aaps.wear.tile.UserActionTileService
 import app.aaps.wear.watchfaces.CircleWatchface
 import app.aaps.wear.watchfaces.CustomWatchface
 import app.aaps.wear.watchfaces.DigitalStyleWatchface
+import app.aaps.wear.watchfaces.PixelWatchface
 import app.aaps.wear.watchfaces.utils.BaseWatchFace
 import app.aaps.wear.wearStepCount.StepCountListener
 import dagger.Module
@@ -40,6 +44,7 @@ abstract class WearServicesModule {
     @ContributesAndroidInjector abstract fun contributesDataLayerListenerService(): DataLayerListenerServiceWear
     @ContributesAndroidInjector abstract fun contributesHeartRateListenerService(): HeartRateListener
     @ContributesAndroidInjector abstract fun contributesStepsCountListenerService(): StepCountListener
+    @ContributesAndroidInjector abstract fun contributesBezelHistoryComplicationService(): BezelHistoryComplicationService
     @ContributesAndroidInjector abstract fun contributesBrCobIobComplication(): BrCobIobComplication
     @ContributesAndroidInjector abstract fun contributesBrCobIobComplicationExt1(): BrCobIobComplicationExt1
     @ContributesAndroidInjector abstract fun contributesBrCobIobComplicationExt2(): BrCobIobComplicationExt2
@@ -52,6 +57,7 @@ abstract class WearServicesModule {
     @ContributesAndroidInjector abstract fun contributesIobIconComplication(): IobIconComplication
     @ContributesAndroidInjector abstract fun contributesLongStatusComplication(): LongStatusComplication
     @ContributesAndroidInjector abstract fun contributesLongStatusFlippedComplication(): LongStatusFlippedComplication
+    @ContributesAndroidInjector abstract fun contributesDeltaComplication(): DeltaComplication
     @ContributesAndroidInjector abstract fun contributesSgvComplication(): SgvComplication
     @ContributesAndroidInjector abstract fun contributesSgvComplicationExt1(): SgvComplicationExt1
     @ContributesAndroidInjector abstract fun contributesSgvComplicationExt2(): SgvComplicationExt2
@@ -62,12 +68,14 @@ abstract class WearServicesModule {
     @ContributesAndroidInjector abstract fun contributesDigitalStyleWatchface(): DigitalStyleWatchface
     @ContributesAndroidInjector abstract fun contributesCircleWatchface(): CircleWatchface
     @ContributesAndroidInjector abstract fun contributesCustomWatchface(): CustomWatchface
+    @ContributesAndroidInjector abstract fun contributesPixelWatchface(): PixelWatchface
 
     @ContributesAndroidInjector abstract fun contributesTileBase(): TileBase
     @ContributesAndroidInjector abstract fun contributesQuickWizardTileService(): QuickWizardTileService
     @ContributesAndroidInjector abstract fun contributesUserActionTileService(): UserActionTileService
     @ContributesAndroidInjector abstract fun contributesTempTargetTileService(): TempTargetTileService
     @ContributesAndroidInjector abstract fun contributesActionsTileService(): ActionsTileService
+    @ContributesAndroidInjector abstract fun contributesGlucoseTileService(): GlucoseTileService
     @ContributesAndroidInjector abstract fun contributesLoopStateTileService(): LoopStateTileService
 
 }

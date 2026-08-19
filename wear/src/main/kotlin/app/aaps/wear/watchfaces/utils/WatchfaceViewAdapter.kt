@@ -3,6 +3,7 @@ package app.aaps.wear.watchfaces.utils
 import androidx.viewbinding.ViewBinding
 import app.aaps.wear.databinding.ActivityCustomBinding
 import app.aaps.wear.databinding.ActivityDigitalstyleBinding
+import app.aaps.wear.databinding.ActivityPixelBinding
 
 /**
  * WatchfaceViewAdapter binds all WatchFace variants shared attributes to one common view adapter.
@@ -10,11 +11,12 @@ import app.aaps.wear.databinding.ActivityDigitalstyleBinding
  */
 class WatchfaceViewAdapter(
     ds: ActivityDigitalstyleBinding? = null,
-    cU: ActivityCustomBinding? = null
+    cU: ActivityCustomBinding? = null,
+    px: ActivityPixelBinding? = null
 ) {
 
     init {
-        if (ds == null && cU == null) {
+        if (ds == null && cU == null && px == null) {
             throw IllegalArgumentException("Require at least on Binding parameter")
         }
     }
@@ -23,13 +25,13 @@ class WatchfaceViewAdapter(
 
     // Required attributes
     val mainLayout =
-        ds?.mainLayout ?: cU?.mainLayout
+        ds?.mainLayout ?: cU?.mainLayout ?: px?.mainLayout
         ?: throw IllegalArgumentException(errorMessage)
     val timestamp =
-        ds?.timestamp ?: cU?.timestamp
+        ds?.timestamp ?: cU?.timestamp ?: px?.timestamp
         ?: throw IllegalArgumentException(errorMessage)
     val root =
-        ds?.root ?: cU?.root
+        ds?.root ?: cU?.root ?: px?.root
         ?: throw IllegalArgumentException(errorMessage)
 
     // Optional attributes
@@ -86,27 +88,28 @@ class WatchfaceViewAdapter(
     val direction = ds?.direction
     val uploaderBattery = ds?.uploaderBattery ?: cU?.uploaderBattery
 
-    val time = cU?.time
+    val time = cU?.time ?: px?.time
     val second = cU?.second
     val minute = ds?.minute ?: cU?.minute
     val hour = ds?.hour ?: cU?.hour
-    val day = ds?.day ?: cU?.day
+    val day = ds?.day ?: cU?.day ?: px?.day
     val month = ds?.month ?: cU?.month
     val chart = ds?.chart ?: cU?.chart
     val timePeriod = ds?.timePeriod ?: cU?.timePeriod
-    val dayName = ds?.dayName ?: cU?.dayName
-    val mainMenuTap = ds?.mainMenuTap
+    val dayName = ds?.dayName ?: cU?.dayName ?: px?.dayName
+    val mainMenuTap = ds?.mainMenuTap ?: px?.mainMenuTap
     val chartZoomTap = ds?.chartZoomTap
-    val dateTime = ds?.dateTime
+    val dateTime = ds?.dateTime ?: px?.dateTime
     val weekNumber = ds?.weekNumber ?: cU?.weekNumber
 
     companion object {
 
         fun getBinding(bindLayout: ViewBinding): WatchfaceViewAdapter {
             return when (bindLayout) {
-                is ActivityDigitalstyleBinding    -> WatchfaceViewAdapter(bindLayout)
-                is ActivityCustomBinding -> WatchfaceViewAdapter(null, bindLayout)
-                else                           -> throw IllegalArgumentException("ViewBinding is not implement in WatchfaceViewAdapter")
+                is ActivityDigitalstyleBinding -> WatchfaceViewAdapter(ds = bindLayout)
+                is ActivityCustomBinding       -> WatchfaceViewAdapter(cU = bindLayout)
+                is ActivityPixelBinding        -> WatchfaceViewAdapter(px = bindLayout)
+                else                            -> throw IllegalArgumentException("ViewBinding is not implement in WatchfaceViewAdapter")
             }
         }
 
@@ -114,7 +117,8 @@ class WatchfaceViewAdapter(
             NONE,
             CUSTOM,
             DIGITAL,
-            CIRCLE;
+            CIRCLE,
+            PIXEL;
 
             companion object {
 
