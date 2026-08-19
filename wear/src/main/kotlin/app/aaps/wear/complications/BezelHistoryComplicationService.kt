@@ -77,7 +77,22 @@ class BezelHistoryComplicationService : ModernBaseComplicationProviderService() 
             .sortedBy { it.timeStamp }
             .map { GlucosePoint(it.timeStamp, it.sgv * MGDL_TO_MMOL) }
 
-        val bitmap = renderBitmap(points)
+        // Thresholds come from the profile that arrived with the reading, not from constants, so the
+        // boundary rings match what AAPS itself considers low/high. Falls back to the renderer's
+        // defaults only when the phone has not reported them yet.
+        val bg = data.bgData
+        val low = if (bg.low > 0.0) bg.low * MGDL_TO_MMOL else BezelHistoryRenderer.DEFAULT_LOW
+        val high = if (bg.high > 0.0) bg.high * MGDL_TO_MMOL else BezelHistoryRenderer.DEFAULT_HIGH
+
+        // Same three parts the standard SGV complication shows: value, trend arrow, delta. The
+        // variation selector stops the arrow being substituted with a colour emoji glyph.
+        val label = listOf(
+            bg.sgvString.takeIf { it.isNotBlank() && it != "---" },
+            bg.slopeArrow.takeIf { it.isNotBlank() && it != "--" }?.plus("\uFE0E"),
+            bg.delta.takeIf { it.isNotBlank() && it != "--" }
+        ).filterNotNull().joinToString(" ")
+
+        val bitmap = renderBitmap(points, low, high, label)
         // byteCount is what actually has to cross the Binder boundary; log it so the headroom against
         // the ~1MB transaction limit is a measured number rather than an assumption (see file header).
         aapsLogger.debug(
@@ -94,7 +109,7 @@ class BezelHistoryComplicationService : ModernBaseComplicationProviderService() 
             .build()
     }
 
-    private fun renderBitmap(points: List<GlucosePoint>): Bitmap {
+    private fun renderBitmap(points: List<GlucosePoint>, low: Double, high: Double, label: String): Bitmap {
         // Screen-bounds-derived size, same approach WallpaperComplication uses below for its
         // LARGE_IMAGE/PHOTO_IMAGE complications, rather than a hardcoded constant -- this project's
         // exact target-device resolution isn't nailed down elsewhere in the repo (see the "Confirm
@@ -111,12 +126,13 @@ class BezelHistoryComplicationService : ModernBaseComplicationProviderService() 
             widthPx = size,
             heightPx = size,
             points = points,
-            lowThreshold = BezelHistoryRenderer.DEFAULT_LOW,
-            highThreshold = BezelHistoryRenderer.DEFAULT_HIGH,
+            lowThreshold = low,
+            highThreshold = high,
             targetValue = BezelHistoryRenderer.DEFAULT_TARGET,
             ambient = false,
             revealFraction = 1f,
-            paints = BezelHistoryRenderer.Paints()
+            paints = BezelHistoryRenderer.Paints(),
+            currentLabel = label
         )
         return bitmap
     }

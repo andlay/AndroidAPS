@@ -2,7 +2,10 @@ package app.aaps.wear.watchfaces.views
 
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.DashPathEffect
+import android.graphics.Path
+import android.graphics.PathMeasure
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.graphics.Paint
 import kotlin.math.cos
 import kotlin.math.sin
@@ -18,38 +21,90 @@ import kotlin.math.sin
  */
 object BezelHistoryRenderer {
 
-    const val GRAPH_V_MIN = 2.2
-    const val GRAPH_V_MAX = 13.3
     const val GRAPH_SWEEP = 326f
-    const val GRAPH_R0 = 87f
-    const val GRAPH_AMP = 16f
+
+    /** Radial band the trace and the boundary rings are laid out within, in 200-unit space. */
     const val GRAPH_R_MIN = 70f
     const val GRAPH_R_MAX = 98f
 
     const val DEFAULT_LOW = 4.0
     const val DEFAULT_HIGH = 9.0
-    const val DEFAULT_TARGET = 6.0
+
+    /** In-range marker. Deliberately 5.5 rather than a midpoint of low/high, which would drift. */
+    const val DEFAULT_TARGET = 5.5
 
     private const val LINE_STROKE_WIDTH = 2.8f
-    private const val TARGET_STROKE_WIDTH = 1f
+    private const val BOUNDARY_STROKE_WIDTH = 1.6f
     private const val NOW_DOT_RADIUS = 3.75f
     private const val AMBIENT_STROKE_FACTOR = 0.6f
 
     private const val LINE_ALPHA_MIN = 0.22f
     private const val LINE_ALPHA_MAX = 0.8f
-    private const val BAND_ALPHA = 23
-    private const val TARGET_ALPHA = 102
+
+    /** Ambient keeps the rings present but restrained, since a permanently lit full-brightness ring
+     *  is exactly the burn-in risk OLED watch faces are supposed to avoid. */
+    private const val BOUNDARY_AMBIENT_ALPHA = 140
 
     private val COLOR_RED = Color.parseColor("#FF6B5E")
     private val COLOR_GREEN = Color.parseColor("#8FE3B0")
     private val COLOR_AMBER = Color.parseColor("#F6D55C")
-    private val COLOR_LAVENDER = Color.parseColor("#B8A6F5")
 
-    fun normalize(v: Double): Double =
-        ((v - GRAPH_V_MIN) / (GRAPH_V_MAX - GRAPH_V_MIN)).coerceIn(0.0, 1.0)
+    /** Boundary ring colours. Full alpha and saturated: these are the reference lines the trace is
+     *  read against, so they have to survive being glanced at on a small screen in daylight. */
+    private val COLOR_BOUNDARY_LOW = Color.parseColor("#FF3B30")
+    private val COLOR_BOUNDARY_TARGET = Color.parseColor("#FFFFFF")
+    private val COLOR_BOUNDARY_HIGH = Color.parseColor("#FF9500")
 
-    fun valueToRadius(v: Double): Float =
-        (GRAPH_R0 + (normalize(v) - 0.5) * 2 * GRAPH_AMP).toFloat().coerceIn(GRAPH_R_MIN, GRAPH_R_MAX)
+    /**
+     * Current-reading label, set on an arc across the top like the system's charging clock.
+     * Radius 60 is deliberate: the WFF face's gauge rings land near 50 units in this bitmap's space
+     * and the history band starts at 70, so this sits in the empty annulus between them.
+     */
+    private const val ARC_TEXT_RADIUS = 60f
+    private const val ARC_TEXT_SIZE = 11f
+    private const val ARC_TEXT_SWEEP_DEG = 150f
+
+    /** Head/tail breathing room so a value at an extreme is not drawn exactly on the band edge. */
+    private const val RANGE_PADDING_FRACTION = 0.08
+
+    /** Guards a perfectly flat trace (or a single reading) from collapsing the scale to zero span. */
+    private const val MIN_SPAN_MMOL = 2.0
+
+    /**
+     * Maps glucose values onto the radial band.
+     *
+     * The domain is computed per render from the data actually being shown, together with the three
+     * boundary values, rather than being a fixed 2.2..13.3 window. Two consequences, both intended:
+     * nothing is ever clamped, so a genuine excursion is drawn at its true position instead of being
+     * silently flattened against the edge of the band; and a quiet day spent inside a narrow range
+     * fills the band rather than rendering as an almost straight line.
+     *
+     * Including the boundaries in the domain guarantees all three rings stay on screen whatever the
+     * data does, which is what keeps the trace readable when the scale moves under it.
+     */
+    class Scale(dataMin: Double, dataMax: Double) {
+
+        private val lo: Double
+        private val hi: Double
+
+        init {
+            val mid = (dataMin + dataMax) / 2.0
+            val span = maxOf(dataMax - dataMin, MIN_SPAN_MMOL)
+            val padded = span * (1.0 + 2 * RANGE_PADDING_FRACTION)
+            lo = mid - padded / 2.0
+            hi = mid + padded / 2.0
+        }
+
+        /** No coerce: the domain is built to contain everything it will be asked to plot. */
+        fun radius(v: Double): Float =
+            (GRAPH_R_MIN + ((v - lo) / (hi - lo)) * (GRAPH_R_MAX - GRAPH_R_MIN)).toFloat()
+    }
+
+    /** Builds the scale for one render: every plotted point plus every boundary line. */
+    fun scaleFor(points: List<GlucosePoint>, low: Double, target: Double, high: Double): Scale {
+        val values = points.map { it.mmol } + listOf(low, target, high)
+        return Scale(values.min(), values.max())
+    }
 
     /**
      * Paint instances for one bezel-history drawer. [BezelHistoryView] keeps a single instance across
@@ -72,6 +127,13 @@ object BezelHistoryRenderer {
         val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
         }
+        val arcText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            textAlign = Paint.Align.CENTER
+            // "sans-serif-rounded" is the platform's rounded family; on devices without it this
+            // resolves to the default sans, which is a graceful degradation rather than a failure.
+            typeface = Typeface.create("sans-serif-rounded", Typeface.NORMAL)
+        }
     }
 
     /**
@@ -89,21 +151,31 @@ object BezelHistoryRenderer {
         targetValue: Double,
         ambient: Boolean,
         revealFraction: Float,
-        paints: Paints
+        paints: Paints,
+        /** Pre-formatted "value arrow delta", e.g. "10.0 \u2197 -0.2". Composed by the caller, which
+         *  knows the display units; the renderer only decides where it goes and what colour it is. */
+        currentLabel: String? = null
     ) {
         val cx = widthPx / 2f
         val cy = heightPx / 2f
         val scale = minOf(widthPx, heightPx) / 200f
         if (scale <= 0f) return
 
-        if (!ambient) drawZoneBands(canvas, cx, cy, scale, lowThreshold, highThreshold, paints)
-        drawTargetRing(canvas, cx, cy, scale, targetValue, ambient, paints)
+        // One scale per render, shared by the rings and the trace, so the boundaries always sit
+        // exactly where the trace measures them against.
+        val vScale = scaleFor(points, lowThreshold, targetValue, highThreshold)
+
+        drawBoundaryRings(canvas, cx, cy, scale, vScale, lowThreshold, targetValue, highThreshold, ambient, paints)
 
         val revealing = revealFraction < 1f
-        if (points.size >= 2) drawHistoryLine(canvas, points, cx, cy, scale, ambient, revealFraction, lowThreshold, highThreshold, paints)
+        if (points.size >= 2) drawHistoryLine(canvas, points, cx, cy, scale, vScale, ambient, revealFraction, lowThreshold, highThreshold, paints)
         if (points.isNotEmpty()) {
-            if (revealing) drawLeadingDot(canvas, points, cx, cy, scale, ambient, revealFraction, lowThreshold, highThreshold, paints)
-            else drawNowDot(canvas, points, cx, cy, scale, ambient, lowThreshold, highThreshold, paints)
+            if (revealing) drawLeadingDot(canvas, points, cx, cy, scale, vScale, ambient, revealFraction, lowThreshold, highThreshold, paints)
+            else drawNowDot(canvas, points, cx, cy, scale, vScale, ambient, lowThreshold, highThreshold, paints)
+        }
+
+        if (!currentLabel.isNullOrBlank() && points.isNotEmpty()) {
+            drawArcLabel(canvas, currentLabel, cx, cy, scale, points.last().mmol, lowThreshold, highThreshold, ambient, paints)
         }
     }
 
@@ -123,7 +195,7 @@ object BezelHistoryRenderer {
     }
 
     private fun drawHistoryLine(
-        canvas: Canvas, points: List<GlucosePoint>, cx: Float, cy: Float, scale: Float,
+        canvas: Canvas, points: List<GlucosePoint>, cx: Float, cy: Float, scale: Float, vScale: Scale,
         ambient: Boolean, revealFraction: Float, lowThreshold: Double, highThreshold: Double, paints: Paints
     ) {
         val linePaint = paints.line
@@ -141,8 +213,8 @@ object BezelHistoryRenderer {
             val p1 = points[i + 1]
             val angle0 = -((n - 1 - i).toFloat() / (n - 1).toFloat()) * GRAPH_SWEEP
             val angle1 = -((n - 1 - (i + 1)).toFloat() / (n - 1).toFloat()) * GRAPH_SWEEP
-            val r0 = valueToRadius(p0.mmol) * scale
-            val r1 = valueToRadius(p1.mmol) * scale
+            val r0 = vScale.radius(p0.mmol) * scale
+            val r1 = vScale.radius(p1.mmol) * scale
             val (x0, y0) = polarToPoint(cx, cy, angle0, r0)
             val (x1, y1) = polarToPoint(cx, cy, angle1, r1)
 
@@ -160,44 +232,65 @@ object BezelHistoryRenderer {
         }
     }
 
-    private fun drawZoneBands(canvas: Canvas, cx: Float, cy: Float, scale: Float, lowThreshold: Double, highThreshold: Double, paints: Paints) {
-        val lowR = valueToRadius(lowThreshold)
-        val highR = valueToRadius(highThreshold)
-        drawBand(canvas, cx, cy, scale, GRAPH_R_MIN, lowR, COLOR_RED, paints)
-        drawBand(canvas, cx, cy, scale, lowR, highR, COLOR_GREEN, paints)
-        drawBand(canvas, cx, cy, scale, highR, GRAPH_R_MAX, COLOR_AMBER, paints)
+    /**
+     * Three concentric reference rings: low, in-range target and high. These replace the previous
+     * translucent zone bands and dashed target ring, which at 9% and 40% alpha were effectively
+     * invisible against a black watch face.
+     */
+    private fun drawBoundaryRings(
+        canvas: Canvas, cx: Float, cy: Float, scale: Float, vScale: Scale,
+        lowThreshold: Double, targetValue: Double, highThreshold: Double, ambient: Boolean, paints: Paints
+    ) {
+        drawBoundaryRing(canvas, cx, cy, scale, vScale, lowThreshold, COLOR_BOUNDARY_LOW, ambient, paints)
+        drawBoundaryRing(canvas, cx, cy, scale, vScale, targetValue, COLOR_BOUNDARY_TARGET, ambient, paints)
+        drawBoundaryRing(canvas, cx, cy, scale, vScale, highThreshold, COLOR_BOUNDARY_HIGH, ambient, paints)
     }
 
-    private fun drawBand(canvas: Canvas, cx: Float, cy: Float, scale: Float, innerR: Float, outerR: Float, color: Int, paints: Paints) {
-        val lo = minOf(innerR, outerR)
-        val hi = maxOf(innerR, outerR)
-        val bandWidth = hi - lo
-        if (bandWidth <= 0f) return
-        val midR = (lo + hi) / 2f
-        val bandPaint = paints.band
-        bandPaint.strokeWidth = bandWidth * scale
-        bandPaint.color = Color.argb(BAND_ALPHA, Color.red(color), Color.green(color), Color.blue(color))
-        canvas.drawCircle(cx, cy, midR * scale, bandPaint)
-    }
-
-    private fun drawTargetRing(canvas: Canvas, cx: Float, cy: Float, scale: Float, targetValue: Double, ambient: Boolean, paints: Paints) {
-        val targetPaint = paints.target
-        val r = valueToRadius(targetValue) * scale
-        targetPaint.strokeWidth = (if (ambient) TARGET_STROKE_WIDTH * AMBIENT_STROKE_FACTOR else TARGET_STROKE_WIDTH) * scale
-        targetPaint.isAntiAlias = !ambient
-        targetPaint.pathEffect = DashPathEffect(floatArrayOf(2f * scale, 2f * scale), 0f)
-        targetPaint.color = if (ambient) {
-            Color.argb(TARGET_ALPHA, 255, 255, 255)
+    private fun drawBoundaryRing(
+        canvas: Canvas, cx: Float, cy: Float, scale: Float, vScale: Scale,
+        value: Double, color: Int, ambient: Boolean, paints: Paints
+    ) {
+        val ringPaint = paints.target
+        ringPaint.pathEffect = null
+        ringPaint.strokeWidth = (if (ambient) BOUNDARY_STROKE_WIDTH * AMBIENT_STROKE_FACTOR else BOUNDARY_STROKE_WIDTH) * scale
+        ringPaint.isAntiAlias = !ambient
+        ringPaint.color = if (ambient) {
+            Color.argb(BOUNDARY_AMBIENT_ALPHA, Color.red(color), Color.green(color), Color.blue(color))
         } else {
-            Color.argb(TARGET_ALPHA, Color.red(COLOR_LAVENDER), Color.green(COLOR_LAVENDER), Color.blue(COLOR_LAVENDER))
+            color
         }
-        canvas.drawCircle(cx, cy, r, targetPaint)
+        canvas.drawCircle(cx, cy, vScale.radius(value) * scale, ringPaint)
     }
 
-    private fun drawNowDot(canvas: Canvas, points: List<GlucosePoint>, cx: Float, cy: Float, scale: Float, ambient: Boolean, lowThreshold: Double, highThreshold: Double, paints: Paints) {
+    /**
+     * Current reading set on an arc across the top of the bezel, following the curve the way the
+     * system's charging clock does. Coloured by the same zone rule as the trace's leading point, so
+     * the number and the dot always agree.
+     */
+    private fun drawArcLabel(
+        canvas: Canvas, label: String, cx: Float, cy: Float, scale: Float,
+        currentMmol: Double, lowThreshold: Double, highThreshold: Double, ambient: Boolean, paints: Paints
+    ) {
+        val textPaint = paints.arcText
+        textPaint.textSize = ARC_TEXT_SIZE * scale
+        textPaint.isAntiAlias = !ambient
+        textPaint.color = if (ambient) Color.WHITE else zoneColor(currentMmol, lowThreshold, highThreshold)
+
+        // Canvas angles run from 3 o'clock, so the arc is centred on -90 to put it at 12 o'clock.
+        val r = ARC_TEXT_RADIUS * scale
+        val box = RectF(cx - r, cy - r, cx + r, cy + r)
+        val path = Path().apply { arcTo(box, -90f - ARC_TEXT_SWEEP_DEG / 2f, ARC_TEXT_SWEEP_DEG, true) }
+
+        // Align.CENTER centres on hOffset along the path, so the midpoint puts the text at 12 o'clock
+        // regardless of how long it is; the label grows symmetrically either side of the top.
+        val mid = PathMeasure(path, false).length / 2f
+        canvas.drawTextOnPath(label, path, mid, 0f, textPaint)
+    }
+
+    private fun drawNowDot(canvas: Canvas, points: List<GlucosePoint>, cx: Float, cy: Float, scale: Float, vScale: Scale, ambient: Boolean, lowThreshold: Double, highThreshold: Double, paints: Paints) {
         val dotPaint = paints.dot
         val now = points.last()
-        val r = valueToRadius(now.mmol) * scale
+        val r = vScale.radius(now.mmol) * scale
         val (x, y) = polarToPoint(cx, cy, 0f, r)
         dotPaint.isAntiAlias = !ambient
         dotPaint.color = if (ambient) Color.WHITE else zoneColor(now.mmol, lowThreshold, highThreshold)
@@ -209,7 +302,7 @@ object BezelHistoryRenderer {
      *  drawn, rather than snapping point-to-point, so the trace looks like a continuously moving
      *  oscilloscope beam rather than a stepped one. */
     private fun drawLeadingDot(
-        canvas: Canvas, points: List<GlucosePoint>, cx: Float, cy: Float, scale: Float,
+        canvas: Canvas, points: List<GlucosePoint>, cx: Float, cy: Float, scale: Float, vScale: Scale,
         ambient: Boolean, revealFraction: Float, lowThreshold: Double, highThreshold: Double, paints: Paints
     ) {
         val dotPaint = paints.dot
@@ -225,7 +318,7 @@ object BezelHistoryRenderer {
         val angle0 = -((n - 1 - segmentIndex).toFloat() / (n - 1).toFloat()) * GRAPH_SWEEP
         val angle1 = -((n - 1 - (segmentIndex + 1)).toFloat() / (n - 1).toFloat()) * GRAPH_SWEEP
         val angle = angle0 + (angle1 - angle0) * segmentFraction
-        val r = valueToRadius(mmol) * scale
+        val r = vScale.radius(mmol) * scale
         val (x, y) = polarToPoint(cx, cy, angle, r)
         dotPaint.isAntiAlias = !ambient
         dotPaint.color = if (ambient) Color.WHITE else zoneColor(mmol, lowThreshold, highThreshold)
