@@ -57,6 +57,11 @@ on:
           - aapsclient2Debug
           - pumpcontrolRelease
           - pumpcontrolDebug
+      buildSelectedBranch:
+        description: 'Build the selected branch instead of the upstream tag (needed for local customisations such as the Pixel watch face)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -194,6 +199,7 @@ jobs:
           fetch-depth: 0
 
       - name: Fetch selected tag from upstream
+        if: ${{ github.event.inputs.buildSelectedBranch != 'true' }}
         run: |
           git remote add upstream https://github.com/nightscout/AndroidAPS.git || true
           git fetch upstream refs/tags/${{ github.event.inputs.tagName }}:refs/tags/${{ github.event.inputs.tagName }}
@@ -214,10 +220,20 @@ jobs:
           echo "JAVA_VERSION=$JAVA_VERSION" >> $GITHUB_ENV
           echo "ℹ️ Tag $TAG → JDK $JAVA_VERSION (from jdk-map.json)"
 
+      # Without this guard the workflow checks out the upstream tag over whatever branch was
+      # selected, so any customisation on that branch is silently discarded and the build looks
+      # successful while containing none of it. The tag is still used to pick the JDK above.
       - name: Switch to selected tag
+        if: ${{ github.event.inputs.buildSelectedBranch != 'true' }}
         run: |
           git checkout refs/tags/${{ github.event.inputs.tagName }}
           echo "✅ Checked out tag ${{ github.event.inputs.tagName }}"
+
+      - name: Report that the selected branch is being built
+        if: ${{ github.event.inputs.buildSelectedBranch == 'true' }}
+        run: |
+          echo "✅ Building branch $(git rev-parse --abbrev-ref HEAD) at $(git rev-parse --short HEAD)"
+          echo "ℹ️ Upstream tag ${{ github.event.inputs.tagName }} used only to select the JDK."
 
       - name: Set BUILD_VARIANT
         run: |
