@@ -34,19 +34,17 @@ object BezelHistoryRenderer {
     const val DEFAULT_TARGET = 5.5
 
     private const val LINE_STROKE_WIDTH = 2.8f
-    private const val BOUNDARY_STROKE_WIDTH = 1.6f
     private const val NOW_DOT_RADIUS = 3.75f
     private const val AMBIENT_STROKE_FACTOR = 0.6f
 
-    private const val LINE_ALPHA_MIN = 0.22f
-    private const val LINE_ALPHA_MAX = 0.8f
+    // Fully opaque along the whole trace. This drops the old recency fade, so age is no longer
+    // encoded in the line's alpha; the now-dot is what marks the current end.
+    private const val LINE_ALPHA_MIN = 1.0f
+    private const val LINE_ALPHA_MAX = 1.0f
 
     /** Ambient keeps the rings present but restrained, since a permanently lit full-brightness ring
      *  is exactly the burn-in risk OLED watch faces are supposed to avoid. */
-    private const val BOUNDARY_AMBIENT_ALPHA = 110
 
-    /** The target line sits inside the band, so it needs presence without shouting. */
-    private const val TARGET_LINE_ALPHA = 175
 
     private val COLOR_RED = Color.parseColor("#FF6B5E")
     private val COLOR_GREEN = Color.parseColor("#8FE3B0")
@@ -60,11 +58,10 @@ object BezelHistoryRenderer {
      * with the trace, which is the only thing on the bezel that should carry clinical colour.
      */
     private val COLOR_TARGET_BAND = Color.parseColor("#FFFFFF")
-    private val COLOR_BOUNDARY_TARGET = Color.parseColor("#FFFFFF")
 
-    /** Enough to read as a lighter ring behind the trace, not enough to compete with it. */
-    private const val BAND_ALPHA = 38
-    private const val BAND_AMBIENT_ALPHA = 20
+    /** The in-target band is a primary reference, so it reads clearly rather than as a hint. */
+    private const val BAND_ALPHA = 64
+    private const val BAND_AMBIENT_ALPHA = 32
 
     /**
      * Current-reading label, set on an arc across the top like the system's charging clock.
@@ -271,23 +268,7 @@ object BezelHistoryRenderer {
             )
             canvas.drawCircle(cx, cy, ((inner + outer) / 2f) * scale, bandPaint)
         }
-
-        drawBoundaryRing(canvas, cx, cy, scale, vScale, targetValue, COLOR_BOUNDARY_TARGET, ambient, paints)
-    }
-
-    private fun drawBoundaryRing(
-        canvas: Canvas, cx: Float, cy: Float, scale: Float, vScale: Scale,
-        value: Double, color: Int, ambient: Boolean, paints: Paints
-    ) {
-        val ringPaint = paints.target
-        ringPaint.pathEffect = null
-        ringPaint.strokeWidth = (if (ambient) BOUNDARY_STROKE_WIDTH * AMBIENT_STROKE_FACTOR else BOUNDARY_STROKE_WIDTH) * scale
-        ringPaint.isAntiAlias = !ambient
-        ringPaint.color = Color.argb(
-            if (ambient) BOUNDARY_AMBIENT_ALPHA else TARGET_LINE_ALPHA,
-            Color.red(color), Color.green(color), Color.blue(color)
-        )
-        canvas.drawCircle(cx, cy, vScale.radius(value) * scale, ringPaint)
+        // No target line: the band alone carries the in-target region.
     }
 
     /**
