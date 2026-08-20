@@ -63,6 +63,16 @@ object BezelHistoryRenderer {
     private const val BAND_ALPHA = 64
     private const val BAND_AMBIENT_ALPHA = 32
 
+    /** One band segment per hour of history. */
+    private const val BUCKET_MS = 60 * 60 * 1000L
+
+    /**
+     * Visual gap between segments, on top of the room the round caps already take. Round caps
+     * overhang each arc end by half the stroke width, so without accounting for that the segments
+     * would meet even at a nominally positive gap.
+     */
+    private const val BUCKET_GAP_DEG = 2.5f
+
     /**
      * Current-reading label, set on an arc across the top like the system's charging clock.
      * Radius 60 is deliberate: the WFF face's gauge rings land near 50 units in this bitmap's space
@@ -173,7 +183,7 @@ object BezelHistoryRenderer {
         // exactly where the trace measures them against.
         val vScale = scaleFor(points, lowThreshold, targetValue, highThreshold)
 
-        drawBoundaryRings(canvas, cx, cy, scale, vScale, lowThreshold, targetValue, highThreshold, ambient, paints)
+        drawBoundaryRings(canvas, cx, cy, scale, vScale, lowThreshold, targetValue, highThreshold, ambient, points, paints)
 
         val revealing = revealFraction < 1f
         if (points.size >= 2) drawHistoryLine(canvas, points, cx, cy, scale, vScale, ambient, revealFraction, lowThreshold, highThreshold, paints)
@@ -245,30 +255,72 @@ object BezelHistoryRenderer {
      * inside it. Replaces the three saturated boundary rings: those made the bezel read as three
      * competing signals when only the trace's own position actually matters.
      */
+    /**
+     * The in-target region drawn as one rounded segment per hour of history rather than a continuous
+     * ring, echoing the segmented progress indicators used elsewhere on the face. Segments come close
+     * to each other without touching, which gives the bezel a sense of elapsed time as well as of
+     * range: each block is an hour, so the trace can be read against the clock, not just the band.
+     *
+     * Falls back to a continuous ring when there is too little history to bucket, since a single
+     * fragment floating on its own would read as a bug rather than a design.
+     */
     private fun drawBoundaryRings(
         canvas: Canvas, cx: Float, cy: Float, scale: Float, vScale: Scale,
-        lowThreshold: Double, targetValue: Double, highThreshold: Double, ambient: Boolean, paints: Paints
+        lowThreshold: Double, targetValue: Double, highThreshold: Double, ambient: Boolean,
+        points: List<GlucosePoint>, paints: Paints
     ) {
         val rLow = vScale.radius(lowThreshold)
         val rHigh = vScale.radius(highThreshold)
         val inner = minOf(rLow, rHigh)
         val outer = maxOf(rLow, rHigh)
         val width = outer - inner
+        if (width <= 0f) return
 
-        if (width > 0f) {
-            // Drawn as a single thick stroked circle at the band's midline, which is cheaper and
-            // cleaner-edged than filling an annulus with two paths.
-            val bandPaint = paints.band
-            bandPaint.style = Paint.Style.STROKE
-            bandPaint.isAntiAlias = !ambient
-            bandPaint.strokeWidth = width * scale
-            bandPaint.color = Color.argb(
-                if (ambient) BAND_AMBIENT_ALPHA else BAND_ALPHA,
-                Color.red(COLOR_TARGET_BAND), Color.green(COLOR_TARGET_BAND), Color.blue(COLOR_TARGET_BAND)
-            )
-            canvas.drawCircle(cx, cy, ((inner + outer) / 2f) * scale, bandPaint)
+        val midR = (inner + outer) / 2f
+        val bandPaint = paints.band
+        bandPaint.style = Paint.Style.STROKE
+        bandPaint.isAntiAlias = !ambient
+        bandPaint.strokeWidth = width * scale
+        bandPaint.strokeCap = Paint.Cap.ROUND
+        bandPaint.color = Color.argb(
+            if (ambient) BAND_AMBIENT_ALPHA else BAND_ALPHA,
+            Color.red(COLOR_TARGET_BAND), Color.green(COLOR_TARGET_BAND), Color.blue(COLOR_TARGET_BAND)
+        )
+
+        val newest = points.lastOrNull()?.timestampMillis
+        val oldest = points.firstOrNull()?.timestampMillis
+        val spanMs = if (newest != null && oldest != null) newest - oldest else 0L
+
+        if (spanMs < BUCKET_MS) {
+            bandPaint.strokeCap = Paint.Cap.BUTT
+            canvas.drawCircle(cx, cy, midR * scale, bandPaint)
+            return
         }
-        // No target line: the band alone carries the in-target region.
+
+        // Round caps overhang the arc by half the stroke width; express that as an angle at this
+        // radius so the gap is a real gap rather than two caps meeting.
+        val capDeg = Math.toDegrees(((width * scale) / 2f / (midR * scale)).toDouble()).toFloat()
+        val inset = capDeg + BUCKET_GAP_DEG / 2f
+
+        val rect = RectF(cx - midR * scale, cy - midR * scale, cx + midR * scale, cy + midR * scale)
+
+        // Buckets run back from "now" at 12 o'clock, matching how the trace is laid out.
+        var bucketEnd = newest!!
+        while (bucketEnd > oldest!!) {
+            val bucketStart = maxOf(bucketEnd - BUCKET_MS, oldest)
+
+            // Same mapping the trace uses: fraction of the window back from now, over GRAPH_SWEEP.
+            val a0 = -((newest - bucketStart).toFloat() / spanMs.toFloat()) * GRAPH_SWEEP
+            val a1 = -((newest - bucketEnd).toFloat() / spanMs.toFloat()) * GRAPH_SWEEP
+
+            val start = a0 + inset
+            val sweep = (a1 - inset) - start
+            if (sweep > 0f) {
+                // Canvas measures from 3 o'clock; this graphic measures from 12.
+                canvas.drawArc(rect, start - 90f, sweep, false, bandPaint)
+            }
+            bucketEnd = bucketStart
+        }
     }
 
     /**
