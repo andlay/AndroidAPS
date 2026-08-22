@@ -63,8 +63,18 @@ object BezelHistoryRenderer {
     private const val BAND_ALPHA = 64
     private const val BAND_AMBIENT_ALPHA = 32
 
-    /** One band segment per hour of history. */
+    /** One rounded block per hour of history. */
     private const val BUCKET_MS = 60 * 60 * 1000L
+
+    /** Each hour block is subdivided into slices of this length, each coloured by its own reading. */
+    private const val SLICE_MS = 5 * 60 * 1000L
+
+    /** The band carries the clinical colour now, so it is close to solid rather than a wash. */
+    private const val SLICE_ALPHA = 200
+    private const val SLICE_AMBIENT_ALPHA = 120
+
+    /** The trace is a single neutral blue: colour is the band's job, position is the trace's. */
+    private val COLOR_TRACE = Color.parseColor("#5BB8F5")
 
     /**
      * Visual gap between segments, on top of the room the round caps already take. Round caps
@@ -239,12 +249,12 @@ object BezelHistoryRenderer {
             val fraction = if (segments <= 1) 1f else i.toFloat() / (segments - 1).toFloat()
             val alpha = ((LINE_ALPHA_MIN + fraction * (LINE_ALPHA_MAX - LINE_ALPHA_MIN)) * 255).toInt()
 
+            // One flat blue for the whole trace. Zone colour now lives in the band beneath it, so
+            // colouring the line too would say the same thing twice and fight the band for attention.
             linePaint.color = if (ambient) {
                 Color.argb(alpha, 255, 255, 255)
             } else {
-                val avgMmol = (p0.mmol + p1.mmol) / 2.0
-                val base = zoneColor(avgMmol, lowThreshold, highThreshold)
-                Color.argb(alpha, Color.red(base), Color.green(base), Color.blue(base))
+                Color.argb(alpha, Color.red(COLOR_TRACE), Color.green(COLOR_TRACE), Color.blue(COLOR_TRACE))
             }
             canvas.drawLine(x0, y0, x1, y1, linePaint)
         }
@@ -274,52 +284,81 @@ object BezelHistoryRenderer {
         val inner = minOf(rLow, rHigh)
         val outer = maxOf(rLow, rHigh)
         val width = outer - inner
-        if (width <= 0f) return
+        if (width <= 0f || points.isEmpty()) return
 
         val midR = (inner + outer) / 2f
         val bandPaint = paints.band
         bandPaint.style = Paint.Style.STROKE
         bandPaint.isAntiAlias = !ambient
         bandPaint.strokeWidth = width * scale
-        bandPaint.strokeCap = Paint.Cap.ROUND
-        bandPaint.color = Color.argb(
-            if (ambient) BAND_AMBIENT_ALPHA else BAND_ALPHA,
-            Color.red(COLOR_TARGET_BAND), Color.green(COLOR_TARGET_BAND), Color.blue(COLOR_TARGET_BAND)
-        )
 
-        val newest = points.lastOrNull()?.timestampMillis
-        val oldest = points.firstOrNull()?.timestampMillis
-        val spanMs = if (newest != null && oldest != null) newest - oldest else 0L
-
-        if (spanMs < BUCKET_MS) {
-            bandPaint.strokeCap = Paint.Cap.BUTT
-            canvas.drawCircle(cx, cy, midR * scale, bandPaint)
-            return
-        }
-
-        // Round caps overhang the arc by half the stroke width; express that as an angle at this
-        // radius so the gap is a real gap rather than two caps meeting.
-        val capDeg = Math.toDegrees(((width * scale) / 2f / (midR * scale)).toDouble()).toFloat()
-        val inset = capDeg + BUCKET_GAP_DEG / 2f
+        val newest = points.last().timestampMillis
+        val oldest = points.first().timestampMillis
+        val spanMs = newest - oldest
+        if (spanMs <= 0L) return
 
         val rect = RectF(cx - midR * scale, cy - midR * scale, cx + midR * scale, cy + midR * scale)
 
-        // Buckets run back from "now" at 12 o'clock, matching how the trace is laid out.
-        var bucketEnd = newest!!
-        while (bucketEnd > oldest!!) {
+        // Round caps overhang each arc end by half the stroke width; expressed as an angle here so
+        // the inter-hour gap is a real gap rather than two caps meeting.
+        val capDeg = Math.toDegrees(((width * scale) / 2f / (midR * scale)).toDouble()).toFloat()
+        val inset = capDeg + BUCKET_GAP_DEG / 2f
+
+        fun angleAt(t: Long) = -((newest - t).toFloat() / spanMs.toFloat()) * GRAPH_SWEEP
+
+        var bucketEnd = newest
+        while (bucketEnd > oldest) {
             val bucketStart = maxOf(bucketEnd - BUCKET_MS, oldest)
-
-            // Same mapping the trace uses: fraction of the window back from now, over GRAPH_SWEEP.
-            val a0 = -((newest - bucketStart).toFloat() / spanMs.toFloat()) * GRAPH_SWEEP
-            val a1 = -((newest - bucketEnd).toFloat() / spanMs.toFloat()) * GRAPH_SWEEP
-
-            val start = a0 + inset
-            val sweep = (a1 - inset) - start
-            if (sweep > 0f) {
-                // Canvas measures from 3 o'clock; this graphic measures from 12.
-                canvas.drawArc(rect, start - 90f, sweep, false, bandPaint)
+            val blockStart = angleAt(bucketStart) + inset
+            val blockEnd = angleAt(bucketEnd) - inset
+            if (blockEnd > blockStart) {
+                drawHourBlock(
+                    canvas, rect, bandPaint, points, bucketStart, bucketEnd,
+                    blockStart, blockEnd, ::angleAt, lowThreshold, highThreshold, ambient
+                )
             }
             bucketEnd = bucketStart
+        }
+    }
+
+    /**
+     * One hour of the band, split into five-minute slices each coloured by the readings inside it.
+     * The block reads as a single rounded bar whose colour changes along its length, so the annulus
+     * shows time in range directly rather than requiring the trace to be measured against a ring.
+     *
+     * Only the block's two outer ends are round-capped; interior slices butt together so the colour
+     * boundaries stay crisp and land where the data changes rather than half a stroke width away.
+     */
+    private fun drawHourBlock(
+        canvas: Canvas, rect: RectF, paint: Paint, points: List<GlucosePoint>,
+        bucketStart: Long, bucketEnd: Long, blockStart: Float, blockEnd: Float,
+        angleAt: (Long) -> Float, lowThreshold: Double, highThreshold: Double, ambient: Boolean
+    ) {
+        var sliceEnd = bucketEnd
+        while (sliceEnd > bucketStart) {
+            val sliceStart = maxOf(sliceEnd - SLICE_MS, bucketStart)
+
+            val inSlice = points.filter { it.timestampMillis in sliceStart..sliceEnd }
+            if (inSlice.isNotEmpty()) {
+                // Clamped into the block so the slices never spill past the rounded ends.
+                val a0 = angleAt(sliceStart).coerceIn(blockStart, blockEnd)
+                val a1 = angleAt(sliceEnd).coerceIn(blockStart, blockEnd)
+                val sweep = a1 - a0
+                if (sweep > 0f) {
+                    val mean = inSlice.sumOf { it.mmol } / inSlice.size
+                    val base = zoneColor(mean, lowThreshold, highThreshold)
+                    paint.color = Color.argb(
+                        if (ambient) SLICE_AMBIENT_ALPHA else SLICE_ALPHA,
+                        Color.red(base), Color.green(base), Color.blue(base)
+                    )
+                    // Round only where this slice forms an end of the whole block.
+                    paint.strokeCap =
+                        if (a0 <= blockStart + 0.01f || a1 >= blockEnd - 0.01f) Paint.Cap.ROUND
+                        else Paint.Cap.BUTT
+                    canvas.drawArc(rect, a0 - 90f, sweep, false, paint)
+                }
+            }
+            sliceEnd = sliceStart
         }
     }
 
