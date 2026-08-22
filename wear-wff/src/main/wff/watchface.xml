@@ -74,18 +74,17 @@
         <ComplicationSlot slotId="7" supportedTypes="SHORT_TEXT" x="105" y="70" width="240" height="100">
             <BoundingBox x="105" y="70" width="240" height="100" />
             <DefaultProviderPolicy
-                primaryProvider="__AAPS_APPLICATION_ID__/app.aaps.wear.complications.SgvComplication"
+                primaryProvider="__AAPS_APPLICATION_ID__/app.aaps.wear.complications.SgvDeltaComplication"
                 primaryProviderType="SHORT_TEXT"
                 defaultSystemProvider="EMPTY"
                 defaultSystemProviderType="SHORT_TEXT" />
             <Complication type="SHORT_TEXT">
                 <PartText x="0" y="0" width="450" height="450">
-                    <!-- TextCircular measures from 3 o'clock, unlike the rest of WFF which measures
-                         from 12. Both 310..50 and -50..50 centre on 0 and both landed the reading at
-                         3 o'clock on device, which is what identified the convention. Centring on
-                         -90 puts it on top. -->
-                    <TextCircular centerX="225" centerY="225" width="270" height="270"
-                                  startAngle="-140" endAngle="-40" direction="CLOCKWISE" align="CENTER">
+                    <!-- Occupies the quadrant between 12 and 3 o'clock, the gap the data arc leaves
+                         free. TextCircular measures from 3 o'clock, unlike the rest of WFF which
+                         measures from 12, so that quadrant is -90..0 here. -->
+                    <TextCircular centerX="225" centerY="225" width="330" height="330"
+                                  startAngle="-90" endAngle="0" direction="CLOCKWISE" align="CENTER">
                         <Font family="google-sans-flex" size="24" weight="MEDIUM" color="#ffffffff">
                             <Template><![CDATA[%s]]><Parameter expression="[COMPLICATION.TEXT]" /></Template>
                         </Font>

@@ -217,6 +217,24 @@
                 android:value="300" />
         </service>
 
+        <!-- Glucose, delta and trend arrow as one string, for the watch face's curved reading. -->
+        <service
+            android:name=".complications.SgvDeltaComplication"
+            android:exported="true"
+            android:icon="@drawable/ic_sgv"
+            android:label="@string/complication_sgv_delta"
+            android:permission="com.google.android.wearable.permission.BIND_COMPLICATION_PROVIDER">
+            <intent-filter>
+                <action android:name="android.support.wearable.complications.ACTION_COMPLICATION_UPDATE_REQUEST" />
+            </intent-filter>
+            <meta-data
+                android:name="android.support.wearable.complications.SUPPORTED_TYPES"
+                android:value="SHORT_TEXT" />
+            <meta-data
+                android:name="android.support.wearable.complications.UPDATE_PERIOD_SECONDS"
+                android:value="300" />
+        </service>
+
         <!-- Glucose delta as a first-class provider. Serves RANGED_VALUE so the Watch Face Format
              delta gauge ring can be driven by the numeric delta; SHORT_TEXT is offered too so it is
              usable as an ordinary complication on any face. -->

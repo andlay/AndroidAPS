@@ -346,4 +346,5 @@
     <string name="loop_status">Loop status</string>
     <string name="complication_delta">Glucose delta</string>
     <string name="label_glucose_tile_title">AAPS(Glucose)</string>
+    <string name="complication_sgv_delta" translatable="false">Glucose + delta</string>
 </resources>

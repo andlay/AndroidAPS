@@ -21,7 +21,22 @@ import kotlin.math.sin
  */
 object BezelHistoryRenderer {
 
-    const val GRAPH_SWEEP = 326f
+    /**
+     * The data arc runs from 3 o'clock clockwise round to 12 o'clock, leaving the quadrant between
+     * 12 and 3 free for the current reading. Angles are measured from 12 o'clock, clockwise.
+     */
+    const val GRAPH_START_DEG = 90f
+    const val GRAPH_SWEEP = 270f
+
+    /**
+     * The arc is a fixed twelve hour window, so each twelfth of it (22.5 degrees) is one hour and the
+     * bezel can be read as a clock. Everything is positioned by timestamp rather than by index, so
+     * the trace lines up with the hour divisions even when readings are unevenly spaced or missing.
+     */
+    const val WINDOW_MS = 12 * 60 * 60 * 1000L
+
+    private fun angleForTime(t: Long, windowStart: Long) =
+        GRAPH_START_DEG + GRAPH_SWEEP * ((t - windowStart).toFloat() / WINDOW_MS.toFloat())
 
     /** Radial band the trace and the boundary rings are laid out within, in 200-unit space. */
     const val GRAPH_R_MIN = 70f
@@ -75,14 +90,23 @@ object BezelHistoryRenderer {
      * degree total inset, so every block collapsed to a negative sweep and the band silently did not
      * draw at all. Capping the count keeps every block comfortably wider than its own end caps.
      */
-    private const val MAX_BLOCKS = 10
 
     /** Each hour block is subdivided into slices of this length, each coloured by its own reading. */
     private const val SLICE_MS = 5 * 60 * 1000L
 
-    /** The band carries the clinical colour now, so it is close to solid rather than a wash. */
-    private const val SLICE_ALPHA = 200
-    private const val SLICE_AMBIENT_ALPHA = 120
+    /** Hair of overdraw between slices so antialiased seams do not show as hairlines. */
+    private const val SEAM_OVERLAP_DEG = 0.35f
+
+    /**
+     * The band carries the clinical colour, but sits behind the trace, so it is muted rather than
+     * saturated: pulled toward grey and held below full opacity so it reads as a background scale.
+     */
+    private const val SLICE_ALPHA = 165
+    private const val SLICE_AMBIENT_ALPHA = 105
+
+    /** How far each slice colour is pulled toward neutral grey. 0 keeps it vivid, 1 makes it grey. */
+    private const val SLICE_DESATURATION = 0.32f
+    private val COLOR_SLICE_NEUTRAL = Color.parseColor("#8A8A93")
 
     /** The trace is a single neutral blue: colour is the band's job, position is the trace's. */
     private val COLOR_TRACE = Color.parseColor("#5BB8F5")
@@ -92,7 +116,6 @@ object BezelHistoryRenderer {
      * overhang each arc end by half the stroke width, so without accounting for that the segments
      * would meet even at a nominally positive gap.
      */
-    private const val BUCKET_GAP_DEG = 2.5f
 
     /**
      * Current-reading label, set on an arc across the top like the system's charging clock.
@@ -246,12 +269,15 @@ object BezelHistoryRenderer {
         // Points are oldest-first (index 0 = oldest, index n-1 = "now"), so segment i already runs
         // old -> new; capping the loop at the reveal fraction draws the trace in chronological order
         // for free, no reordering needed.
+        val windowStart = points.last().timestampMillis - WINDOW_MS
         val visibleSegments = (segments * revealFraction).toInt().coerceIn(0, segments)
         for (i in 0 until visibleSegments) {
             val p0 = points[i]
             val p1 = points[i + 1]
-            val angle0 = -((n - 1 - i).toFloat() / (n - 1).toFloat()) * GRAPH_SWEEP
-            val angle1 = -((n - 1 - (i + 1)).toFloat() / (n - 1).toFloat()) * GRAPH_SWEEP
+            // Anything older than the window falls outside the arc and is simply not drawn.
+            if (p1.timestampMillis < windowStart) continue
+            val angle0 = angleForTime(p0.timestampMillis, windowStart)
+            val angle1 = angleForTime(p1.timestampMillis, windowStart)
             val r0 = vScale.radius(p0.mmol) * scale
             val r1 = vScale.radius(p1.mmol) * scale
             val (x0, y0) = polarToPoint(cx, cy, angle0, r0)
@@ -285,6 +311,14 @@ object BezelHistoryRenderer {
      * Falls back to a continuous ring when there is too little history to bucket, since a single
      * fragment floating on its own would read as a bug rather than a design.
      */
+    /**
+     * The in-target region as one continuous bar spanning the twelve hour window, coloured in five
+     * minute slices from the readings inside each.
+     *
+     * The bar is continuous: slices butt together with no gaps, so it reads as a single progress bar
+     * whose colour changes along its length rather than as separate blocks. Because the window is a
+     * fixed twelve hours, each twelfth of the bar is an hour.
+     */
     private fun drawBoundaryRings(
         canvas: Canvas, cx: Float, cy: Float, scale: Float, vScale: Scale,
         lowThreshold: Double, targetValue: Double, highThreshold: Double, ambient: Boolean,
@@ -298,91 +332,70 @@ object BezelHistoryRenderer {
         if (width <= 0f || points.isEmpty()) return
 
         val midR = (inner + outer) / 2f
+        val strokePx = width * scale
         val bandPaint = paints.band
         bandPaint.style = Paint.Style.STROKE
         bandPaint.isAntiAlias = !ambient
-        bandPaint.strokeWidth = width * scale
+        bandPaint.strokeWidth = strokePx
+        // Butt everywhere: the rounded ends are added afterwards as caps, because letting a stroke
+        // round its own ends made each end's semicircle overlap its neighbour and show through in the
+        // neighbour's colour, which is the crescent artifact this replaces.
+        bandPaint.strokeCap = Paint.Cap.BUTT
 
         val newest = points.last().timestampMillis
-        val oldest = points.first().timestampMillis
-        val spanMs = newest - oldest
-        if (spanMs <= 0L) return
-
+        val windowStart = newest - WINDOW_MS
         val rect = RectF(cx - midR * scale, cy - midR * scale, cx + midR * scale, cy + midR * scale)
 
-        // Round caps overhang each arc end by half the stroke width; expressed as an angle here so
-        // the inter-hour gap is a real gap rather than two caps meeting.
-        val capDeg = Math.toDegrees(((width * scale) / 2f / (midR * scale)).toDouble()).toFloat()
-        val inset = capDeg + BUCKET_GAP_DEG / 2f
+        var firstDrawn: Pair<Float, Int>? = null
+        var lastDrawn: Pair<Float, Int>? = null
 
-        fun angleAt(t: Long) = -((newest - t).toFloat() / spanMs.toFloat()) * GRAPH_SWEEP
-
-        val bucketMs = bucketMsFor(spanMs)
-
-        var bucketEnd = newest
-        while (bucketEnd > oldest) {
-            val bucketStart = maxOf(bucketEnd - bucketMs, oldest)
-            val blockStart = angleAt(bucketStart) + inset
-            val blockEnd = angleAt(bucketEnd) - inset
-            if (blockEnd > blockStart) {
-                drawHourBlock(
-                    canvas, rect, bandPaint, points, bucketStart, bucketEnd,
-                    blockStart, blockEnd, ::angleAt, lowThreshold, highThreshold, ambient
-                )
-            }
-            bucketEnd = bucketStart
-        }
-    }
-
-    /**
-     * Block length for a given history span: an hour when the history is short, stretched so the
-     * bezel is never cut into more than [MAX_BLOCKS] pieces. Rounded up to a whole number of hours
-     * so block boundaries still land on the clock rather than at arbitrary times.
-     */
-    private fun bucketMsFor(spanMs: Long): Long {
-        val hoursNeeded = Math.ceil(spanMs.toDouble() / (BUCKET_MS * MAX_BLOCKS)).toLong()
-        return BUCKET_MS * maxOf(1L, hoursNeeded)
-    }
-
-    /**
-     * One block of the band, split into five-minute slices each coloured by the readings inside it.
-     * The block reads as a single rounded bar whose colour changes along its length, so the annulus
-     * shows time in range directly rather than requiring the trace to be measured against a ring.
-     *
-     * Only the block's two outer ends are round-capped; interior slices butt together so the colour
-     * boundaries stay crisp and land where the data changes rather than half a stroke width away.
-     */
-    private fun drawHourBlock(
-        canvas: Canvas, rect: RectF, paint: Paint, points: List<GlucosePoint>,
-        bucketStart: Long, bucketEnd: Long, blockStart: Float, blockEnd: Float,
-        angleAt: (Long) -> Float, lowThreshold: Double, highThreshold: Double, ambient: Boolean
-    ) {
-        var sliceEnd = bucketEnd
-        while (sliceEnd > bucketStart) {
-            val sliceStart = maxOf(sliceEnd - SLICE_MS, bucketStart)
-
+        var sliceStart = windowStart
+        while (sliceStart < newest) {
+            val sliceEnd = minOf(sliceStart + SLICE_MS, newest)
             val inSlice = points.filter { it.timestampMillis in sliceStart..sliceEnd }
             if (inSlice.isNotEmpty()) {
-                // Clamped into the block so the slices never spill past the rounded ends.
-                val a0 = angleAt(sliceStart).coerceIn(blockStart, blockEnd)
-                val a1 = angleAt(sliceEnd).coerceIn(blockStart, blockEnd)
-                val sweep = a1 - a0
-                if (sweep > 0f) {
-                    val mean = inSlice.sumOf { it.mmol } / inSlice.size
-                    val base = zoneColor(mean, lowThreshold, highThreshold)
-                    paint.color = Color.argb(
-                        if (ambient) SLICE_AMBIENT_ALPHA else SLICE_ALPHA,
-                        Color.red(base), Color.green(base), Color.blue(base)
-                    )
-                    // Round only where this slice forms an end of the whole block.
-                    paint.strokeCap =
-                        if (a0 <= blockStart + 0.01f || a1 >= blockEnd - 0.01f) Paint.Cap.ROUND
-                        else Paint.Cap.BUTT
-                    canvas.drawArc(rect, a0 - 90f, sweep, false, paint)
-                }
+                val a0 = angleForTime(sliceStart, windowStart)
+                val a1 = angleForTime(sliceEnd, windowStart)
+                val mean = inSlice.sumOf { it.mmol } / inSlice.size
+                val color = sliceColor(mean, lowThreshold, highThreshold, ambient)
+                bandPaint.color = color
+                // Overdraw by a hair so antialiased seams between slices do not show as hairlines.
+                canvas.drawArc(rect, a0 - 90f, (a1 - a0) + SEAM_OVERLAP_DEG, false, bandPaint)
+
+                if (firstDrawn == null) firstDrawn = a0 to color
+                lastDrawn = a1 to color
             }
-            sliceEnd = sliceStart
+            sliceStart = sliceEnd
         }
+
+        // Rounded ends, drawn as filled dots exactly on the bar's centreline. A dot of the bar's own
+        // width lands flush with the end and cannot bleed into a differently coloured neighbour.
+        val capPaint = paints.dot
+        capPaint.isAntiAlias = !ambient
+        firstDrawn?.let { (angle, color) -> drawBarCap(canvas, cx, cy, scale, midR, strokePx, angle, color, capPaint) }
+        lastDrawn?.let { (angle, color) -> drawBarCap(canvas, cx, cy, scale, midR, strokePx, angle, color, capPaint) }
+    }
+
+    private fun drawBarCap(
+        canvas: Canvas, cx: Float, cy: Float, scale: Float, midR: Float,
+        strokePx: Float, angleDeg: Float, color: Int, paint: Paint
+    ) {
+        val (x, y) = polarToPoint(cx, cy, angleDeg, midR * scale)
+        paint.color = color
+        canvas.drawCircle(x, y, strokePx / 2f, paint)
+    }
+
+    /** Zone colour pulled toward neutral so the bar reads as a background scale, not a warning light. */
+    private fun sliceColor(mmol: Double, low: Double, high: Double, ambient: Boolean): Int {
+        val base = zoneColor(mmol, low, high)
+        fun mute(channel: Int, neutral: Int) =
+            (channel + (neutral - channel) * SLICE_DESATURATION).toInt()
+        return Color.argb(
+            if (ambient) SLICE_AMBIENT_ALPHA else SLICE_ALPHA,
+            mute(Color.red(base), Color.red(COLOR_SLICE_NEUTRAL)),
+            mute(Color.green(base), Color.green(COLOR_SLICE_NEUTRAL)),
+            mute(Color.blue(base), Color.blue(COLOR_SLICE_NEUTRAL))
+        )
     }
 
     /**
@@ -414,7 +427,7 @@ object BezelHistoryRenderer {
         val dotPaint = paints.dot
         val now = points.last()
         val r = vScale.radius(now.mmol) * scale
-        val (x, y) = polarToPoint(cx, cy, 0f, r)
+        val (x, y) = polarToPoint(cx, cy, GRAPH_START_DEG + GRAPH_SWEEP, r)
         dotPaint.isAntiAlias = !ambient
         dotPaint.color = if (ambient) Color.WHITE else zoneColor(now.mmol, lowThreshold, highThreshold)
         val dotRadius = (if (ambient) NOW_DOT_RADIUS * AMBIENT_STROKE_FACTOR else NOW_DOT_RADIUS) * scale
@@ -438,8 +451,9 @@ object BezelHistoryRenderer {
         val p0 = points[segmentIndex]
         val p1 = points[minOf(segmentIndex + 1, n - 1)]
         val mmol = p0.mmol + (p1.mmol - p0.mmol) * segmentFraction
-        val angle0 = -((n - 1 - segmentIndex).toFloat() / (n - 1).toFloat()) * GRAPH_SWEEP
-        val angle1 = -((n - 1 - (segmentIndex + 1)).toFloat() / (n - 1).toFloat()) * GRAPH_SWEEP
+        val windowStart = points.last().timestampMillis - WINDOW_MS
+        val angle0 = angleForTime(p0.timestampMillis, windowStart)
+        val angle1 = angleForTime(p1.timestampMillis, windowStart)
         val angle = angle0 + (angle1 - angle0) * segmentFraction
         val r = vScale.radius(mmol) * scale
         val (x, y) = polarToPoint(cx, cy, angle, r)
