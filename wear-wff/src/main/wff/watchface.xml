@@ -80,8 +80,11 @@
                 defaultSystemProviderType="SHORT_TEXT" />
             <Complication type="SHORT_TEXT">
                 <PartText x="0" y="0" width="450" height="450">
+                    <!-- Symmetric about 0, which is 12 o'clock in WFF's convention. An earlier
+                         310..50 assumed the range wraps through zero; on device the text landed
+                         around 2 o'clock instead, so it evidently does not. -->
                     <TextCircular centerX="225" centerY="225" width="270" height="270"
-                                  startAngle="310" endAngle="50" direction="CLOCKWISE" align="CENTER">
+                                  startAngle="-50" endAngle="50" direction="CLOCKWISE" align="CENTER">
                         <Font family="google-sans-flex" size="24" weight="MEDIUM" color="#ffffffff">
                             <Template><![CDATA[%s]]><Parameter expression="[COMPLICATION.TEXT]" /></Template>
                         </Font>
