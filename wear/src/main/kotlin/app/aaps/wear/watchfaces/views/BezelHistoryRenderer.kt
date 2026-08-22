@@ -63,8 +63,19 @@ object BezelHistoryRenderer {
     private const val BAND_ALPHA = 64
     private const val BAND_AMBIENT_ALPHA = 32
 
-    /** One rounded block per hour of history. */
+    /** Preferred block length. Widened automatically when the history is long; see [bucketMsFor]. */
     private const val BUCKET_MS = 60 * 60 * 1000L
+
+    /**
+     * Upper bound on how many blocks the bezel is cut into.
+     *
+     * This exists because the round caps are expensive in angle: each block is inset by half the
+     * band's stroke width at both ends, which at a typical band thickness is several degrees a side.
+     * With AAPS sending ~400 readings, hourly blocks came out around 9 degrees wide against a ~16
+     * degree total inset, so every block collapsed to a negative sweep and the band silently did not
+     * draw at all. Capping the count keeps every block comfortably wider than its own end caps.
+     */
+    private const val MAX_BLOCKS = 10
 
     /** Each hour block is subdivided into slices of this length, each coloured by its own reading. */
     private const val SLICE_MS = 5 * 60 * 1000L
@@ -306,9 +317,11 @@ object BezelHistoryRenderer {
 
         fun angleAt(t: Long) = -((newest - t).toFloat() / spanMs.toFloat()) * GRAPH_SWEEP
 
+        val bucketMs = bucketMsFor(spanMs)
+
         var bucketEnd = newest
         while (bucketEnd > oldest) {
-            val bucketStart = maxOf(bucketEnd - BUCKET_MS, oldest)
+            val bucketStart = maxOf(bucketEnd - bucketMs, oldest)
             val blockStart = angleAt(bucketStart) + inset
             val blockEnd = angleAt(bucketEnd) - inset
             if (blockEnd > blockStart) {
@@ -322,7 +335,17 @@ object BezelHistoryRenderer {
     }
 
     /**
-     * One hour of the band, split into five-minute slices each coloured by the readings inside it.
+     * Block length for a given history span: an hour when the history is short, stretched so the
+     * bezel is never cut into more than [MAX_BLOCKS] pieces. Rounded up to a whole number of hours
+     * so block boundaries still land on the clock rather than at arbitrary times.
+     */
+    private fun bucketMsFor(spanMs: Long): Long {
+        val hoursNeeded = Math.ceil(spanMs.toDouble() / (BUCKET_MS * MAX_BLOCKS)).toLong()
+        return BUCKET_MS * maxOf(1L, hoursNeeded)
+    }
+
+    /**
+     * One block of the band, split into five-minute slices each coloured by the readings inside it.
      * The block reads as a single rounded bar whose colour changes along its length, so the annulus
      * shows time in range directly rather than requiring the trace to be measured against a ring.
      *

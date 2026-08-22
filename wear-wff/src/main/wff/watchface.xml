@@ -80,11 +80,12 @@
                 defaultSystemProviderType="SHORT_TEXT" />
             <Complication type="SHORT_TEXT">
                 <PartText x="0" y="0" width="450" height="450">
-                    <!-- Symmetric about 0, which is 12 o'clock in WFF's convention. An earlier
-                         310..50 assumed the range wraps through zero; on device the text landed
-                         around 2 o'clock instead, so it evidently does not. -->
+                    <!-- TextCircular measures from 3 o'clock, unlike the rest of WFF which measures
+                         from 12. Both 310..50 and -50..50 centre on 0 and both landed the reading at
+                         3 o'clock on device, which is what identified the convention. Centring on
+                         -90 puts it on top. -->
                     <TextCircular centerX="225" centerY="225" width="270" height="270"
-                                  startAngle="-50" endAngle="50" direction="CLOCKWISE" align="CENTER">
+                                  startAngle="-140" endAngle="-40" direction="CLOCKWISE" align="CENTER">
                         <Font family="google-sans-flex" size="24" weight="MEDIUM" color="#ffffffff">
                             <Template><![CDATA[%s]]><Parameter expression="[COMPLICATION.TEXT]" /></Template>
                         </Font>
