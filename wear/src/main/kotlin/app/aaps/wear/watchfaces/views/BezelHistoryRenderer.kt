@@ -42,6 +42,11 @@ object BezelHistoryRenderer {
     const val GRAPH_R_MIN = 70f
     const val GRAPH_R_MAX = 98f
 
+    /**
+     * Fallbacks only. The band's extent and the colour thresholds come from the profile carried on
+     * each reading, so the bezel agrees with what AAPS itself treats as low and high; these apply
+     * only before the phone has reported them.
+     */
     const val DEFAULT_LOW = 4.0
     const val DEFAULT_HIGH = 9.0
 
@@ -61,9 +66,9 @@ object BezelHistoryRenderer {
      *  is exactly the burn-in risk OLED watch faces are supposed to avoid. */
 
 
-    private val COLOR_RED = Color.parseColor("#FF6B5E")
-    private val COLOR_GREEN = Color.parseColor("#8FE3B0")
-    private val COLOR_AMBER = Color.parseColor("#F6D55C")
+    private val COLOR_RED = Color.parseColor("#C30909")
+    private val COLOR_GREEN = Color.parseColor("#00CD23")
+    private val COLOR_AMBER = Color.parseColor("#FF7800")
 
     /**
      * In-target band and target line.
@@ -108,8 +113,8 @@ object BezelHistoryRenderer {
     private const val SLICE_DESATURATION = 0.32f
     private val COLOR_SLICE_NEUTRAL = Color.parseColor("#8A8A93")
 
-    /** The trace is a single neutral blue: colour is the band's job, position is the trace's. */
-    private val COLOR_TRACE = Color.parseColor("#5BB8F5")
+    /** The trace is white: colour is the band's job, position is the trace's. */
+    private val COLOR_TRACE = Color.parseColor("#FFFFFF")
 
     /**
      * Visual gap between segments, on top of the room the round caps already take. Round caps
@@ -133,40 +138,29 @@ object BezelHistoryRenderer {
     private const val MIN_SPAN_MMOL = 2.0
 
     /**
-     * Maps glucose values onto the radial band.
+     * Fixed display range. Everything from [GRAPH_V_MIN] to [GRAPH_V_MAX] maps onto the radial band.
      *
-     * The domain is computed per render from the data actually being shown, together with the three
-     * boundary values, rather than being a fixed 2.2..13.3 window. Two consequences, both intended:
-     * nothing is ever clamped, so a genuine excursion is drawn at its true position instead of being
-     * silently flattened against the edge of the band; and a quiet day spent inside a narrow range
-     * fills the band rather than rendering as an almost straight line.
+     * This replaces an earlier scale that fitted itself to whatever data was on screen. That version
+     * never clamped, which sounded better than it looked: it amplified ordinary sensor noise to fill
+     * the whole band, so a quiet day rendered as a mountain range and the same shape meant something
+     * different every render. A fixed range means a given radius always means the same glucose value,
+     * which is what makes the band behind it meaningful.
      *
-     * Including the boundaries in the domain guarantees all three rings stay on screen whatever the
-     * data does, which is what keeps the trace readable when the scale moves under it.
+     * Values outside the range are clamped to the edge of the band rather than drawn outside it.
      */
-    class Scale(dataMin: Double, dataMax: Double) {
+    const val GRAPH_V_MIN = 2.0
+    const val GRAPH_V_MAX = 11.0
 
-        private val lo: Double
-        private val hi: Double
+    class Scale {
 
-        init {
-            val mid = (dataMin + dataMax) / 2.0
-            val span = maxOf(dataMax - dataMin, MIN_SPAN_MMOL)
-            val padded = span * (1.0 + 2 * RANGE_PADDING_FRACTION)
-            lo = mid - padded / 2.0
-            hi = mid + padded / 2.0
+        fun radius(v: Double): Float {
+            val f = ((v - GRAPH_V_MIN) / (GRAPH_V_MAX - GRAPH_V_MIN)).coerceIn(0.0, 1.0)
+            return (GRAPH_R_MIN + f * (GRAPH_R_MAX - GRAPH_R_MIN)).toFloat()
         }
-
-        /** No coerce: the domain is built to contain everything it will be asked to plot. */
-        fun radius(v: Double): Float =
-            (GRAPH_R_MIN + ((v - lo) / (hi - lo)) * (GRAPH_R_MAX - GRAPH_R_MIN)).toFloat()
     }
 
-    /** Builds the scale for one render: every plotted point plus every boundary line. */
-    fun scaleFor(points: List<GlucosePoint>, low: Double, target: Double, high: Double): Scale {
-        val values = points.map { it.mmol } + listOf(low, target, high)
-        return Scale(values.min(), values.max())
-    }
+    /** The scale no longer depends on the data, but callers still go through this. */
+    fun scaleFor(points: List<GlucosePoint>, low: Double, target: Double, high: Double): Scale = Scale()
 
     /**
      * Paint instances for one bezel-history drawer. [BezelHistoryView] keeps a single instance across
