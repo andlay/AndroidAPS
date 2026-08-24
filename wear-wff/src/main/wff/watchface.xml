@@ -71,8 +71,8 @@
              trade is colour: SHORT_TEXT carries no zone information, so this is white rather than
              red/amber/green. The zone colour still reads on the BG gauge ring and the bezel trace.
         -->
-        <ComplicationSlot slotId="7" supportedTypes="SHORT_TEXT" x="105" y="70" width="240" height="100">
-            <BoundingBox x="105" y="70" width="240" height="100" />
+        <ComplicationSlot slotId="7" supportedTypes="SHORT_TEXT" x="215" y="80" width="160" height="160">
+            <BoundingBox x="215" y="80" width="160" height="160" />
             <DefaultProviderPolicy
                 primaryProvider="__AAPS_APPLICATION_ID__/app.aaps.wear.complications.SgvDeltaComplication"
                 primaryProviderType="SHORT_TEXT"
@@ -81,10 +81,16 @@
             <Complication type="SHORT_TEXT">
                 <PartText x="0" y="0" width="450" height="450">
                     <!-- Occupies the quadrant between 12 and 3 o'clock, the gap the data arc leaves
-                         free. TextCircular measures from 3 o'clock, unlike the rest of WFF which
-                         measures from 12, so that quadrant is -90..0 here. -->
-                    <TextCircular centerX="225" centerY="225" width="330" height="330"
-                                  startAngle="-90" endAngle="0" direction="CLOCKWISE" align="CENTER">
+                         free. Per the WFF reference, 0 degrees is 12 o'clock and angles increase
+                         clockwise, so that quadrant is simply 0..90 and align=CENTER puts the text
+                         at 1:30. An earlier -90..0 came from wrongly inferring a 3 o'clock origin.
+
+                         height is the text's BAND height, not the arc diameter. Setting it equal to
+                         width is what mangled the earlier placement: the element was handed a
+                         330-tall box for a single line. width sets the radius: 270 gives r=135,
+                         inside the bezel band and clear of the gauge rings. -->
+                    <TextCircular centerX="225" centerY="225" width="270" height="64"
+                                  startAngle="0" endAngle="90" direction="CLOCKWISE" align="CENTER">
                         <Font family="google-sans-flex" size="24" weight="MEDIUM" color="#ffffffff">
                             <Template><![CDATA[%s]]><Parameter expression="[COMPLICATION.TEXT]" /></Template>
                         </Font>

@@ -331,17 +331,12 @@ object BezelHistoryRenderer {
         bandPaint.style = Paint.Style.STROKE
         bandPaint.isAntiAlias = !ambient
         bandPaint.strokeWidth = strokePx
-        // Butt everywhere: the rounded ends are added afterwards as caps, because letting a stroke
-        // round its own ends made each end's semicircle overlap its neighbour and show through in the
-        // neighbour's colour, which is the crescent artifact this replaces.
+        // Butt everywhere, with no end caps at all: the bar simply starts and stops square.
         bandPaint.strokeCap = Paint.Cap.BUTT
 
         val newest = points.last().timestampMillis
         val windowStart = newest - WINDOW_MS
         val rect = RectF(cx - midR * scale, cy - midR * scale, cx + midR * scale, cy + midR * scale)
-
-        var firstDrawn: Pair<Float, Int>? = null
-        var lastDrawn: Pair<Float, Int>? = null
 
         var sliceStart = windowStart
         while (sliceStart < newest) {
@@ -351,32 +346,12 @@ object BezelHistoryRenderer {
                 val a0 = angleForTime(sliceStart, windowStart)
                 val a1 = angleForTime(sliceEnd, windowStart)
                 val mean = inSlice.sumOf { it.mmol } / inSlice.size
-                val color = sliceColor(mean, lowThreshold, highThreshold, ambient)
-                bandPaint.color = color
+                bandPaint.color = sliceColor(mean, lowThreshold, highThreshold, ambient)
                 // Overdraw by a hair so antialiased seams between slices do not show as hairlines.
                 canvas.drawArc(rect, a0 - 90f, (a1 - a0) + SEAM_OVERLAP_DEG, false, bandPaint)
-
-                if (firstDrawn == null) firstDrawn = a0 to color
-                lastDrawn = a1 to color
             }
             sliceStart = sliceEnd
         }
-
-        // Rounded ends, drawn as filled dots exactly on the bar's centreline. A dot of the bar's own
-        // width lands flush with the end and cannot bleed into a differently coloured neighbour.
-        val capPaint = paints.dot
-        capPaint.isAntiAlias = !ambient
-        firstDrawn?.let { (angle, color) -> drawBarCap(canvas, cx, cy, scale, midR, strokePx, angle, color, capPaint) }
-        lastDrawn?.let { (angle, color) -> drawBarCap(canvas, cx, cy, scale, midR, strokePx, angle, color, capPaint) }
-    }
-
-    private fun drawBarCap(
-        canvas: Canvas, cx: Float, cy: Float, scale: Float, midR: Float,
-        strokePx: Float, angleDeg: Float, color: Int, paint: Paint
-    ) {
-        val (x, y) = polarToPoint(cx, cy, angleDeg, midR * scale)
-        paint.color = color
-        canvas.drawCircle(x, y, strokePx / 2f, paint)
     }
 
     /** Zone colour pulled toward neutral so the bar reads as a background scale, not a warning light. */
