@@ -240,7 +240,7 @@ class PersistedO5PodStateManager @Inject constructor(
     override val podSequenceNumber: Long? get() = podState.podSequenceNumber
     override val totalPulsesDelivered: Short? get() = podState.totalPulsesDelivered
     override val bolusPulsesRemaining: Short? get() = podState.bolusPulsesRemaining
-    override val reservoirPulsesRemaining: Short? get() = podState.reservoirPulsesRemaining
+    override val reservoirPulsesRemaining: Short? get() = podState.reservoirPulsesRemaining?.takeIf { it < 1023 }
     override val activeAlerts: EnumSet<AlertType>? get() = podState.activeAlerts
     override val minutesSinceActivation: Short? get() = podState.minutesSinceActivation
     override val sequenceNumberOfLastProgrammingCommand: Short? get() = podState.sequenceNumberOfLastProgrammingCommand
@@ -391,7 +391,9 @@ class PersistedO5PodStateManager @Inject constructor(
         podState.podStatus = podStatus
         podState.deliveryStatus = deliveryStatus
         podState.bolusPulsesRemaining = bolusPulsesRemaining
-        podState.reservoirPulsesRemaining = reservoirPulsesRemaining
+        if (reservoirPulsesRemaining < 1023) {
+            podState.reservoirPulsesRemaining = reservoirPulsesRemaining
+        }
         podState.activeAlerts = activeAlerts
         podState.minutesSinceActivation = minutesSinceActivation
         podState.sequenceNumberOfLastProgrammingCommand = sequenceNumberOfLastProgrammingCommand

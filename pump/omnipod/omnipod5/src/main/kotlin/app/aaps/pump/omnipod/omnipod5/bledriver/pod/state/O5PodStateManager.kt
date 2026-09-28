@@ -434,7 +434,9 @@ class InMemoryO5PodStateManager : O5PodStateManager {
         podStatus = response.podStatus
         deliveryStatus = response.deliveryStatus
         bolusPulsesRemaining = response.bolusPulsesRemaining
-        reservoirPulsesRemaining = response.reservoirPulsesRemaining
+        if (response.reservoirPulsesRemaining < 1023) {
+            reservoirPulsesRemaining = response.reservoirPulsesRemaining
+        }
         activeAlerts = response.activeAlerts
         minutesSinceActivation = response.minutesSinceActivation
         sequenceNumberOfLastProgrammingCommand = response.sequenceNumberOfLastProgrammingCommand
@@ -446,7 +448,9 @@ class InMemoryO5PodStateManager : O5PodStateManager {
         deliveryStatus = response.deliveryStatus
         totalPulsesDelivered = response.totalPulsesDelivered
         bolusPulsesRemaining = response.bolusPulsesRemaining
-        reservoirPulsesRemaining = response.reservoirPulsesRemaining
+        if (response.reservoirPulsesRemaining < 1023) {
+            reservoirPulsesRemaining = response.reservoirPulsesRemaining
+        }
         activeAlerts = response.activeAlerts
         minutesSinceActivation = response.minutesSinceActivation
         sequenceNumberOfLastProgrammingCommand = response.sequenceNumberOfLastProgrammingCommand
