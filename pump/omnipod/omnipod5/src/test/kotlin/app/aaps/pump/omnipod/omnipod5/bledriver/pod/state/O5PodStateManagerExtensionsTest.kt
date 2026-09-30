@@ -9,6 +9,7 @@ import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
 import java.time.Duration
 import java.time.ZonedDateTime
+import java.util.TimeZone
 
 /**
  * [expiry] reads wall-clock time directly ([ZonedDateTime.now]/[System.currentTimeMillis])
@@ -91,6 +92,121 @@ class O5PodStateManagerExtensionsTest : TestBase() {
         assertThat(diffSeconds).isLessThan(10)
     }
 
+
+    private fun mockTimeState(
+        podActivatedAt: Long? = null,
+        minutesSinceActivation: Short? = null,
+        timeZoneOffset: Int? = null,
+        lastStatusResponseReceived: Long? = null
+    ): O5PodStateManager {
+        val state = mock<O5PodStateManager>()
+        whenever(state.podActivatedAt).thenReturn(podActivatedAt)
+        whenever(state.minutesSinceActivation).thenReturn(minutesSinceActivation)
+        whenever(state.timeZoneOffset).thenReturn(timeZoneOffset)
+        whenever(state.lastStatusResponseReceived).thenReturn(lastStatusResponseReceived)
+        return state
+    }
+
+    @Test
+    fun `activationTime prefers podActivatedAt when page 5 has been read`() {
+        val activatedAt = System.currentTimeMillis() - Duration.ofHours(5).toMillis()
+        val state = mockTimeState(
+            podActivatedAt = activatedAt,
+            minutesSinceActivation = 300,
+            lastStatusResponseReceived = System.currentTimeMillis()
+        )
+
+        assertThat(state.activationTime).isEqualTo(activatedAt)
+    }
+
+    @Test
+    fun `activationTime falls back to the last status response minus the elapsed minutes`() {
+        val lastUpdated = System.currentTimeMillis()
+        val state = mockTimeState(minutesSinceActivation = 120, lastStatusResponseReceived = lastUpdated)
+
+        assertThat(state.activationTime).isEqualTo(lastUpdated - Duration.ofMinutes(120).toMillis())
+    }
+
+    @Test
+    fun `activationTime is null when nothing is known`() {
+        assertThat(mockTimeState().activationTime).isNull()
+        assertThat(mockTimeState(minutesSinceActivation = 120).activationTime).isNull()
+    }
+
+    @Test
+    fun `time is null until the pod clock time zone is known`() {
+        val state = mockTimeState(
+            podActivatedAt = System.currentTimeMillis(),
+            minutesSinceActivation = 0,
+            lastStatusResponseReceived = System.currentTimeMillis()
+        )
+
+        assertThat(state.time).isNull()
+    }
+
+    @Test
+    fun `time on a pod set to the phone time zone matches the phone clock`() {
+        val now = System.currentTimeMillis()
+        val state = mockTimeState(
+            podActivatedAt = now - Duration.ofHours(10).toMillis(),
+            minutesSinceActivation = 600,
+            timeZoneOffset = TimeZone.getDefault().getOffset(now),
+            lastStatusResponseReceived = now
+        )
+
+        val podTime = requireNotNull(state.time)
+
+        assertThat(Duration.between(ZonedDateTime.now(), podTime).abs().seconds).isLessThan(10)
+        assertThat(requireNotNull(state.timeDrift).abs().seconds).isLessThan(10)
+    }
+
+    @Test
+    fun `time keeps running while no new status response arrives`() {
+        val now = System.currentTimeMillis()
+        val lastUpdated = now - Duration.ofMinutes(30).toMillis()
+        val state = mockTimeState(
+            podActivatedAt = lastUpdated - Duration.ofHours(10).toMillis(),
+            minutesSinceActivation = 600,
+            timeZoneOffset = TimeZone.getDefault().getOffset(now),
+            lastStatusResponseReceived = lastUpdated
+        )
+
+        val podTime = requireNotNull(state.time)
+
+        assertThat(Duration.between(ZonedDateTime.now(), podTime).abs().seconds).isLessThan(10)
+    }
+
+    @Test
+    fun `a pod counter running ahead of the activation anchor shows as drift`() {
+        val now = System.currentTimeMillis()
+        val state = mockTimeState(
+            podActivatedAt = now - Duration.ofHours(10).toMillis(),
+            minutesSinceActivation = 630,
+            timeZoneOffset = TimeZone.getDefault().getOffset(now),
+            lastStatusResponseReceived = now
+        )
+
+        val drift = requireNotNull(state.timeDrift)
+
+        assertThat(drift.minusMinutes(30).abs().seconds).isLessThan(10)
+    }
+
+    @Test
+    fun `the pod time zone only changes how the time is shown, not the instant`() {
+        val now = System.currentTimeMillis()
+        val phoneOffset = TimeZone.getDefault().getOffset(now)
+        val state = mockTimeState(
+            podActivatedAt = now - Duration.ofHours(10).toMillis(),
+            minutesSinceActivation = 600,
+            timeZoneOffset = phoneOffset - Duration.ofHours(2).toMillis().toInt(),
+            lastStatusResponseReceived = now
+        )
+
+        val podTime = requireNotNull(state.time)
+
+        assertThat(podTime.offset.totalSeconds).isEqualTo(phoneOffset / 1000 - 2 * 3600)
+        assertThat(Duration.between(ZonedDateTime.now(), podTime).abs().seconds).isLessThan(10)
+    }
 
     private fun mockDriftState(
         totalPulsesDelivered: Short? = null,

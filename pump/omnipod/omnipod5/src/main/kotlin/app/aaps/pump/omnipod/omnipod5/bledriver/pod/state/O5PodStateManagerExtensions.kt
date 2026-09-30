@@ -4,6 +4,9 @@ import app.aaps.pump.omnipod.common.bledriver.pod.definition.ActivationProgress
 import app.aaps.pump.omnipod.common.bledriver.pod.definition.BasalProgram
 import app.aaps.pump.omnipod.common.bledriver.pod.definition.PodConstants
 import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.util.TimeZone
 
@@ -26,6 +29,43 @@ val O5PodStateManager.expiry: ZonedDateTime?
             .minus(Duration.ofMillis(System.currentTimeMillis() - lastUpdated))
             .minusHours(8)
     }
+
+
+/**
+ * Wall-clock epoch millis the pod was activated. Prefers [O5PodStateManager.podActivatedAt]
+ * (read from status page 5) and falls back to the same derivation Dash uses when that page
+ * has not been fetched: the time of the last status response minus
+ * [O5PodStateManager.minutesSinceActivation]. Null when neither is known.
+ */
+val O5PodStateManager.activationTime: Long?
+    get() = podActivatedAt ?: run {
+        val minutes = minutesSinceActivation ?: return null
+        val lastUpdated = lastStatusResponseReceived ?: return null
+        lastUpdated - minutes * 60_000L
+    }
+
+/**
+ * The current time on the pod's own clock, in the time zone the pod was last set to.
+ * The pod has no wall clock, so this is rebuilt the same way
+ * [app.aaps.pump.omnipod.common.bledriver.pod.state.OmnipodDashPodStateManagerImpl.time]
+ * does it: activation instant, plus the elapsed minutes the pod reported, plus the time
+ * that has passed since that report arrived. Null until the pod clock's time zone is
+ * known, which happens the first time a basal program is sent.
+ */
+val O5PodStateManager.time: ZonedDateTime?
+    get() {
+        val activatedAt = activationTime ?: return null
+        val minutes = minutesSinceActivation ?: return null
+        val offset = timeZoneOffset ?: return null
+        val lastUpdated = lastStatusResponseReceived ?: return null
+        return ZonedDateTime.ofInstant(Instant.ofEpochMilli(activatedAt), ZoneId.ofOffset("", ZoneOffset.ofTotalSeconds(offset / 1000)))
+            .plusMinutes(minutes.toLong())
+            .plus(Duration.ofMillis(System.currentTimeMillis() - lastUpdated))
+    }
+
+/** How far [time] runs ahead (positive) or behind (negative) the phone clock. */
+val O5PodStateManager.timeDrift: Duration?
+    get() = time?.let { Duration.between(ZonedDateTime.now(), it) }
 
 
 /** [O5PodStateManager.totalPulsesDelivered] minus pulses already attributed to boluses -

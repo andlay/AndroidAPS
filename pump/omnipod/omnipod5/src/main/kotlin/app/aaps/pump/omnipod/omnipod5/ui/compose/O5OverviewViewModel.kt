@@ -36,6 +36,8 @@ import app.aaps.pump.omnipod.common.bledriver.pod.definition.AlertType
 import app.aaps.pump.omnipod.common.bledriver.pod.definition.PodConstants
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.O5PodStateManager
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.expiry
+import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.time
+import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.timeDrift
 import app.aaps.pump.omnipod.common.queue.command.CommandDeactivatePod
 import app.aaps.pump.omnipod.common.queue.command.CommandHandleTimeChange
 import app.aaps.pump.omnipod.common.queue.command.CommandPlayTestBeep
@@ -62,7 +64,9 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.ZonedDateTime
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import app.aaps.core.ui.R as CoreUiR
 import app.aaps.pump.omnipod.common.R as CommonR
 
@@ -92,6 +96,9 @@ class O5OverviewViewModel @Inject constructor(
     companion object {
 
         private const val PLACEHOLDER = "-"
+
+        /** Pod-clock drift above this is shown as a warning, same threshold as Dash. */
+        private const val MAX_TIME_DEVIATION_MINUTES = 10L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -165,10 +172,27 @@ class O5OverviewViewModel @Inject constructor(
                 )
             )
 
-            val timeOnPodValue = podStateManager.minutesSinceActivation?.let { minutes ->
-                dateUtil.dateAndTimeString(System.currentTimeMillis() - minutes * 60_000L)
+            val timeZoneStr = podStateManager.timeZoneId?.let { tzId ->
+                podStateManager.timeZoneUpdated?.let { tzUpdated ->
+                    val tz = TimeZone.getTimeZone(tzId)
+                    val inDST = tz.inDaylightTime(Date(tzUpdated))
+                    tz.getDisplayName(inDST, TimeZone.SHORT, Locale.getDefault())
+                } ?: PLACEHOLDER
             } ?: PLACEHOLDER
-            add(PumpInfoRow(label = rh.gs(CommonR.string.omnipod_common_overview_time_on_pod), value = timeOnPodValue))
+
+            val timeOnPodValue = podStateManager.time?.let {
+                rh.gs(CommonR.string.omnipod_common_time_with_timezone, dateUtil.dateAndTimeString(it.toEpochSecond() * 1000), timeZoneStr)
+            } ?: PLACEHOLDER
+
+            val timeDeviationTooBig = podStateManager.timeDrift?.let {
+                Duration.ofMinutes(MAX_TIME_DEVIATION_MINUTES).minus(it.abs()).isNegative
+            } == true
+            val timeLevel = when {
+                !podStateManager.sameTimeZone -> StatusLevel.CRITICAL
+                timeDeviationTooBig           -> StatusLevel.WARNING
+                else                          -> StatusLevel.NORMAL
+            }
+            add(PumpInfoRow(label = rh.gs(CommonR.string.omnipod_common_overview_time_on_pod), value = timeOnPodValue, level = timeLevel))
 
             podStateManager.podActivatedAt?.let {
                 add(PumpInfoRow(label = rh.gs(CommonR.string.omnipod_common_overview_pod_activated_at), value = dateUtil.dateAndTimeString(it)))
