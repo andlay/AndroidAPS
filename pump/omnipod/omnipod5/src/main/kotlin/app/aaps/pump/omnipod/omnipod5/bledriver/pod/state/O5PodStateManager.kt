@@ -20,6 +20,7 @@ import app.aaps.pump.omnipod.omnipod5.bledriver.comm.O5IdRotation
 import java.io.Serializable
 import java.util.Calendar
 import java.util.EnumSet
+import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -93,6 +94,31 @@ interface O5PodStateManager {
 
     /** The basal program currently believed to be running on the pod. */
     var basalProgram: BasalProgram?
+
+    /** Time zone id of the phone when the pod clock was last set (with [basalProgram]).
+     *  Null until the first basal program is sent. */
+    val timeZoneId: String?
+
+    /** UTC offset (ms) of the phone when the pod clock was last set. Null until the first
+     *  basal program is sent. */
+    val timeZoneOffset: Int?
+
+    /** Wall-clock time when [timeZoneOffset] was last set. */
+    val timeZoneUpdated: Long?
+
+    /** Records the phone's current time zone as the pod's time zone. Call after every
+     *  successful basal program, because that command also sets the pod clock. Mirrors
+     *  `OmnipodDashPodStateManager.updateTimeZone`. */
+    fun updateTimeZone()
+
+    /** False when the phone's current UTC offset differs from the pod's, so the pod runs
+     *  the basal schedule at the wrong hours. True when the pod offset is not known yet
+     *  (for example a pod activated before this was tracked), so no false warning is shown. */
+    val sameTimeZone: Boolean
+        get() {
+            val podOffset = timeZoneOffset ?: return true
+            return TimeZone.getDefault().getOffset(System.currentTimeMillis()) == podOffset
+        }
 
     /** True while the pod's delivery is suspended (no basal/temp basal delivery). */
     var deliverySuspended: Boolean
@@ -337,6 +363,12 @@ class InMemoryO5PodStateManager : O5PodStateManager {
     @Volatile override var podLifeInHours: Short? = null
 
     @Volatile override var basalProgram: BasalProgram? = null
+    @Volatile override var timeZoneId: String? = null
+        private set
+    @Volatile override var timeZoneOffset: Int? = null
+        private set
+    @Volatile override var timeZoneUpdated: Long? = null
+        private set
     @Volatile override var deliverySuspended: Boolean = false
     @Volatile override var lastBolusStartTime: Long? = null
     @Volatile override var lastBolusRequestedUnits: Double? = null
@@ -348,6 +380,14 @@ class InMemoryO5PodStateManager : O5PodStateManager {
 
     override fun increaseMessageSequenceNumber() {
         msgSequenceNumber = ((msgSequenceNumber.toInt() + 1) and 0x0f).toByte()
+    }
+
+    override fun updateTimeZone() {
+        val timeZone = TimeZone.getDefault()
+        val now = System.currentTimeMillis()
+        timeZoneOffset = timeZone.getOffset(now)
+        timeZoneId = timeZone.id
+        timeZoneUpdated = now
     }
 
     @Volatile override var podStatus: PodStatus? = null
@@ -522,6 +562,9 @@ class InMemoryO5PodStateManager : O5PodStateManager {
         secondPrimeBolusVolume = null
         podLifeInHours = null
         basalProgram = null
+        timeZoneId = null
+        timeZoneOffset = null
+        timeZoneUpdated = null
         deliverySuspended = false
         lastBolusStartTime = null
         lastBolusRequestedUnits = null
