@@ -63,8 +63,10 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.binding
 import dev.zacsweers.metrox.viewmodel.ViewModelKey
 import io.reactivex.rxjava3.core.Single
+import io.reactivex.rxjava3.kotlin.subscribeBy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.rx3.await
 import kotlinx.coroutines.rx3.rxSingle
 import java.util.Date
 import app.aaps.pump.omnipod.common.R as CommonR
@@ -138,7 +140,7 @@ class O5OmnipodWizardViewModel @Inject constructor(
     override fun doInitializePod(): Single<PumpEnactResult> = rxSingle(Dispatchers.IO) {
         try {
             if (podStateManager.ltk == null) {
-                bleManager.pairNewPod().ignoreElements().blockingAwait()
+                bleManager.pairNewPod().ignoreElements().await()
             }
 
             if (podStateManager.activationProgress.isBefore(ActivationProgress.GOT_POD_VERSION)) {
@@ -146,13 +148,13 @@ class O5OmnipodWizardViewModel @Inject constructor(
                     .setUniqueId(GetVersionCommand.DEFAULT_UNIQUE_ID)
                     .setSequenceNumber(nextSeq())
                     .build()
-                bleManager.sendCommand(cmd, VersionResponse::class).ignoreElements().blockingAwait()
+                bleManager.sendCommand(cmd, VersionResponse::class).ignoreElements().await()
                 ensureActivationTimeNotExceeded()
                 podStateManager.activationProgress = ActivationProgress.GOT_POD_VERSION
             }
 
             if (podStateManager.activationProgress.isBefore(ActivationProgress.AID_SETUP)) {
-                bleManager.sendAidSetupCommands().blockingAwait()
+                bleManager.sendAidSetupCommands().await()
                 podStateManager.activationProgress = ActivationProgress.AID_SETUP
             }
 
@@ -164,7 +166,7 @@ class O5OmnipodWizardViewModel @Inject constructor(
                     .setPodSequenceNumber(requireNotNull(podStateManager.podSequenceNumber) { "Missing podSequenceNumber" }.toInt())
                     .setInitializationTime(Date())
                     .build()
-                bleManager.sendCommand(cmd, SetUniqueIdResponse::class).ignoreElements().blockingAwait()
+                bleManager.sendCommand(cmd, SetUniqueIdResponse::class).ignoreElements().await()
                 ensureActivationTimeNotExceeded()
                 podStateManager.activationProgress = ActivationProgress.SET_UNIQUE_ID
             }
@@ -186,7 +188,7 @@ class O5OmnipodWizardViewModel @Inject constructor(
                             )
                         )
                         .build()
-                    bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+                    bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().await()
                         ensureActivationTimeNotExceeded()
                 }
                 podStateManager.activationProgress = ActivationProgress.PROGRAMMED_LOW_RESERVOIR_ALERTS
@@ -206,13 +208,13 @@ class O5OmnipodWizardViewModel @Inject constructor(
                         )
                     )
                     .build()
-                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().await()
                 ensureActivationTimeNotExceeded()
                 podStateManager.activationProgress = ActivationProgress.REPROGRAMMED_LUMP_OF_COAL_ALERT
             }
 
             if (podStateManager.activationProgress.isBefore(ActivationProgress.PRIMING)) {
-                bleManager.connect().ignoreElements().blockingAwait()
+                bleManager.connect().ignoreElements().await()
                 val firstPrimeBolusVolume = requireNotNull(podStateManager.firstPrimeBolusVolume) { "Missing firstPrimeBolusVolume" }
                 val primePulseRate = requireNotNull(podStateManager.primePulseRate) { "Missing primePulseRate" }
                 val cmd = ProgramBolusCommand.Builder()
@@ -224,7 +226,7 @@ class O5OmnipodWizardViewModel @Inject constructor(
                     .setProgramReminder(ProgramReminder(atStart = false, atEnd = false, atInterval = 0))
                     .setO5BolusInfo(mealUnits = 0.0, correctionUnits = 0.0)
                     .build()
-                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().await()
                 ensureActivationTimeNotExceeded()
                 podStateManager.activationProgress = ActivationProgress.PRIMING
             }
@@ -236,13 +238,13 @@ class O5OmnipodWizardViewModel @Inject constructor(
             }
 
             if (podStateManager.activationProgress.isBefore(ActivationProgress.PRIME_COMPLETED)) {
-                bleManager.connect().ignoreElements().blockingAwait()
+                bleManager.connect().ignoreElements().await()
                 val cmd = GetStatusCommand.Builder()
                     .setUniqueId(requirePodId())
                     .setSequenceNumber(nextSeq())
                     .setStatusResponseType(ResponseType.StatusResponseType.DEFAULT_STATUS_RESPONSE)
                     .build()
-                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().await()
                 ensureActivationTimeNotExceeded()
                 check(podStateManager.podStatus == PodStatus.CLUTCH_DRIVE_ENGAGED) {
                     "Unexpected Pod status: got ${podStateManager.podStatus}, expected CLUTCH_DRIVE_ENGAGED"
@@ -274,7 +276,7 @@ class O5OmnipodWizardViewModel @Inject constructor(
                     .setProgramReminder(ProgramReminder(atStart = basalBeeps, atEnd = false, atInterval = 0))
                     .setCurrentTime(Date())
                     .build()
-                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().await()
                 podStateManager.updateTimeZone()
                 ensureActivationTimeNotExceeded()
                 podStateManager.activationProgress = ActivationProgress.PROGRAMMED_BASAL
@@ -288,13 +290,13 @@ class O5OmnipodWizardViewModel @Inject constructor(
                     .setMultiCommandFlag(true)
                     .setAlertConfigurations(buildO5ExpirationAlerts(podStateManager, preferences, logger))
                     .build()
-                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().await()
                 ensureActivationTimeNotExceeded()
                 podStateManager.activationProgress = ActivationProgress.UPDATED_EXPIRATION_ALERTS
             }
 
             if (podStateManager.activationProgress.isBefore(ActivationProgress.INSERTING_CANNULA)) {
-                bleManager.connect().ignoreElements().blockingAwait()
+                bleManager.connect().ignoreElements().await()
                 val secondPrimeBolusVolume = requireNotNull(podStateManager.secondPrimeBolusVolume) { "Missing secondPrimeBolusVolume" }
                 val primePulseRate = requireNotNull(podStateManager.primePulseRate) { "Missing primePulseRate" }
                 val cmd = ProgramBolusCommand.Builder()
@@ -306,7 +308,7 @@ class O5OmnipodWizardViewModel @Inject constructor(
                     .setProgramReminder(ProgramReminder(atStart = false, atEnd = false, atInterval = 0))
                     .setO5BolusInfo(mealUnits = 0.0, correctionUnits = 0.0)
                     .build()
-                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().await()
                 ensureActivationTimeNotExceeded()
                 podStateManager.activationProgress = ActivationProgress.INSERTING_CANNULA
             }
@@ -318,13 +320,13 @@ class O5OmnipodWizardViewModel @Inject constructor(
             }
 
             if (podStateManager.activationProgress.isBefore(ActivationProgress.CANNULA_INSERTED)) {
-                bleManager.connect().ignoreElements().blockingAwait()
+                bleManager.connect().ignoreElements().await()
                 val cmd = GetStatusCommand.Builder()
                     .setUniqueId(requirePodId())
                     .setSequenceNumber(nextSeq())
                     .setStatusResponseType(ResponseType.StatusResponseType.DEFAULT_STATUS_RESPONSE)
                     .build()
-                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+                bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().await()
                 ensureActivationTimeNotExceeded()
                 check(podStateManager.podStatus == PodStatus.RUNNING_ABOVE_MIN_VOLUME) {
                     "Unexpected Pod status: got ${podStateManager.podStatus}, expected RUNNING_ABOVE_MIN_VOLUME"
