@@ -9,6 +9,12 @@ import app.aaps.core.interfaces.pump.BlePreCheck
 import app.aaps.core.interfaces.pump.BolusProgressData
 import app.aaps.core.interfaces.pump.DetailedBolusInfo
 import app.aaps.core.interfaces.pump.PumpSync
+import app.aaps.core.interfaces.pump.PumpProfile
+import app.aaps.core.interfaces.profile.Profile
+import app.aaps.core.interfaces.notifications.AlarmSound
+import app.aaps.core.keys.interfaces.TextRef
+import app.aaps.pump.omnipod.common.keys.DashBooleanPreferenceKey
+import org.mockito.verification.VerificationMode
 import app.aaps.core.interfaces.pump.PumpInsulin
 import app.aaps.core.interfaces.notifications.NotificationId
 import app.aaps.core.interfaces.queue.CommandQueue
@@ -122,10 +128,19 @@ class O5PumpPluginTest : TestBaseWithProfile() {
 
     @Test
     fun `isInitialized is true only when activation is fully completed`() {
+        whenever(podStateManager.isPodRunning).thenReturn(true)
         whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.COMPLETED)
         assertThat(plugin.isInitialized()).isTrue()
 
         whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.PRIME_COMPLETED)
+        assertThat(plugin.isInitialized()).isFalse()
+    }
+
+    @Test
+    fun `isInitialized is false once an activated pod stops running - faulted or deactivated`() {
+        whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.COMPLETED)
+        whenever(podStateManager.isPodRunning).thenReturn(false)
+
         assertThat(plugin.isInitialized()).isFalse()
     }
 
@@ -845,5 +860,292 @@ class O5PumpPluginTest : TestBaseWithProfile() {
         // The stop must reach the pod, and only after a (re)connect.
         verify(bleManager).connect()
         verify(bleManager).sendCommand(argThat { this is StopDeliveryCommand }, any())
+    }
+
+    private fun pumpState(temporaryBasal: PumpSync.PumpState.TemporaryBasal? = null, serial: String = "", profile: PumpProfile? = null) =
+        PumpSync.PumpState(temporaryBasal = temporaryBasal, extendedBolus = null, bolus = null, profile = profile, serialNumber = serial)
+
+    private fun zeroTempBasal(type: PumpSync.TemporaryBasalType) = PumpSync.PumpState.TemporaryBasal(
+        timestamp = 1_000L, duration = 60_000L, rate = 0.0, isAbsolute = true, type = type, id = 1L, pumpId = 1L
+    )
+
+    private suspend fun verifyZeroTempBasalSynced(serial: String) {
+        verify(pumpSync).syncTemporaryBasalWithPumpId(
+            any(), argThat { this.cU == 0.0 }, any(), eq(true), eq(PumpSync.TemporaryBasalType.PUMP_SUSPEND),
+            any(), eq(PumpType.OMNIPOD_5), eq(serial)
+        )
+    }
+
+    private suspend fun stubStopTempBasal() {
+        whenever(pumpSync.syncStopTemporaryBasalWithPumpId(any(), any(), any(), any(), any())).thenReturn(true)
+        whenever(pumpSync.syncTemporaryBasalWithPumpId(any(), any(), any(), any(), anyOrNull(), any(), any(), any())).thenReturn(true)
+    }
+
+    private suspend fun verifyNoTempBasalSynced() {
+        verify(pumpSync, never()).syncTemporaryBasalWithPumpId(any(), any(), any(), any(), anyOrNull(), any(), any(), any())
+    }
+
+    @Test
+    fun `a faulted pod records a zero temp basal under the pod serial`() = runBlocking<Unit> {
+        whenever(podStateManager.isPodKaput).thenReturn(true)
+        whenever(podStateManager.podId).thenReturn(9999L)
+        whenever(pumpSync.expectedPumpState()).thenReturn(pumpState())
+
+        plugin.checkPodKaput()
+
+        verifyZeroTempBasalSynced("9999")
+    }
+
+    @Test
+    fun `a faulted pod does not record a second zero temp basal when one is already running`() = runBlocking<Unit> {
+        whenever(podStateManager.isPodKaput).thenReturn(true)
+        whenever(podStateManager.podId).thenReturn(9999L)
+        whenever(pumpSync.expectedPumpState()).thenReturn(pumpState(zeroTempBasal(PumpSync.TemporaryBasalType.PUMP_SUSPEND)))
+
+        plugin.checkPodKaput()
+
+        verifyNoTempBasalSynced()
+    }
+
+    @Test
+    fun `a faulted pod replaces a short zero temp basal from the loop`() = runBlocking<Unit> {
+        whenever(podStateManager.isPodKaput).thenReturn(true)
+        whenever(podStateManager.podId).thenReturn(9999L)
+        whenever(pumpSync.expectedPumpState()).thenReturn(pumpState(zeroTempBasal(PumpSync.TemporaryBasalType.NORMAL)))
+
+        plugin.checkPodKaput()
+
+        verifyZeroTempBasalSynced("9999")
+    }
+
+    @Test
+    fun `a healthy pod records no zero temp basal`() = runBlocking<Unit> {
+        whenever(podStateManager.isPodKaput).thenReturn(false)
+
+        plugin.checkPodKaput()
+
+        verifyNoTempBasalSynced()
+    }
+
+    @Test
+    fun `no running pod records a zero temp basal under the serial AAPS has registered`() = runBlocking<Unit> {
+        whenever(podStateManager.isPodRunning).thenReturn(false)
+        whenever(pumpSync.expectedPumpState()).thenReturn(pumpState(serial = "4242"))
+
+        plugin.createFakeTBRWhenNoActivePod()
+
+        verifyZeroTempBasalSynced("4242")
+    }
+
+    @Test
+    fun `no running pod and no registered pump records the zero temp basal under the unpaired serial`() = runBlocking<Unit> {
+        whenever(podStateManager.isPodRunning).thenReturn(false)
+        whenever(pumpSync.expectedPumpState()).thenReturn(pumpState(serial = ""))
+
+        plugin.createFakeTBRWhenNoActivePod()
+
+        verifyZeroTempBasalSynced(O5PumpPlugin.UNPAIRED_SERIAL)
+    }
+
+    @Test
+    fun `a running pod gets no fake zero temp basal`() = runBlocking<Unit> {
+        whenever(podStateManager.isPodRunning).thenReturn(true)
+
+        plugin.createFakeTBRWhenNoActivePod()
+
+        verifyNoTempBasalSynced()
+        verify(pumpSync, never()).expectedPumpState()
+    }
+
+    @Test
+    fun `deactivation records a zero temp basal under the old pod serial`() = runBlocking<Unit> {
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+        whenever(pumpSync.expectedPumpState()).thenReturn(pumpState(serial = "12345"))
+
+        plugin.executeCustomCommand(CommandDeactivatePod())
+
+        verifyZeroTempBasalSynced("12345")
+    }
+
+    @Test
+    fun `suspending delivery records a zero temp basal`() = runBlocking<Unit> {
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+
+        plugin.executeCustomCommand(CommandSuspendDelivery())
+
+        verifyZeroTempBasalSynced("12345")
+    }
+
+    @Test
+    fun `a confirmed temp basal cancel tells AAPS the temp basal ended`() = runBlocking<Unit> {
+        stubStopTempBasal()
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.pendingDoseCommand).thenReturn(null)
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.TEMP_BASAL_ACTIVE, DeliveryStatus.BASAL_ACTIVE)
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+
+        val result = plugin.cancelTempBasal(false)
+
+        assertThat(result.enacted).isTrue()
+        verify(pumpSync).syncStopTemporaryBasalWithPumpId(any(), any(), eq(PumpType.OMNIPOD_5), eq("12345"), any())
+    }
+
+    @Test
+    fun `a temp basal cancel while delivery is suspended keeps the zero temp basal`() = runBlocking<Unit> {
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.pendingDoseCommand).thenReturn(null)
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.SUSPENDED)
+        whenever(pumpSync.expectedPumpState()).thenReturn(pumpState(zeroTempBasal(PumpSync.TemporaryBasalType.PUMP_SUSPEND)))
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+
+        plugin.cancelTempBasal(false)
+
+        verify(pumpSync, never()).syncStopTemporaryBasalWithPumpId(any(), any(), any(), any(), any())
+    }
+
+    @Test
+    fun `a reconciled temp basal cancel tells AAPS the temp basal ended`() = runBlocking<Unit> {
+        stubStopTempBasal()
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.pendingDoseCommand).thenReturn(
+            O5PodStateManager.PendingDoseCommand(
+                type = O5PodStateManager.PendingDoseType.TEMP_BASAL_CANCEL, startedAt = 5_000L, sequenceNumber = 4, historyId = 7L
+            )
+        )
+        whenever(podStateManager.sequenceNumberOfLastProgrammingCommand).thenReturn(4)
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.BASAL_ACTIVE)
+
+        plugin.reconcilePendingDose()
+
+        verify(pumpSync).syncStopTemporaryBasalWithPumpId(eq(5_000L), eq(7L), eq(PumpType.OMNIPOD_5), eq("12345"), any())
+    }
+
+    @Test
+    fun `a reconciled basal program ends the temp basal and stores the pod time zone`() = runBlocking<Unit> {
+        stubStopTempBasal()
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.pendingDoseCommand).thenReturn(
+            O5PodStateManager.PendingDoseCommand(
+                type = O5PodStateManager.PendingDoseType.BASAL_PROGRAM, startedAt = 5_000L, sequenceNumber = 4, historyId = 7L
+            )
+        )
+        whenever(podStateManager.sequenceNumberOfLastProgrammingCommand).thenReturn(4)
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.BASAL_ACTIVE)
+
+        plugin.reconcilePendingDose()
+
+        verify(pumpSync).syncStopTemporaryBasalWithPumpId(eq(5_000L), eq(7L), eq(PumpType.OMNIPOD_5), eq("12345"), any())
+        verify(podStateManager).updateTimeZone()
+        verify(podStateManager).deliverySuspended = false
+    }
+
+    private fun flatProfile(): PumpProfile = mock<PumpProfile>().also {
+        whenever(it.getBasalValues()).thenReturn(arrayOf(Profile.ProfileValue(0, 1.0)))
+    }
+
+    @Test
+    fun `setting a basal profile records the suspend, then ends it, and posts no PROFILE_SET_OK itself`() = runBlocking<Unit> {
+        stubStopTempBasal()
+        whenever(podStateManager.ltk).thenReturn(ByteArray(16))
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.pendingDoseCommand).thenReturn(null)
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.BASAL_ACTIVE)
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+
+        val result = plugin.setNewBasalProfile(flatProfile())
+
+        assertThat(result.success).isTrue()
+        assertThat(result.enacted).isTrue()
+        verifyZeroTempBasalSynced("12345")
+        verify(pumpSync).syncStopTemporaryBasalWithPumpId(any(), any(), eq(PumpType.OMNIPOD_5), eq("12345"), any())
+        verify(podStateManager).updateTimeZone()
+        verify(notificationManager, never()).post(eq(NotificationId.PROFILE_SET_OK), any<TextRef>(), any(), any(), any(), any(), anyOrNull(), any(), anyOrNull())
+    }
+
+    @Test
+    fun `resuming delivery ends the zero temp basal`() = runBlocking<Unit> {
+        stubStopTempBasal()
+        val profile = flatProfile()
+        whenever(podStateManager.ltk).thenReturn(ByteArray(16))
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.pendingDoseCommand).thenReturn(null)
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.SUSPENDED)
+        whenever(pumpSync.expectedPumpState()).thenReturn(pumpState(zeroTempBasal(PumpSync.TemporaryBasalType.PUMP_SUSPEND), profile = profile))
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+
+        val result = plugin.executeCustomCommand(CommandResumeDelivery())
+
+        assertThat(result!!.success).isTrue()
+        verify(pumpSync).syncStopTemporaryBasalWithPumpId(any(), any(), eq(PumpType.OMNIPOD_5), eq("12345"), any())
+    }
+
+    @Test
+    fun `setting a basal profile before pairing is deferred, not reported as a write`() = runBlocking<Unit> {
+        whenever(podStateManager.ltk).thenReturn(null)
+
+        val result = plugin.setNewBasalProfile(flatProfile())
+
+        assertThat(result.success).isTrue()
+        assertThat(result.enacted).isFalse()
+        verify(bleManager, never()).sendCommand(any(), any())
+    }
+
+    private fun verifyTextRefPosted(id: NotificationId, mode: VerificationMode = times(1)) {
+        verify(notificationManager, mode).post(eq(id), any<TextRef>(), any(), any(), any(), any(), anyOrNull(), any(), anyOrNull())
+    }
+
+    @Test
+    fun `pod warnings report a missing pod, but only once per 15 minutes`() {
+        whenever(podStateManager.isPodRunning).thenReturn(false)
+
+        plugin.updatePodWarnings()
+        plugin.updatePodWarnings()
+
+        verifyTextRefPosted(NotificationId.OMNIPOD_POD_NOT_ATTACHED)
+    }
+
+    @Test
+    fun `pod warnings report suspended delivery with sound`() {
+        whenever(podStateManager.isPodRunning).thenReturn(true)
+        whenever(podStateManager.isSuspended).thenReturn(true)
+        whenever(preferences.get(DashBooleanPreferenceKey.SoundDeliverySuspendedNotification)).thenReturn(true)
+        whenever(rh.gs(R.string.omnipod_common_alert_delivery_suspended)).thenReturn("Insulin delivery is suspended")
+
+        plugin.updatePodWarnings()
+
+        verify(notificationManager).dismiss(NotificationId.OMNIPOD_POD_NOT_ATTACHED)
+        verify(notificationManager).post(
+            eq(NotificationId.OMNIPOD_POD_SUSPENDED), eq("Insulin delivery is suspended"), level = any(), validMinutes = any(),
+            sound = eq(AlarmSound.BOLUS_ERROR), actions = any(), validityCheck = anyOrNull()
+        )
+    }
+
+    @Test
+    fun `pod warnings report a pod time zone that differs from the phone`() {
+        whenever(podStateManager.isPodRunning).thenReturn(true)
+        whenever(podStateManager.isSuspended).thenReturn(false)
+        whenever(podStateManager.sameTimeZone).thenReturn(false)
+
+        plugin.updatePodWarnings()
+
+        verify(notificationManager).dismiss(NotificationId.OMNIPOD_POD_SUSPENDED)
+        verifyTextRefPosted(NotificationId.OMNIPOD_TIME_OUT_OF_SYNC)
+    }
+
+    @Test
+    fun `pod warnings stay quiet for a healthy running pod`() {
+        whenever(podStateManager.isPodRunning).thenReturn(true)
+        whenever(podStateManager.isSuspended).thenReturn(false)
+        whenever(podStateManager.sameTimeZone).thenReturn(true)
+
+        plugin.updatePodWarnings()
+
+        verify(notificationManager, never()).post(any(), any<TextRef>(), any(), any(), any(), any(), anyOrNull(), any(), anyOrNull())
+        verify(notificationManager, never()).post(
+            any(), any<String>(), level = any(), validMinutes = any(),
+            sound = anyOrNull(), actions = any(), validityCheck = anyOrNull()
+        )
     }
 }

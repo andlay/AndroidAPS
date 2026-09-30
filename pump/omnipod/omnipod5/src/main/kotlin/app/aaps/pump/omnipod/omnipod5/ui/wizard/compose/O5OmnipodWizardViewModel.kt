@@ -274,6 +274,7 @@ class O5OmnipodWizardViewModel @Inject constructor(
                     .setCurrentTime(Date())
                     .build()
                 bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+                podStateManager.updateTimeZone()
                 ensureActivationTimeNotExceeded()
                 podStateManager.activationProgress = ActivationProgress.PROGRAMMED_BASAL
             }
@@ -331,6 +332,9 @@ class O5OmnipodWizardViewModel @Inject constructor(
             }
 
             podStateManager.basalProgram = basalProgram
+            // Also ends the zero "no delivery" temp basal that O5PumpPlugin records while no pod
+            // is running (connectNewPump defaults to endRunning = true, and stops it under the
+            // serial it was recorded with).
             pumpSync.connectNewPump()
             val serial = podStateManager.podId?.toString() ?: "n/a"
             pumpSync.insertTherapyEventIfNewWithTimestamp(

@@ -25,6 +25,7 @@ import com.google.gson.Gson
 import java.io.Serializable
 import java.util.Calendar
 import java.util.EnumSet
+import java.util.TimeZone
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
@@ -175,6 +176,19 @@ class PersistedO5PodStateManager @Inject constructor(
             podState.basalProgram = value
             store()
         }
+
+    override val timeZoneId: String? get() = podState.timeZone
+    override val timeZoneOffset: Int? get() = podState.timeZoneOffset
+    override val timeZoneUpdated: Long? get() = podState.timeZoneUpdated
+
+    override fun updateTimeZone() {
+        val timeZone = TimeZone.getDefault()
+        val now = System.currentTimeMillis()
+        podState.timeZoneOffset = timeZone.getOffset(now)
+        podState.timeZone = timeZone.id
+        podState.timeZoneUpdated = now
+        store()
+    }
 
     override var deliverySuspended: Boolean
         get() = podState.deliverySuspended
@@ -521,6 +535,9 @@ class PersistedO5PodStateManager @Inject constructor(
         var secondPrimeBolusVolume: Short? = null,
         var podLifeInHours: Short? = null,
         var basalProgram: BasalProgram? = null,
+        var timeZone: String? = null, // TimeZone ID (e.g. "Europe/Amsterdam")
+        var timeZoneOffset: Int? = null,
+        var timeZoneUpdated: Long? = null,
         var deliverySuspended: Boolean = false,
         var lastBolusStartTime: Long? = null,
         var lastBolusRequestedUnits: Double? = null,

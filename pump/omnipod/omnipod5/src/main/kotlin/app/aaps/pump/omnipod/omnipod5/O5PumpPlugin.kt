@@ -24,6 +24,7 @@ import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.notifications.AlarmSound
 import app.aaps.core.interfaces.notifications.NotificationId
+import app.aaps.core.interfaces.notifications.NotificationLevel
 import app.aaps.core.interfaces.notifications.NotificationManager
 import app.aaps.core.interfaces.di.PumpDriver
 import app.aaps.core.interfaces.plugin.PluginBase
@@ -149,9 +150,15 @@ private fun (() -> PumpEnactResult).get(): PumpEnactResult = invoke()
  * part of the persisted pod state) and [reconcilePendingDose] - run at the end of every
  * [getPumpStatus] call - resolves it on the next successful status read. Regular status
  * reads are driven by the loop cycle and `KeepAliveWorker` (like Dash), so the pod stays
- * disconnected between cycles; the periodic [statusChecker] only queues an extra read when
- * a [O5PodStateManager.pendingDoseCommand] is still outstanding (see
- * [refreshStatusOnUnacknowledgedCommands]). This is what makes an uncertain delivery outcome
+ * disconnected between cycles. Two timers run on top of that:
+ *  - [statusChecker] only queues an extra read when a
+ *    [O5PodStateManager.pendingDoseCommand] is still outstanding (see
+ *    [refreshStatusOnUnacknowledgedCommands]), and stops itself once the marker is cleared.
+ *  - [housekeepingChecker] runs every minute while the plugin runs, but uses stored state
+ *    only and never connects to the pod. It tells AAPS that no insulin is going in while no
+ *    pod is running ([createFakeTBRWhenNoActivePod]) and posts the periodic pod warnings
+ *    ([updatePodWarnings]), like the Dash status tick does.
+ * This is what makes an uncertain delivery outcome
  * recoverable instead of silently lost; see [O5PodStateManager]'s class doc for why this
  * doesn't need a Dash-style persisted command ledger to do so.
  */
@@ -199,6 +206,8 @@ class O5PumpPlugin @Inject constructor(
     @Volatile private var stopConnecting: CountDownLatch? = null
 
     private var statusChecker: Runnable
+    private var housekeepingChecker: Runnable
+    private var nextPodWarningCheck: Long = 0
 
     private var handler: Handler? = null
     private var scope: CoroutineScope? = null
@@ -208,7 +217,12 @@ class O5PumpPlugin @Inject constructor(
         private const val BOLUS_RETRY_INTERVAL_MS = 2000L
         private const val BOLUS_RETRIES = 5
         private const val STATUS_CHECK_INTERVAL_MS = 60L * 1000
+        private const val POD_WARNING_INTERVAL_MS = 15L * 60 * 1000
         private const val RESERVOIR_OVER_50_UNITS_DEFAULT = 75.0
+
+        /** Serial reported before any pod is paired, and used for the zero "no delivery" temp
+         *  basal when AAPS has no pump registered yet. */
+        internal const val UNPAIRED_SERIAL = "O5-unpaired"
 
         private const val FIXED_NONCE = O5_FIXED_NONCE
 
@@ -225,6 +239,17 @@ class O5PumpPlugin @Inject constructor(
             if (podStateManager.pendingDoseCommand != null) {
                 handler?.postDelayed(statusChecker, STATUS_CHECK_INTERVAL_MS)
             }
+        }
+        housekeepingChecker = Runnable {
+            updatePodWarnings()
+            scope?.launch {
+                try {
+                    createFakeTBRWhenNoActivePod()
+                } catch (e: Exception) {
+                    aapsLogger.warn(LTag.PUMP, "O5 error in createFakeTBRWhenNoActivePod: $e")
+                }
+            }
+            handler?.postDelayed(housekeepingChecker, STATUS_CHECK_INTERVAL_MS)
         }
     }
 
@@ -257,12 +282,109 @@ class O5PumpPlugin @Inject constructor(
         }
     }
 
+    /**
+     * Tells AAPS that no insulin is going in while no pod is running (none paired, activation not
+     * finished, faulted or deactivated). Without this AAPS keeps counting profile basal as
+     * delivered and IOB includes insulin that never went in. Mirrors
+     * `OmnipodDashPumpPlugin.createFakeTBRWhenNoActivePod`.
+     *
+     * Uses the serial AAPS has registered as the active pump, so the record is accepted instead of
+     * being rejected as data from a different pump - the old pod's serial after a deactivation or
+     * discard, or [UNPAIRED_SERIAL] when nothing is registered. The new-pod wizard's
+     * `connectNewPump()` ends this temp basal when the next pod starts delivering.
+     *
+     * Internal (rather than private) to allow unit testing within this module.
+     */
+    internal suspend fun createFakeTBRWhenNoActivePod() {
+        if (podStateManager.isPodRunning) return
+        val expectedState = pumpSync.expectedPumpState()
+        recordNoDelivery(expectedState, expectedState.serialNumber.ifEmpty { UNPAIRED_SERIAL })
+    }
+
+    /**
+     * Records a zero-rate [PumpSync.TemporaryBasalType.PUMP_SUSPEND] temp basal for the whole pod
+     * lifetime, unless one is already running. A zero temp basal of another type (for example a
+     * 30 minute one from the loop) is replaced, because it would end while the pod still delivers
+     * nothing.
+     */
+    private suspend fun recordNoDelivery(expectedState: PumpSync.PumpState, pumpSerial: String) {
+        val tbr = expectedState.temporaryBasal
+        if (tbr != null && tbr.rate == 0.0 && tbr.type == PumpSync.TemporaryBasalType.PUMP_SUSPEND) return
+        aapsLogger.info(LTag.PUMP, "O5 recording zero delivery temp basal, serial=$pumpSerial")
+        syncZeroTempBasal(pumpSerial)
+    }
+
+    private suspend fun syncZeroTempBasal(pumpSerial: String) {
+        val now = System.currentTimeMillis()
+        pumpSync.syncTemporaryBasalWithPumpId(
+            timestamp = now,
+            rate = PumpRate(0.0),
+            duration = T.mins(PodConstants.MAX_POD_LIFETIME.toMinutes()).msecs(),
+            isAbsolute = true,
+            type = PumpSync.TemporaryBasalType.PUMP_SUSPEND,
+            pumpId = now, // not used for anything, only has to be unique
+            pumpType = PumpType.OMNIPOD_5,
+            pumpSerial = pumpSerial
+        )
+    }
+
+    /**
+     * When the pod has stopped delivering for good (fault or deactivation), tells AAPS that no
+     * insulin is going in. Runs on every status read, not only once per alarm like
+     * [checkPodFault], so a lost write or an app restart still ends up with the zero temp basal.
+     * Mirrors `OmnipodDashPumpPlugin.checkPodKaput`.
+     *
+     * Internal (rather than private) to allow unit testing within this module.
+     */
+    internal suspend fun checkPodKaput() {
+        if (!podStateManager.isPodKaput) return
+        recordNoDelivery(pumpSync.expectedPumpState(), serialNumber())
+    }
+
+    /**
+     * Posts the periodic pod warnings, at most once every 15 minutes: no running pod, delivery
+     * suspended, pod time zone differs from the phone. Uses stored state only. Port of
+     * `OmnipodDashPumpPlugin.updatePodWarnings`.
+     *
+     * Internal (rather than private) to allow unit testing within this module.
+     */
+    internal fun updatePodWarnings() {
+        val now = System.currentTimeMillis()
+        if (now <= nextPodWarningCheck) return
+        if (!podStateManager.isPodRunning) {
+            notificationManager.post(
+                NotificationId.OMNIPOD_POD_NOT_ATTACHED,
+                TextRef.AndroidRes(R.string.omnipod_common_pod_status_no_active_pod)
+            )
+        } else {
+            notificationManager.dismiss(NotificationId.OMNIPOD_POD_NOT_ATTACHED)
+            if (podStateManager.isSuspended) {
+                notificationManager.post(
+                    NotificationId.OMNIPOD_POD_SUSPENDED,
+                    rh.gs(R.string.omnipod_common_alert_delivery_suspended),
+                    sound = if (preferences.get(DashBooleanPreferenceKey.SoundDeliverySuspendedNotification)) AlarmSound.BOLUS_ERROR else null
+                )
+            } else {
+                notificationManager.dismiss(NotificationId.OMNIPOD_POD_SUSPENDED)
+                if (!podStateManager.sameTimeZone) {
+                    notificationManager.post(
+                        NotificationId.OMNIPOD_TIME_OUT_OF_SYNC,
+                        TextRef.AndroidRes(R.string.timezone_on_pod_is_different_from_the_timezone),
+                        level = NotificationLevel.NORMAL
+                    )
+                }
+            }
+        }
+        nextPodWarningCheck = now + POD_WARNING_INTERVAL_MS
+    }
+
     override suspend fun onStart() {
         super.onStart()
         handler = Handler(Looper.getMainLooper())
         if (podStateManager.pendingDoseCommand != null) {
             handler?.postDelayed(statusChecker, STATUS_CHECK_INTERVAL_MS)
         }
+        handler?.postDelayed(housekeepingChecker, STATUS_CHECK_INTERVAL_MS)
         val newScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         scope = newScope
         merge(
@@ -278,13 +400,18 @@ class O5PumpPlugin @Inject constructor(
     override suspend fun onStop() {
         super.onStop()
         handler?.removeCallbacks(statusChecker)
+        handler?.removeCallbacks(housekeepingChecker)
         handler = null
         scope?.cancel()
         scope = null
     }
 
 
-    override fun isInitialized(): Boolean = podStateManager.activationProgress == ActivationProgress.COMPLETED
+    /** Ready only while an activated pod is actually running. [ActivationProgress] never moves
+     *  backwards on a fault (the wizard needs it for deactivation), so the pod status is checked
+     *  too - like Dash's `isPodRunning`. */
+    override fun isInitialized(): Boolean =
+        podStateManager.activationProgress == ActivationProgress.COMPLETED && podStateManager.isPodRunning
     override fun isSuspended(): Boolean = podStateManager.deliverySuspended
 
     override fun isBusy(): Boolean =
@@ -347,6 +474,7 @@ class O5PumpPlugin @Inject constructor(
         try {
             fetchStatus().blockingAwait()
             reconcilePendingDose()
+            checkPodKaput()
             checkPodFault()
             updateAlertConfiguration()
         } catch (e: Exception) {
@@ -544,14 +672,59 @@ class O5PumpPlugin @Inject constructor(
                     podStateManager.activeTempBasalRate = null
                     podStateManager.activeTempBasalDurationMinutes = null
                     podStateManager.pendingDoseCommand = null
+                    syncTempBasalCancelled(pending.startedAt, pending.historyId ?: pending.startedAt)
                 }
 
             O5PodStateManager.PendingDoseType.BASAL_PROGRAM      ->
                 if (podStateManager.deliveryStatus?.basalActive() == true) {
                     pending.historyId?.let { history.markSent(it).andThen(history.markSuccess(it)).blockingAwait() }
                     podStateManager.pendingDoseCommand = null
+                    onBasalProgramConfirmed(pending.startedAt, pending.historyId ?: pending.startedAt)
                 }
         }
+    }
+
+    /** Tells AAPS that the temp basal (or the zero "suspended" temp basal) running at
+     *  [timestamp] has ended. */
+    private suspend fun syncTempBasalStopped(timestamp: Long, endPumpId: Long) {
+        val stopped = pumpSync.syncStopTemporaryBasalWithPumpId(
+            timestamp = timestamp,
+            endPumpId = endPumpId,
+            pumpType = PumpType.OMNIPOD_5,
+            pumpSerial = serialNumber()
+        )
+        aapsLogger.info(LTag.PUMP, "O5 syncStopTemporaryBasalWithPumpId ret=$stopped endPumpId=$endPumpId")
+    }
+
+    /**
+     * After a confirmed temp basal cancel. If the pod is suspended, scheduled basal does not
+     * come back, so the zero "suspended" temp basal in AAPS must stay and nothing is stopped.
+     */
+    private suspend fun syncTempBasalCancelled(timestamp: Long, endPumpId: Long) {
+        if (podStateManager.deliveryStatus?.suspended() == true) {
+            aapsLogger.info(LTag.PUMP, "O5 temp basal cancelled while delivery is suspended - keeping the zero temp basal")
+            return
+        }
+        syncTempBasalStopped(timestamp, endPumpId)
+    }
+
+    /**
+     * A basal program always suspends delivery first, so any temp basal on the pod is gone and
+     * scheduled basal runs again. Records that in AAPS and in the pod state, and stores the pod
+     * clock's time zone, because the same command sets the pod clock. Mirrors Dash's
+     * `SET_BASAL_PROFILE` / `RESUME_DELIVERY` confirmation handling.
+     */
+    private suspend fun onBasalProgramConfirmed(timestamp: Long, endPumpId: Long) {
+        podStateManager.deliverySuspended = false
+        podStateManager.activeTempBasalStartTime = null
+        podStateManager.activeTempBasalRate = null
+        podStateManager.activeTempBasalDurationMinutes = null
+        podStateManager.updateTimeZone()
+        syncTempBasalStopped(timestamp, endPumpId)
+        notificationManager.dismiss(NotificationId.OMNIPOD_POD_SUSPENDED)
+        notificationManager.dismiss(NotificationId.FAILED_UPDATE_PROFILE)
+        notificationManager.dismiss(NotificationId.OMNIPOD_TBR_ALERTS)
+        notificationManager.dismiss(NotificationId.OMNIPOD_TIME_OUT_OF_SYNC)
     }
 
     /**
@@ -625,7 +798,8 @@ class O5PumpPlugin @Inject constructor(
         historyType: OmnipodCommandType = OmnipodCommandType.SET_BASAL_PROFILE
     ): PumpEnactResult {
         if (podStateManager.ltk == null) {
-            return pumpEnactResultProvider.get().success(true).enacted(true)
+            // Pod not paired yet - deferred, not an actual write, same as Dash. enacted=false => no PROFILE_SET_OK.
+            return pumpEnactResultProvider.get().success(true).enacted(false)
         }
         if (!pendingDoseResolved()) return unresolvedDoseResult()
         val basalProgram = mapProfileToBasalProgram(profile, PumpType.OMNIPOD_5)
@@ -645,6 +819,7 @@ class O5PumpPlugin @Inject constructor(
                     .build()
                 bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
                 podStateManager.deliverySuspended = true
+                syncZeroTempBasal(serialNumber())
             }
 
             podStateManager.pendingDoseCommand = O5PodStateManager.PendingDoseCommand(
@@ -665,10 +840,10 @@ class O5PumpPlugin @Inject constructor(
                 .build()
             bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
             podStateManager.basalProgram = basalProgram
-            podStateManager.deliverySuspended = false
             podStateManager.pendingDoseCommand = null
             history.markSent(historyId).andThen(history.markSuccess(historyId)).blockingAwait()
-            notificationManager.post(NotificationId.PROFILE_SET_OK, TextRef.AndroidRes(app.aaps.core.ui.R.string.profile_set_ok))
+            onBasalProgramConfirmed(System.currentTimeMillis(), historyId)
+            // PROFILE_SET_OK is posted centrally (CommandQueue) on success && enacted.
             disableSuspendAlerts()
             pumpEnactResultProvider.get().success(true).enacted(true)
         } catch (e: Exception) {
@@ -1026,7 +1201,7 @@ class O5PumpPlugin @Inject constructor(
         }
     }
 
-    private fun cancelActiveTempBasal() {
+    private suspend fun cancelActiveTempBasal() {
         val startedAt = System.currentTimeMillis()
         val historyId = history.createRecord(
             commandType = OmnipodCommandType.CANCEL_TEMPORARY_BASAL,
@@ -1054,6 +1229,8 @@ class O5PumpPlugin @Inject constructor(
         podStateManager.activeTempBasalRate = null
         podStateManager.activeTempBasalDurationMinutes = null
         podStateManager.pendingDoseCommand = null
+        syncTempBasalCancelled(startedAt, historyId)
+        notificationManager.dismiss(NotificationId.OMNIPOD_TBR_ALERTS)
         if (needsBasalCorrection()) deliverBasalCorrection()
     }
 
@@ -1068,7 +1245,7 @@ class O5PumpPlugin @Inject constructor(
     override val pumpDescription: PumpDescription = Companion.pumpDescription
     override fun manufacturer(): ManufacturerType = ManufacturerType.Insulet
     override fun model(): PumpType = pumpDescription.pumpType
-    override fun serialNumber(): String = podStateManager.podId?.toString() ?: "O5-unpaired"
+    override fun serialNumber(): String = podStateManager.podId?.toString() ?: UNPAIRED_SERIAL
     override val isFakingTempsByExtendedBoluses: Boolean = false
 
     override suspend fun loadTDDs(): PumpEnactResult =
@@ -1116,10 +1293,16 @@ class O5PumpPlugin @Inject constructor(
                 .setNonce(FIXED_NONCE)
                 .build()
             bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+            val podSerial = serialNumber()
             bleManager.removeBond()
             podStateManager.reset()
             history.recordSuccess(OmnipodCommandType.DEACTIVATE_POD)
             notificationManager.dismiss(NotificationId.OMNIPOD_POD_FAULT)
+            try {
+                runBlocking { recordNoDelivery(pumpSync.expectedPumpState(), podSerial) }
+            } catch (e: Exception) {
+                aapsLogger.warn(LTag.PUMP, "O5 could not record zero delivery after deactivation: $e")
+            }
             pumpEnactResultProvider.get().success(true).enacted(true)
         } catch (e: Exception) {
             aapsLogger.error(LTag.PUMP, "Error deactivating O5 pod", e)
@@ -1156,7 +1339,12 @@ class O5PumpPlugin @Inject constructor(
             bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
             podStateManager.deliverySuspended = true
             podStateManager.suspendAlertsEnabled = true
+            // Suspending stops any temp basal on the pod as well.
+            podStateManager.activeTempBasalStartTime = null
+            podStateManager.activeTempBasalRate = null
+            podStateManager.activeTempBasalDurationMinutes = null
             history.recordSuccess(OmnipodCommandType.SUSPEND_DELIVERY)
+            runBlocking { syncZeroTempBasal(serialNumber()) }
             pumpEnactResultProvider.get().success(true).enacted(true)
         } catch (e: Exception) {
             aapsLogger.error(LTag.PUMP, "Error suspending O5 delivery", e)

@@ -9,6 +9,7 @@ import app.aaps.pump.omnipod.common.bledriver.pod.response.PodInfoTriggeredAlert
 import com.google.common.truth.Truth.assertThat
 import org.junit.jupiter.api.Test
 import java.util.Calendar
+import java.util.TimeZone
 
 /**
  * [O5PodStateManager.updateFromActivationTimeResponse]/[O5PodStateManager
@@ -93,5 +94,33 @@ class InMemoryO5PodStateManagerTest {
             AlertType.LOW_RESERVOIR, 120.toShort(),
             AlertType.EXPIRATION, 300.toShort()
         )
+    }
+
+    @Test
+    fun `sameTimeZone is true while the pod time zone is unknown`() {
+        val state = InMemoryO5PodStateManager()
+
+        assertThat(state.timeZoneOffset).isNull()
+        assertThat(state.sameTimeZone).isTrue()
+    }
+
+    @Test
+    fun `sameTimeZone follows the phone time zone after the pod time zone is stored`() {
+        val original = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("GMT+02:00"))
+            val state = InMemoryO5PodStateManager()
+            state.updateTimeZone()
+            assertThat(state.sameTimeZone).isTrue()
+
+            TimeZone.setDefault(TimeZone.getTimeZone("GMT-05:00"))
+            assertThat(state.sameTimeZone).isFalse()
+
+            state.reset()
+            assertThat(state.timeZoneOffset).isNull()
+            assertThat(state.sameTimeZone).isTrue()
+        } finally {
+            TimeZone.setDefault(original)
+        }
     }
 }
