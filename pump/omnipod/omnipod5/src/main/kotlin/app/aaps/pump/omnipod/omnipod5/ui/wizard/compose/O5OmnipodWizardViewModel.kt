@@ -49,6 +49,7 @@ import app.aaps.pump.omnipod.common.bledriver.pod.response.SetUniqueIdResponse
 import app.aaps.pump.omnipod.common.bledriver.pod.response.VersionResponse
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.O5PodStateManager
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.util.buildO5ExpirationAlerts
+import app.aaps.pump.omnipod.omnipod5.util.I8n
 import app.aaps.pump.omnipod.common.keys.OmnipodBooleanPreferenceKey
 import app.aaps.pump.omnipod.common.keys.OmnipodIntPreferenceKey
 import app.aaps.pump.omnipod.common.queue.command.CommandDeactivatePod
@@ -254,7 +255,7 @@ class O5OmnipodWizardViewModel @Inject constructor(
             pumpEnactResultProvider().success(true)
         } catch (throwable: Throwable) {
             logger.error(LTag.PUMP, "Error in O5 Pod activation part 1", throwable)
-            pumpEnactResultProvider().success(false).comment(throwable.message ?: throwable.javaClass.simpleName)
+            pumpEnactResultProvider().success(false).comment(I8n.textFromException(throwable, rh))
         }
     }
 
@@ -351,7 +352,7 @@ class O5OmnipodWizardViewModel @Inject constructor(
             pumpEnactResultProvider().success(true)
         } catch (throwable: Throwable) {
             logger.error(LTag.PUMP, "Error in O5 Pod activation part 2", throwable)
-            pumpEnactResultProvider().success(false).comment(throwable.message ?: throwable.javaClass.simpleName)
+            pumpEnactResultProvider().success(false).comment(I8n.textFromException(throwable, rh))
         }
     }
 
