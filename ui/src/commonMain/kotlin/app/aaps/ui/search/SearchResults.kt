@@ -37,6 +37,7 @@ import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.compose.masterEditingEnabled
 import app.aaps.core.ui.compose.stringResource
 import app.aaps.core.ui.search.SearchableItem
+import app.aaps.ui.UiStrings
 
 /**
  * Displays search results in a categorized list.
@@ -280,7 +281,7 @@ private fun SearchResultItem(
         }
 
         // Trailing enable/disable switch. Single-select plugins can only be switched ON (the active one can't be
-        // turned off - it is replaced by enabling another); enforced plugins are locked.
+        // turned off — it's replaced by enabling another); enforced plugins are locked.
         if (plugin != null) {
             Spacer(modifier = Modifier.width(8.dp))
             Switch(
