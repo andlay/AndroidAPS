@@ -157,6 +157,15 @@ class PrepareGraphDataRunner(
     internal fun carbsForBucket(windowCarbs: List<CA>, bgTime: Long): List<CA> =
         windowCarbs.filter { it.timestamp in (bgTime - T.mins(5).msecs() + 1)..bgTime }
 
+    /**
+     * BGI, deviations and deviation slopes are BG changes per 5 minutes in mg/dL, the unit oref works in.
+     * The secondary graphs print these numbers on their axis, so convert them to the user's units here,
+     * the same way BG and VSENS are converted. Without this an mmol/L user reads mg/dL values (a deviation
+     * of 18 instead of 1.0). Only the graph values change; autosens, COB and the APS keep using mg/dL.
+     * `internal` so it can be unit-tested.
+     */
+    internal fun glucoseChangeInUnits(valueInMgdl: Double): Double = profileUtil.fromMgdlToUnits(valueInMgdl)
+
     // ---------- Phase 1 helpers (LoadBgDataWorker logic) ----------
 
     private suspend fun AutosensDataStore.loadBgData(to: Long) {
@@ -760,7 +769,7 @@ class PrepareGraphDataRunner(
                     cobFailOverListCompose.add(CobFailOverPoint(time, autosensData.cob))
                 }
 
-                val bgiCompose: Double = iob.activity * autosensData.sens * 5.0
+                val bgiCompose: Double = glucoseChangeInUnits(iob.activity * autosensData.sens * 5.0)
                 if (time <= now) bgiListCompose.add(GraphDataPoint(time, bgiCompose))
                 else bgiPredictionListCompose.add(GraphDataPoint(time, bgiCompose))
 
@@ -772,12 +781,12 @@ class PrepareGraphDataRunner(
                     autosensData.pastSensitivity == "-" -> DeviationType.NEGATIVE
                     else                                -> DeviationType.EQUAL
                 }
-                deviationsListCompose.add(DeviationDataPoint(time, autosensData.deviation, deviationType))
+                deviationsListCompose.add(DeviationDataPoint(time, glucoseChangeInUnits(autosensData.deviation), deviationType))
 
                 ratioListCompose.add(GraphDataPoint(time, 100.0 * (autosensData.autosensResult.ratio - 1)))
 
-                dsMaxListCompose.add(GraphDataPoint(time, autosensData.slopeFromMaxDeviation))
-                dsMinListCompose.add(GraphDataPoint(time, autosensData.slopeFromMinDeviation))
+                dsMaxListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(autosensData.slopeFromMaxDeviation)))
+                dsMinListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(autosensData.slopeFromMinDeviation)))
             }
 
             if (time <= now) activityListCompose.add(GraphDataPoint(time, iob.activity))

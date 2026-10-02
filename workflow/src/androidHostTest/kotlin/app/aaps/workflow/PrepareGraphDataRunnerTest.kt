@@ -5,7 +5,9 @@ import kotlinx.coroutines.test.TestScope
 import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.CA
+import app.aaps.core.data.model.GlucoseUnit
 import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.aps.AutosensData
 import app.aaps.core.interfaces.aps.AutosensDataStore
@@ -21,6 +23,7 @@ import app.aaps.core.interfaces.rx.bus.RxBus
 import app.aaps.core.interfaces.rx.events.EventBucketedDataCreated
 import app.aaps.core.interfaces.workflow.CalculationSignalsEmitter
 import app.aaps.core.interfaces.workflow.CalculationWorkflow.ProgressData
+import app.aaps.core.keys.StringKey
 import app.aaps.shared.tests.TestBaseWithProfile
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -104,6 +107,26 @@ class PrepareGraphDataRunnerTest : TestBaseWithProfile() {
     }
 
     private fun carbsAt(vararg timestamps: Long) = timestamps.map { CA(timestamp = it, amount = 10.0, duration = 0) }
+
+    @Test
+    fun `graph BG changes are shown in mmol per L for mmol users`() {
+        // BGI, deviations and deviation slopes are mg/dL per 5 minutes inside oref. The graph prints its
+        // axis from these numbers, so an mmol/L user must get them converted, with the same factor as BG.
+        whenever(preferences.get(StringKey.GeneralUnits)).thenReturn(GlucoseUnit.MMOL.asText)
+
+        assertThat(runner().glucoseChangeInUnits(18.0)).isWithin(1e-9).of(18.0 * Constants.MGDL_TO_MMOLL)
+        assertThat(runner().glucoseChangeInUnits(18.0)).isWithin(0.01).of(1.0)
+        assertThat(runner().glucoseChangeInUnits(-9.0)).isWithin(0.01).of(-0.5)
+        assertThat(runner().glucoseChangeInUnits(0.0)).isEqualTo(0.0)
+    }
+
+    @Test
+    fun `graph BG changes stay in mg per dL for mg per dL users`() {
+        whenever(preferences.get(StringKey.GeneralUnits)).thenReturn(GlucoseUnit.MGDL.asText)
+
+        assertThat(runner().glucoseChangeInUnits(18.0)).isEqualTo(18.0)
+        assertThat(runner().glucoseChangeInUnits(-9.0)).isEqualTo(-9.0)
+    }
 
     @Test
     fun `a bucket takes the carbs of its own five minutes`() {

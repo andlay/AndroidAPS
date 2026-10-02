@@ -185,7 +185,7 @@ fun SecondaryGraphCompose(
     val primaryType = orderedTypes[0]
     val secondaryType = orderedTypes.getOrNull(1)
 
-    // Specific case: BGI and DEVIATIONS share the same mg/dL unit and should share the vertical scale
+    // Specific case: BGI and DEVIATIONS share the same unit (BG change per 5 min, in the user's units) and should share the vertical scale
     val shareAxis = (primaryType == SeriesType.BGI && secondaryType == SeriesType.DEVIATIONS) ||
         (primaryType == SeriesType.DEVIATIONS && secondaryType == SeriesType.BGI)
 
