@@ -819,6 +819,7 @@ class O5PumpPlugin @Inject constructor(
                     .build()
                 bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
                 podStateManager.deliverySuspended = true
+                podStateManager.suspendAlertsEnabled = true
                 syncZeroTempBasal(serialNumber())
             }
 
