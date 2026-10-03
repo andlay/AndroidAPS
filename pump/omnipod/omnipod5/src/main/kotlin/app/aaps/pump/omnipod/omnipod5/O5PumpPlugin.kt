@@ -819,6 +819,11 @@ class O5PumpPlugin @Inject constructor(
                     .build()
                 bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
                 podStateManager.deliverySuspended = true
+                // SuspendDeliveryCommand also arms the pod's SUSPEND_ENDED reminder (FOUR_TIMES_BIP_BEEP after
+                // 20 min, then every minute / 15 min). Mark it armed, as suspendDelivery() does, so that
+                // disableSuspendAlerts() below really turns it off. Without this the flag stays false after the
+                // first clean-up and the pod beeps "insulin delivery is suspended" after every profile switch.
+                podStateManager.suspendAlertsEnabled = true
                 syncZeroTempBasal(serialNumber())
             }
 

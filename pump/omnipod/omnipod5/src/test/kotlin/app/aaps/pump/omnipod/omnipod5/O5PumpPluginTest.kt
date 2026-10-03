@@ -28,6 +28,7 @@ import app.aaps.pump.omnipod.common.bledriver.pod.definition.DeliveryStatus
 import app.aaps.pump.omnipod.common.bledriver.pod.definition.PodStatus
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.O5PodStateManager
 import app.aaps.pump.omnipod.common.bledriver.pod.command.StopDeliveryCommand
+import app.aaps.pump.omnipod.common.bledriver.pod.command.ProgramAlertsCommand
 import app.aaps.pump.omnipod.common.queue.command.CommandDeactivatePod
 import app.aaps.pump.omnipod.common.queue.command.CommandDeliverBasalCorrection
 import app.aaps.pump.omnipod.common.queue.command.CommandDisableSuspendAlerts
@@ -52,6 +53,7 @@ import org.mockito.Mock
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.atLeast
+import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.argThat
 import org.mockito.kotlin.mock
@@ -1062,6 +1064,29 @@ class O5PumpPluginTest : TestBaseWithProfile() {
         verify(pumpSync).syncStopTemporaryBasalWithPumpId(any(), any(), eq(PumpType.OMNIPOD_5), eq("12345"), any())
         verify(podStateManager).updateTimeZone()
         verify(notificationManager, never()).post(eq(NotificationId.PROFILE_SET_OK), any<TextRef>(), any(), any(), any(), any(), anyOrNull(), any(), anyOrNull())
+    }
+
+    @Test
+    fun `setting a basal profile turns off the suspend reminder its own suspend armed`() = runBlocking<Unit> {
+        // The pod state remembers the flag, like the real one. It starts false: the reminder was already
+        // turned off once (after the previous profile switch or resume), which is when the bug showed.
+        var suspendAlertsEnabled = false
+        whenever(podStateManager.suspendAlertsEnabled).thenAnswer { suspendAlertsEnabled }
+        doAnswer { suspendAlertsEnabled = it.getArgument(0); null }.whenever(podStateManager).suspendAlertsEnabled = any()
+        stubStopTempBasal()
+        whenever(podStateManager.ltk).thenReturn(ByteArray(16))
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.pendingDoseCommand).thenReturn(null)
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.BASAL_ACTIVE)
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+
+        val result = plugin.setNewBasalProfile(flatProfile())
+
+        assertThat(result.success).isTrue()
+        // SuspendDeliveryCommand arms SUSPEND_ENDED on the pod, so a ProgramAlertsCommand must follow to
+        // turn it off again - otherwise the pod beeps "insulin delivery is suspended" 20 minutes later.
+        verify(bleManager).sendCommand(argThat { this is ProgramAlertsCommand }, any())
+        assertThat(suspendAlertsEnabled).isFalse()
     }
 
     @Test
