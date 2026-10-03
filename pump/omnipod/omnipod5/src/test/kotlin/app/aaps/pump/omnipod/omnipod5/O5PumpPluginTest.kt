@@ -1067,9 +1067,7 @@ class O5PumpPluginTest : TestBaseWithProfile() {
     }
 
     @Test
-    fun `setting a basal profile turns off the suspend reminder its own suspend armed`() = runBlocking<Unit> {
-        // The pod state remembers the flag, like the real one. It starts false: the reminder was already
-        // turned off once (after the previous profile switch or resume), which is when the bug showed.
+    fun `setting a basal profile disables the suspend alert`() = runBlocking<Unit> {
         var suspendAlertsEnabled = false
         whenever(podStateManager.suspendAlertsEnabled).thenAnswer { suspendAlertsEnabled }
         doAnswer { suspendAlertsEnabled = it.getArgument(0); null }.whenever(podStateManager).suspendAlertsEnabled = any()
@@ -1083,8 +1081,6 @@ class O5PumpPluginTest : TestBaseWithProfile() {
         val result = plugin.setNewBasalProfile(flatProfile())
 
         assertThat(result.success).isTrue()
-        // SuspendDeliveryCommand arms SUSPEND_ENDED on the pod, so a ProgramAlertsCommand must follow to
-        // turn it off again - otherwise the pod beeps "insulin delivery is suspended" 20 minutes later.
         verify(bleManager).sendCommand(argThat { this is ProgramAlertsCommand }, any())
         assertThat(suspendAlertsEnabled).isFalse()
     }
