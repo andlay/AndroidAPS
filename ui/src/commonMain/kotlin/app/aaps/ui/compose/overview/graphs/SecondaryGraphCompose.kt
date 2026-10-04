@@ -147,6 +147,7 @@ fun SecondaryGraphCompose(
     nowTimestamp: Long,
     activityOverlay: Boolean = false,
     onVisibleRangeChanged: ((Pair<Double, Double>?) -> Unit)? = null,
+    geometryHolder: GraphGeometryHolder? = null,
     modifier: Modifier = Modifier
 ) {
     val dateUtil = LocalDateUtil.current
@@ -614,7 +615,8 @@ fun SecondaryGraphCompose(
     val bottomAxisItemPlacer = rememberBottomAxisItemPlacer(minTimestamp)
     val nowLineColor = MaterialTheme.colorScheme.onSurface
     val nowLine = rememberNowLine(minTimestamp, nowTimestamp, nowLineColor)
-    val decorations = remember(nowLine, visibleRangeReporter) { listOf(nowLine, visibleRangeReporter) }
+    val geometryReporter = remember(geometryHolder) { geometryHolder?.let { GraphGeometryReporter(it) } }
+    val decorations = remember(nowLine, visibleRangeReporter, geometryReporter) { listOfNotNull(nowLine, visibleRangeReporter, geometryReporter) }
 
     // Union of Y values across all primary-layer series (IOB, COB, simple series, DevSlope-min,
     // deviation lines), windowed to the visible scroll/zoom range — computed once here since the
@@ -1185,10 +1187,13 @@ fun rememberSeriesColors(): SeriesColors {
     }
 }
 
-/** DevSlope min line — magenta, no fill (matches @color/devSlopeNeg #FF00FF) */
+/** DevSlope min line color — magenta (matches @color/devSlopeNeg #FF00FF) */
+internal val DEV_SLOPE_MIN_COLOR = Color(0xFFFF00FF)
+
+/** DevSlope min line — magenta, no fill */
 private fun createDevSlopeMinLine(): LineCartesianLayer.Line {
     return LineCartesianLayer.Line(
-        fill = LineCartesianLayer.LineFill.single(Fill(Color(0xFFFF00FF))),
+        fill = LineCartesianLayer.LineFill.single(Fill(DEV_SLOPE_MIN_COLOR)),
         areaFill = null
     )
 }
@@ -1395,7 +1400,7 @@ private val DEVIATION_COLOR_EQUAL = Color(0x72000000)    // black (matches @colo
 private val DEVIATION_COLOR_UAM = Color(0xFFC9BD60)      // yellow (matches @color/uam)
 private val DEVIATION_COLOR_CSF = Color(0xC8666666)      // grey (matches @color/deviationGrey)
 
-private fun deviationColor(type: DeviationType): Color = when (type) {
+internal fun deviationColor(type: DeviationType): Color = when (type) {
     DeviationType.POSITIVE -> DEVIATION_COLOR_POSITIVE
     DeviationType.NEGATIVE -> DEVIATION_COLOR_NEGATIVE
     DeviationType.EQUAL    -> DEVIATION_COLOR_EQUAL

@@ -336,4 +336,16 @@
     <string name="cal_precheck_delta_too_high">Glucose is changing too fast (Δ %1$s %3$s per 5 min, limit %2$s). Wait for stability.</string>
     <string name="cal_precheck_mark_sensor_change">Mark sensor change</string>
 
+    <!-- Graph touch cursor -->
+    <string name="graph_cursor_now" comment="Shown in the graph touch card when the touched point is the current time">now</string>
+    <string name="graph_cursor_ago" comment="Time before now of the touched graph point. %1$s=duration. Example: −20 min">−%1$s</string>
+    <string name="graph_cursor_ahead" comment="Time after now of the touched graph point (a prediction). %1$s=duration. Example: +1 h 20 min">+%1$s</string>
+    <string name="graph_cursor_acob_shortname" comment="Short label for the absorbed carbs (aCOB) prediction in the graph touch card">aCOB</string>
+    <string name="graph_cursor_uam_shortname" comment="Short label for the unannounced meal (UAM) prediction in the graph touch card">UAM</string>
+    <string name="graph_cursor_zt_shortname" comment="Short label for the zero temp (ZT) prediction in the graph touch card">ZT</string>
+    <string name="graph_cursor_bolus_shortname" comment="Short label for a normal bolus in the graph touch card">BOL</string>
+    <string name="graph_cursor_extended_shortname" comment="Short label for an extended bolus in the graph touch card">EXT</string>
+    <string name="graph_cursor_carbs_shortname" comment="Short label for a carbs entry in the graph touch card">CARBS</string>
+    <string name="graph_cursor_profile_shortname" comment="Short label for a profile switch in the graph touch card">PROF</string>
+
 </resources>

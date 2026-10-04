@@ -2,6 +2,7 @@ package app.aaps.ui.compose.overview.graphs
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -41,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -67,6 +69,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 
 /**
  * Overview graphs section using Vico charts.
@@ -196,6 +199,11 @@ fun GraphsSection(
     // causing minTimestamp divergence and scroll misalignment (pixel position
     // maps to different time when x-axis ranges differ).
     val derivedTimeRange by graphViewModel.derivedTimeRange.collectAsStateWithLifecycle()
+
+    // Touch cursor (see GraphCursor.kt). One x layout for all graphs, reported by the fixed IOB graph.
+    val cursorGeometry = remember { GraphGeometryHolder() }
+    var cursor by remember { mutableStateOf<GraphCursor?>(null) }
+    val onCursorChange: (GraphCursor?) -> Unit = { cursor = it }
 
     // BG's own visible window, sourced from the fixed IOB graph's already-computed visible range
     // (its scroll/zoom are synced to BG's, see the sync LaunchedEffect below) — not from a
@@ -358,6 +366,12 @@ fun GraphsSection(
             }
     }
 
+    // The card shows the time under the finger, so it must not stay put while the graphs move under it.
+    LaunchedEffect(bgScrollState, bgZoomState) {
+        snapshotFlow { bgScrollState.value to bgZoomState.value }
+            .drop(1)
+            .collect { cursor = null }
+    }
 
     Column(
         modifier = modifier
@@ -407,7 +421,7 @@ fun GraphsSection(
             else                                   -> stringResource(UiStrings.a11y_bg_graph_summary_values_only, recentValues)
         }
 
-        Box(modifier = Modifier.offset(y = (-16).dp)) {
+        Box(modifier = Modifier.offset(y = (-16).dp).zIndex(if (cursor?.graphId == CURSOR_GRAPH_BG) 1f else 0f)) {
             BgGraphCompose(
                 viewModel = graphViewModel,
                 bgOverlays = graphConfig.bgOverlays,
@@ -423,6 +437,7 @@ fun GraphsSection(
                         if (graphDescription != null) Modifier.semantics { contentDescription = graphDescription }
                         else Modifier
                     )
+                    .then(rememberGraphCursorInput(CURSOR_GRAPH_BG, cursorGeometry, derivedTimeRange?.first, cursor != null, onCursorChange))
             )
             if (!isSimpleMode) {
                 GraphEditButton(
@@ -432,6 +447,7 @@ fun GraphsSection(
                         .padding(end = 4.dp, top = 2.dp)
                 )
             }
+            GraphCursorFor(CURSOR_GRAPH_BG, cursor, graphViewModel, graphConfig.bgOverlays, derivedTimeRange?.first, cursorGeometry)
         }
         if (editingBgOverlays) {
             GraphSeriesBottomSheet(
@@ -452,7 +468,7 @@ fun GraphsSection(
         }
         // Fixed IOB graph (Graph 1) with optional Activity overlay
         var editingIobOverlays by remember { mutableStateOf(false) }
-        Box(modifier = Modifier.offset(y = (-8).dp)) {
+        Box(modifier = Modifier.offset(y = (-8).dp).zIndex(if (cursor?.graphId == CURSOR_GRAPH_IOB) 1f else 0f)) {
             SecondaryGraphCompose(
                 viewModel = graphViewModel,
                 seriesTypes = listOf(SeriesType.IOB),
@@ -462,9 +478,11 @@ fun GraphsSection(
                 nowTimestamp = nowTimestamp,
                 activityOverlay = SeriesType.ACTIVITY in graphConfig.iobOverlays,
                 onVisibleRangeChanged = { iobVisibleRange = it },
+                geometryHolder = cursorGeometry,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.iobHeight.dp)
+                    .then(rememberGraphCursorInput(CURSOR_GRAPH_IOB, cursorGeometry, derivedTimeRange?.first, cursor != null, onCursorChange))
             )
             Text(
                 text = stringResource(CoreUiStrings.iob) + " / " + stringResource(CoreUiStrings.basal_shortname),
@@ -482,6 +500,7 @@ fun GraphsSection(
                         .padding(end = 4.dp, top = 2.dp)
                 )
             }
+            GraphCursorFor(CURSOR_GRAPH_IOB, cursor, graphViewModel, graphConfig.iobOverlays, derivedTimeRange?.first, cursorGeometry)
         }
         if (editingIobOverlays) {
             GraphSeriesBottomSheet(
@@ -505,7 +524,8 @@ fun GraphsSection(
         var editingGraphIndex by remember { mutableIntStateOf(-1) }
         for (i in 0 until activeCount) {
             val secondary = graphConfig.secondaryGraphs[i]
-            Box(modifier = Modifier.offset(y = (-8).dp)) {
+            val cursorGraphId = i + 1
+            Box(modifier = Modifier.offset(y = (-8).dp).zIndex(if (cursor?.graphId == cursorGraphId) 1f else 0f)) {
                 SecondaryGraphCompose(
                     viewModel = graphViewModel,
                     seriesTypes = secondary.series,
@@ -516,6 +536,7 @@ fun GraphsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(secondary.height.dp)
+                        .then(rememberGraphCursorInput(cursorGraphId, cursorGeometry, derivedTimeRange?.first, cursor != null, onCursorChange))
                 )
                 Text(
                     text = seriesListLabel(secondary.series),
@@ -533,6 +554,7 @@ fun GraphsSection(
                             .padding(end = 4.dp, top = 2.dp)
                     )
                 }
+                GraphCursorFor(cursorGraphId, cursor, graphViewModel, secondary.series, derivedTimeRange?.first, cursorGeometry)
             }
         }
         if (editingGraphIndex >= 0 && editingGraphIndex < activeCount) {
@@ -622,6 +644,28 @@ fun GraphsSection(
     }
 }
 
+/** Shows the touch cursor in this graph's Box when the cursor is on this graph. */
+@Composable
+private fun BoxScope.GraphCursorFor(
+    graphId: Int,
+    cursor: GraphCursor?,
+    viewModel: GraphViewModel,
+    seriesTypes: List<SeriesType>,
+    minTimestamp: Long?,
+    geometry: GraphGeometryHolder
+) {
+    if (cursor == null || cursor.graphId != graphId || minTimestamp == null) return
+    GraphCursorOverlay(
+        viewModel = viewModel,
+        graphId = graphId,
+        seriesTypes = seriesTypes,
+        cursorTimestamp = cursor.timestamp,
+        minTimestamp = minTimestamp,
+        geometry = geometry,
+        modifier = Modifier.matchParentSize()
+    )
+}
+
 // =========================================================================
 // Graph label generation
 // =========================================================================
@@ -634,7 +678,7 @@ private fun seriesListLabel(seriesList: List<SeriesType>): String {
 }
 
 /** String resource ID for the short name of a series type */
-private fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
+internal fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
     SeriesType.IOB             -> CoreUiStrings.iob
     SeriesType.ABS_IOB         -> CoreUiStrings.abs_insulin_shortname
     SeriesType.COB             -> CoreUiStrings.cob
