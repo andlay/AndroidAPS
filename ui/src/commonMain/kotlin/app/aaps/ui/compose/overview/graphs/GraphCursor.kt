@@ -265,15 +265,21 @@ internal fun rememberGraphCursorInput(
  * @param isStep the value holds until the next point (basal, target), instead of being a sample
  * @param snap the cursor snaps to the points of this series. When no series sets it, the first one is used.
  * @param colorAt colour for one point, where the colour depends on the point (BG range, deviation type)
+ * @param height where a value is drawn, on one scale for all series of the graph (bigger = higher on
+ * the screen). The card lists its rows in this order, so they match the lines from top to bottom.
+ * It is the value itself unless the series is drawn rescaled (activity overlay, second axis).
+ * @param pinFirst always the first row, whatever its value: basal hangs down from the top of the graph
  */
-private class CursorSeries(
+private data class CursorSeries(
     val label: String,
     val color: Color,
     val points: List<GraphDataPoint>,
     val format: (Double) -> String,
     val isStep: Boolean = false,
     val snap: Boolean = false,
-    val colorAt: ((Long) -> Color?)? = null
+    val colorAt: ((Long) -> Color?)? = null,
+    val height: (Double) -> Double = { it },
+    val pinFirst: Boolean = false
 )
 
 /** One line in the card. A null value means the series has no point near this time. */
@@ -294,6 +300,13 @@ private val DownTriangle = GenericShape { size, _ ->
     lineTo(size.width / 2f, size.height)
     close()
 }
+
+/** A card row with what decides its place: pinned first, then by drawn height, rows without a value last. */
+internal class ScreenOrderItem<T>(val item: T, val pinFirst: Boolean, val height: Double?)
+
+/** Top of the screen first. The sort is stable, so equal rows and rows without a value keep their order. */
+internal fun <T> List<ScreenOrderItem<T>>.inScreenOrder(): List<T> =
+    sortedWith(compareBy({ !it.pinFirst }, { it.height == null }, { -(it.height ?: 0.0) })).map { it.item }
 
 internal fun List<GraphDataPoint>.nearestTo(timestamp: Long): GraphDataPoint? =
     minByOrNull { abs(it.timestamp - timestamp) }?.takeIf { abs(it.timestamp - timestamp) <= CURSOR_MATCH_WINDOW_MS }
@@ -336,6 +349,7 @@ private fun rememberBgCursorSeries(viewModel: GraphViewModel, overlays: List<Ser
     val predictions by viewModel.predictionsFlow.collectAsStateWithLifecycle()
     val targets by viewModel.targetLineFlow.collectAsStateWithLifecycle()
     val activity by viewModel.activityGraphFlow.collectAsStateWithLifecycle()
+    val chartConfig by viewModel.chartConfigFlow.collectAsStateWithLifecycle()
 
     val lowColor = AapsTheme.generalColors.bgLow
     val inRangeColor = AapsTheme.generalColors.bgInRange
@@ -355,7 +369,7 @@ private fun rememberBgCursorSeries(viewModel: GraphViewModel, overlays: List<Ser
     val showPredictions = SeriesType.PREDICTIONS in overlays
     val showActivity = SeriesType.ACTIVITY in overlays
 
-    return remember(bucketed, regular, predictions, targets, activity, overlays, formats, predictionLabels, bgLabel, targetLabel, activityLabel) {
+    return remember(bucketed, regular, predictions, targets, activity, chartConfig, overlays, formats, predictionLabels, bgLabel, targetLabel, activityLabel) {
         buildList {
             val readings = bucketed.ifEmpty { regular }
             val rangeByTime = readings.associate { it.timestamp to it.range }
@@ -376,7 +390,19 @@ private fun rememberBgCursorSeries(viewModel: GraphViewModel, overlays: List<Ser
                 }
             }
             add(CursorSeries(targetLabel, targetColor, targets.targets, formats.glucose, isStep = true))
-            if (showActivity) add(CursorSeries(activityLabel, activityColor, activity.activity + activity.activityPrediction, formats.activity))
+            if (showActivity) {
+                // Drawn like BgGraphCompose does: the largest activity at 80 % of the BG range, from its bottom.
+                val bgValues = (bucketed + regular).map { it.value }
+                val maxBg = maxOf(bgValues.maxOrNull() ?: chartConfig.highMark, chartConfig.highMark)
+                val minBg = minOf(bgValues.minOrNull() ?: chartConfig.lowMark, chartConfig.lowMark)
+                val scale = if (activity.maxActivity > 0.0) (maxBg - minBg) * 0.8 / activity.maxActivity else 0.0
+                add(
+                    CursorSeries(
+                        activityLabel, activityColor, activity.activity + activity.activityPrediction, formats.activity,
+                        height = { minBg + it * scale }
+                    )
+                )
+            }
         }
     }
 }
@@ -397,8 +423,18 @@ private fun rememberIobCursorSeries(viewModel: GraphViewModel, overlays: List<Se
     return remember(iob, basal, activity, showActivity, formats, colors, basalColor, iobLabel, basalLabel, activityLabel) {
         buildList {
             add(CursorSeries(iobLabel, colors.iob, iob.iob, formats.insulin))
-            add(CursorSeries(basalLabel, basalColor, basal.actualBasal, formats.insulin, isStep = true))
-            if (showActivity) add(CursorSeries(activityLabel, colors.activity, activity.activity + activity.activityPrediction, formats.activity))
+            add(CursorSeries(basalLabel, basalColor, basal.actualBasal, formats.insulin, isStep = true, pinFirst = true))
+            if (showActivity) {
+                // Drawn like SecondaryGraphCompose does: the largest activity at 80 % of the largest IOB.
+                val iobMax = (iob.iob.maxOfOrNull { it.value } ?: 0.0).coerceAtLeast(0.1)
+                val scale = if (activity.maxActivity > 0.0) iobMax * 0.8 / activity.maxActivity else 0.0
+                add(
+                    CursorSeries(
+                        activityLabel, colors.activity, activity.activity + activity.activityPrediction, formats.activity,
+                        height = { it * scale }
+                    )
+                )
+            }
         }
     }
 }
@@ -407,7 +443,7 @@ private fun rememberIobCursorSeries(viewModel: GraphViewModel, overlays: List<Se
 private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, types: List<SeriesType>): List<CursorSeries> {
     val formats = rememberCursorFormats()
     val colors = rememberSeriesColors()
-    return types.flatMap { type ->
+    val typed = types.flatMap { type ->
         val label = stringResource(seriesShortNameId(type))
         val color = colors.colorFor(type)
         when (type) {
@@ -474,7 +510,19 @@ private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, types: List
             }
 
             SeriesType.PREDICTIONS     -> emptyList() // a BG graph overlay flag, never a secondary series
-        }
+        }.map { type to it }
+    }
+
+    // Two series on two axes (all pairs except BGI with DEV, which share one axis, see
+    // SecondaryGraphCompose): their raw values cannot be compared, so order them by where each sits
+    // within its own range instead. Close to the real drawing, not exact - the axes are zero-aligned.
+    val sharedAxis = types.size < 2 || types.toSet() == setOf(SeriesType.BGI, SeriesType.DEVIATIONS)
+    if (sharedAxis) return typed.map { it.second }
+    return typed.groupBy({ it.first }, { it.second }).values.flatMap { group ->
+        val values = group.flatMap { s -> s.points.map { it.value } }
+        val min = values.minOrNull() ?: 0.0
+        val span = ((values.maxOrNull() ?: 0.0) - min).takeIf { it > 0.0 } ?: 1.0
+        group.map { it.copy(height = { v -> (v - min) / span }) }
     }
 }
 
@@ -564,15 +612,18 @@ internal fun GraphCursorOverlay(
     val x = geometry.canvasXOf(timestampToX(snapped, minTimestamp))
     if (x < geometry.left || x > geometry.right) return
 
+    // Rows in the order of the lines on the screen, top first, so they swap as the lines cross.
+    // Series with no value here go last, in their usual order.
     val rows = series.map { s ->
         val value = if (s.isStep) s.points.valueInEffectAt(snapped) else s.points.nearestTo(snapped)?.value
         val pointTime = if (s.isStep) null else s.points.nearestTo(snapped)?.timestamp
-        CursorRow(
+        val row = CursorRow(
             label = s.label,
             color = pointTime?.let { s.colorAt?.invoke(it) } ?: s.color,
             value = value?.let(s.format)
         )
-    }
+        ScreenOrderItem(row, s.pinFirst, value?.let(s.height))
+    }.inScreenOrder()
 
     val (eventsFrom, eventsTo) = eventBucketBounds(snapTimes, snapped)
     val events = allEvents.filter { it.timestamp > eventsFrom && it.timestamp <= eventsTo }.sortedBy { it.timestamp }

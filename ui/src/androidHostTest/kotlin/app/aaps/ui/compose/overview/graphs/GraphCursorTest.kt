@@ -85,4 +85,26 @@ internal class GraphCursorTest {
         assertThat(from).isEqualTo(15 * minute)
         assertThat(to).isEqualTo(20 * minute)
     }
+
+    @Test
+    fun `rows follow the lines from top to bottom and swap when they cross`() {
+        fun order(iob: Double, activity: Double) = listOf(
+            ScreenOrderItem("IOB", pinFirst = false, height = iob),
+            ScreenOrderItem("BAS", pinFirst = true, height = 0.8),
+            ScreenOrderItem("ACT", pinFirst = false, height = activity)
+        ).inScreenOrder()
+        assertThat(order(iob = 2.0, activity = 1.0)).containsExactly("BAS", "IOB", "ACT").inOrder()
+        assertThat(order(iob = 1.0, activity = 2.0)).containsExactly("BAS", "ACT", "IOB").inOrder()
+    }
+
+    @Test
+    fun `rows without a value go last in their usual order`() {
+        val rows = listOf(
+            ScreenOrderItem("BG", pinFirst = false, height = null),
+            ScreenOrderItem("UAM", pinFirst = false, height = 6.0),
+            ScreenOrderItem("TARG", pinFirst = false, height = null),
+            ScreenOrderItem("IOB", pinFirst = false, height = 8.0)
+        )
+        assertThat(rows.inScreenOrder()).containsExactly("IOB", "UAM", "BG", "TARG").inOrder()
+    }
 }
