@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,11 +55,14 @@ import app.aaps.core.ui.compose.LocalProfileUtil
 import app.aaps.core.ui.compose.stringResource
 import app.aaps.ui.UiStrings
 import com.patrykandpatrick.vico.compose.cartesian.CartesianDrawingContext
+import com.patrykandpatrick.vico.compose.cartesian.Scroll
+import com.patrykandpatrick.vico.compose.cartesian.VicoScrollState
 import com.patrykandpatrick.vico.compose.cartesian.decoration.Decoration
 import kotlin.concurrent.Volatile
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
+import kotlinx.coroutines.launch
 
 /**
  * Touch cursor for the overview graphs.
@@ -159,7 +163,7 @@ class GraphGeometryReporter(private val holder: GraphGeometryHolder) : Decoratio
 // =========================================================================
 
 /** What a touch did before the long-press time ran out. */
-private enum class PressOutcome { TAP, MOVED, LONG_PRESS }
+private enum class PressOutcome { TAP, MOVED, MOVED_SIDEWAYS, LONG_PRESS }
 
 /**
  * Touch handling for the cursor. Put it on the graph's own modifier.
@@ -167,6 +171,10 @@ private enum class PressOutcome { TAP, MOVED, LONG_PRESS }
  * Events are read in the Initial pass, which runs before the chart's own scroll and zoom handling.
  * Until the long-press time is over nothing is consumed, so a drag or a pinch goes to the chart as
  * before. After it, every event is consumed, so the chart does not scroll while the cursor moves.
+ *
+ * Only the BG graph scrolls by itself. On the other graphs, pass the BG graph's scroll state as
+ * [panTarget]: a sideways drag then scrolls BG, and the other graphs follow it as usual. An up or
+ * down drag is left alone, so the screen still scrolls.
  */
 @Composable
 internal fun rememberGraphCursorInput(
@@ -174,9 +182,12 @@ internal fun rememberGraphCursorInput(
     geometry: GraphGeometryHolder,
     minTimestamp: Long?,
     cursorVisible: Boolean,
-    onCursorChange: (GraphCursor?) -> Unit
+    onCursorChange: (GraphCursor?) -> Unit,
+    panTarget: VicoScrollState? = null
 ): Modifier {
     val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+    val currentPanTarget by rememberUpdatedState(panTarget)
     val currentMinTimestamp by rememberUpdatedState(minTimestamp)
     val currentCursorVisible by rememberUpdatedState(cursorVisible)
     val currentOnCursorChange by rememberUpdatedState(onCursorChange)
@@ -202,16 +213,33 @@ internal fun rememberGraphCursorInput(
                         result = PressOutcome.TAP
                         break
                     }
-                    if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) break
+                    val moved = change.position - down.position
+                    if (moved.getDistance() > viewConfiguration.touchSlop) {
+                        if (abs(moved.x) > abs(moved.y)) result = PressOutcome.MOVED_SIDEWAYS
+                        break
+                    }
                     lastX = change.position.x
                 }
                 result
             } ?: PressOutcome.LONG_PRESS
 
             when (outcome) {
-                PressOutcome.TAP        -> if (currentCursorVisible) currentOnCursorChange(null)
-                PressOutcome.MOVED      -> Unit
-                PressOutcome.LONG_PRESS -> {
+                PressOutcome.TAP            -> if (currentCursorVisible) currentOnCursorChange(null)
+                PressOutcome.MOVED          -> Unit
+                PressOutcome.MOVED_SIDEWAYS -> {
+                    val target = currentPanTarget ?: return@awaitEachGesture
+                    val startScroll = target.value
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        event.changes.forEach { it.consume() }
+                        if (!change.pressed || event.changes.size > 1) break
+                        val scroll = startScroll - (change.position.x - down.position.x)
+                        scope.launch { target.scroll(Scroll.Absolute.pixels(scroll)) }
+                    }
+                }
+
+                PressOutcome.LONG_PRESS     -> {
                     val start = timestampAt(lastX) ?: return@awaitEachGesture
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     currentOnCursorChange(GraphCursor(graphId, start))

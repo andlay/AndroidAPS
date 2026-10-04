@@ -482,7 +482,7 @@ fun GraphsSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.iobHeight.dp)
-                    .then(rememberGraphCursorInput(CURSOR_GRAPH_IOB, cursorGeometry, derivedTimeRange?.first, cursor != null, onCursorChange))
+                    .then(rememberGraphCursorInput(CURSOR_GRAPH_IOB, cursorGeometry, derivedTimeRange?.first, cursor != null, onCursorChange, panTarget = bgScrollState))
             )
             Text(
                 text = stringResource(CoreUiStrings.iob) + " / " + stringResource(CoreUiStrings.basal_shortname),
@@ -536,7 +536,7 @@ fun GraphsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(secondary.height.dp)
-                        .then(rememberGraphCursorInput(cursorGraphId, cursorGeometry, derivedTimeRange?.first, cursor != null, onCursorChange))
+                        .then(rememberGraphCursorInput(cursorGraphId, cursorGeometry, derivedTimeRange?.first, cursor != null, onCursorChange, panTarget = bgScrollState))
                 )
                 Text(
                     text = seriesListLabel(secondary.series),
