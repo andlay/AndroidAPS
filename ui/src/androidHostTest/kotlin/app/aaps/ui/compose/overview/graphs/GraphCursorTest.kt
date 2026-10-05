@@ -1,8 +1,10 @@
 package app.aaps.ui.compose.overview.graphs
 
+import app.aaps.core.interfaces.overview.graph.BgDataPoint
+import app.aaps.core.interfaces.overview.graph.BgRange
+import app.aaps.core.interfaces.overview.graph.BgType
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import com.google.common.truth.Truth.assertThat
-import com.google.common.truth.Truth.assertWithMessage
 import org.junit.jupiter.api.Test
 
 internal class GraphCursorTest {
@@ -53,37 +55,20 @@ internal class GraphCursorTest {
     }
 
     @Test
-    fun `each event belongs to exactly one point`() {
-        val readings = listOf(0L, 5 * minute, 10 * minute, 25 * minute) // a 15 minute gap before the last one
-        val events = listOf(-2 * minute, 0L, 1 * minute, 5 * minute, 7 * minute, 11 * minute, 24 * minute, 26 * minute)
-        val owners = events.associateWith { event ->
-            readings.filter { point ->
-                val (from, to) = eventBucketBounds(readings, point)
-                event > from && event <= to
-            }
-        }
-        owners.forEach { (event, points) -> assertWithMessage("owners of event at $event").that(points).hasSize(1) }
-        // an event exactly on a reading belongs to that reading, an event just after it to the next one
-        assertThat(owners[5 * minute]).containsExactly(5 * minute)
-        assertThat(owners[7 * minute]).containsExactly(10 * minute)
-        // events in a gap go to the reading that ends the gap
-        assertThat(owners[11 * minute]).containsExactly(25 * minute)
-        // an event after the newest reading is not lost
-        assertThat(owners[26 * minute]).containsExactly(25 * minute)
+    fun `events are stops of their own between readings`() {
+        val readings = listOf(0L, 5 * minute, 10 * minute)
+        val smbs = listOf(2 * minute, 7 * minute)
+        val stops = cursorStops(readings, smbs)
+        assertThat(stops).containsExactly(0L, 2 * minute, 5 * minute, 7 * minute, 10 * minute).inOrder()
+        // dragging past 2 minutes lands on the SMB, not on a reading
+        assertThat(stops.nearestStop(2 * minute + 20_000)).isEqualTo(2 * minute)
+        assertThat(stops.nearestStop(4 * minute)).isEqualTo(5 * minute)
     }
 
     @Test
-    fun `first point gets a 5 minute bucket`() {
-        val (from, to) = eventBucketBounds(listOf(0L, 5 * minute), 0L)
-        assertThat(from).isEqualTo(-5 * minute)
-        assertThat(to).isEqualTo(0L)
-    }
-
-    @Test
-    fun `a time that is not a point gets the 5 minutes before it`() {
-        val (from, to) = eventBucketBounds(emptyList(), 20 * minute)
-        assertThat(from).isEqualTo(15 * minute)
-        assertThat(to).isEqualTo(20 * minute)
+    fun `an event at the time of a reading is one stop`() {
+        assertThat(cursorStops(listOf(0L, 5 * minute), listOf(5 * minute))).containsExactly(0L, 5 * minute).inOrder()
+        assertThat(emptyList<Long>().nearestStop(0L)).isNull()
     }
 
     @Test
@@ -106,5 +91,19 @@ internal class GraphCursorTest {
             ScreenOrderItem("IOB", pinFirst = false, height = 8.0)
         )
         assertThat(rows.inScreenOrder()).containsExactly("IOB", "UAM", "BG", "TARG").inOrder()
+    }
+
+    @Test
+    fun `BG axis follows the visible readings, not the whole day`() {
+        fun bg(t: Long, v: Double) = BgDataPoint(t, v, BgRange.IN_RANGE, BgType.BUCKETED)
+        val day = listOf(bg(0L, 14.1), bg(60 * minute, 7.0), bg(65 * minute, 8.0))
+        // whole day: the 14.1 high sets the top
+        assertThat(bgAxisScale(day, null, 3.9, 10.0).max).isAtLeast(14.1)
+        // only the last hour is visible: the top drops back to the high mark range
+        val visible = bgAxisScale(day, 50 * minute to 70 * minute, 3.9, 10.0)
+        assertThat(visible.max).isLessThan(14.1)
+        assertThat(visible.max).isAtLeast(10.0)
+        // a window with no readings falls back to all of them
+        assertThat(bgAxisScale(day, 200 * minute to 300 * minute, 3.9, 10.0).max).isAtLeast(14.1)
     }
 }

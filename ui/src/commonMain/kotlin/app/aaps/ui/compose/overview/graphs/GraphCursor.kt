@@ -75,8 +75,9 @@ import kotlinx.coroutines.launch
  * The card shows real values in the user's units. Several lines are drawn rescaled (activity overlay,
  * basal bars, dual axes), so the drawn position is never used as a value.
  *
- * Below the values, the card lists the events (SMB, bolus, extended bolus, carbs, profile switch) of
- * the graph that happened since the previous point, each with its own time - see [eventBucketBounds].
+ * Events (SMB, bolus, extended bolus, carbs, profile switch) are stops of their own: the cursor
+ * snaps to readings and to events alike, so dragging visits each event at its exact time. At an event
+ * the card lists it below the values - see [cursorStops].
  */
 
 /** Cursor id of the BG graph. The fixed IOB graph is [CURSOR_GRAPH_IOB], secondary graph `i` is `i + 1`. */
@@ -89,23 +90,17 @@ internal data class GraphCursor(val graphId: Int, val timestamp: Long)
 /** A series point is used for the card only if it is at most this far from the cursor time. */
 private const val CURSOR_MATCH_WINDOW_MS = 3 * 60_000L
 
-/** Length of the event bucket of the first point, which has no previous point. Same as the BG interval. */
-private const val CURSOR_BUCKET_MS = 5 * 60_000L
+/** An event this close to the cursor stop is shown at that stop (a reading and an SMB a few seconds apart). */
+private const val CURSOR_EVENT_MATCH_MS = 30_000L
 
 /**
- * The events that belong to the point at [pointTime] are those after the previous point, up to and
- * including this one: returns (from exclusive, to inclusive). [pointTimes] must be sorted and distinct.
- *
- * Buckets never overlap and leave no gaps, so every event shows at exactly one point. The first point
- * gets [CURSOR_BUCKET_MS]. The last point also takes everything after it: an SMB given just after the
- * newest reading has no later point yet, and must not be lost.
+ * Times the cursor can stop at: the points of the main series plus every event, sorted, no repeats.
+ * Events are not grouped into the 5 minutes of a reading; each gets its own stop.
  */
-internal fun eventBucketBounds(pointTimes: List<Long>, pointTime: Long): Pair<Long, Long> {
-    val index = pointTimes.binarySearch(pointTime)
-    val from = if (index > 0) pointTimes[index - 1] else pointTime - CURSOR_BUCKET_MS
-    val to = if (index >= 0 && index == pointTimes.lastIndex) Long.MAX_VALUE else pointTime
-    return from to to
-}
+internal fun cursorStops(pointTimes: List<Long>, eventTimes: List<Long>): List<Long> = (pointTimes + eventTimes).distinct().sorted()
+
+/** The stop nearest to [timestamp], or null when there are none. */
+internal fun List<Long>.nearestStop(timestamp: Long): Long? = minByOrNull { abs(it - timestamp) }
 
 // =========================================================================
 // Geometry: x-value <-> canvas pixel
@@ -342,7 +337,7 @@ private fun rememberCursorFormats(): CursorFormats {
 }
 
 @Composable
-private fun rememberBgCursorSeries(viewModel: GraphViewModel, overlays: List<SeriesType>): List<CursorSeries> {
+private fun rememberBgCursorSeries(viewModel: GraphViewModel, overlays: List<SeriesType>, visibleWindow: Pair<Long, Long>?): List<CursorSeries> {
     val formats = rememberCursorFormats()
     val bucketed by viewModel.bucketedDataFlow.collectAsStateWithLifecycle()
     val regular by viewModel.bgReadingsFlow.collectAsStateWithLifecycle()
@@ -369,7 +364,7 @@ private fun rememberBgCursorSeries(viewModel: GraphViewModel, overlays: List<Ser
     val showPredictions = SeriesType.PREDICTIONS in overlays
     val showActivity = SeriesType.ACTIVITY in overlays
 
-    return remember(bucketed, regular, predictions, targets, activity, chartConfig, overlays, formats, predictionLabels, bgLabel, targetLabel, activityLabel) {
+    return remember(bucketed, regular, predictions, targets, activity, chartConfig, visibleWindow, overlays, formats, predictionLabels, bgLabel, targetLabel, activityLabel) {
         buildList {
             val readings = bucketed.ifEmpty { regular }
             val rangeByTime = readings.associate { it.timestamp to it.range }
@@ -391,15 +386,14 @@ private fun rememberBgCursorSeries(viewModel: GraphViewModel, overlays: List<Ser
             }
             add(CursorSeries(targetLabel, targetColor, targets.targets, formats.glucose, isStep = true))
             if (showActivity) {
-                // Drawn like BgGraphCompose does: the largest activity at 80 % of the BG range, from its bottom.
-                val bgValues = (bucketed + regular).map { it.value }
-                val maxBg = maxOf(bgValues.maxOrNull() ?: chartConfig.highMark, chartConfig.highMark)
-                val minBg = minOf(bgValues.minOrNull() ?: chartConfig.lowMark, chartConfig.lowMark)
-                val scale = if (activity.maxActivity > 0.0) (maxBg - minBg) * 0.8 / activity.maxActivity else 0.0
+                // Drawn like BgGraphCompose does: the largest activity at 80 % of the visible BG axis, from its bottom.
+                val shownPredictions = if (showPredictions) predictions else emptyList()
+                val axis = bgAxisScale(bucketed + regular + shownPredictions, visibleWindow, chartConfig.lowMark, chartConfig.highMark)
+                val scale = if (activity.maxActivity > 0.0) (axis.max - axis.min) * 0.8 / activity.maxActivity else 0.0
                 add(
                     CursorSeries(
                         activityLabel, activityColor, activity.activity + activity.activityPrediction, formats.activity,
-                        height = { minBg + it * scale }
+                        height = { axis.min + it * scale }
                     )
                 )
             }
@@ -581,8 +575,8 @@ private fun rememberCursorEvents(viewModel: GraphViewModel, graphId: Int, series
  * with `Modifier.matchParentSize()`. It has no touch handling, so the graph and its edit button
  * still get every touch.
  *
- * The cursor snaps to the nearest point of the graph's main series (on the BG graph, BG readings
- * and predictions), and the card shows that point's time.
+ * The cursor snaps to the nearest stop - a point of the graph's main series (on the BG graph, BG
+ * readings and predictions) or an event - and the card shows that stop's time.
  *
  * @param seriesTypes the BG overlays, the IOB overlays, or the series of a secondary graph
  */
@@ -596,8 +590,11 @@ internal fun GraphCursorOverlay(
     geometry: GraphGeometryHolder,
     modifier: Modifier = Modifier
 ) {
+    val visibleWindow = if (geometry.isReady)
+        (minTimestamp + (geometry.xValueAt(geometry.left) * 60_000).toLong()) to (minTimestamp + (geometry.xValueAt(geometry.right) * 60_000).toLong())
+    else null
     val series = when (graphId) {
-        CURSOR_GRAPH_BG  -> rememberBgCursorSeries(viewModel, seriesTypes)
+        CURSOR_GRAPH_BG  -> rememberBgCursorSeries(viewModel, seriesTypes, visibleWindow)
         CURSOR_GRAPH_IOB -> rememberIobCursorSeries(viewModel, seriesTypes)
         else             -> rememberSecondaryCursorSeries(viewModel, seriesTypes)
     }
@@ -605,8 +602,8 @@ internal fun GraphCursorOverlay(
     val allEvents = rememberCursorEvents(viewModel, graphId, seriesTypes)
 
     val snapSeries = series.filter { it.snap }.ifEmpty { series.take(1) }
-    val snapTimes = snapSeries.flatMap { s -> s.points.map { it.timestamp } }.distinct().sorted()
-    val snapped = snapTimes.minByOrNull { abs(it - cursorTimestamp) } ?: cursorTimestamp
+    val stops = cursorStops(snapSeries.flatMap { s -> s.points.map { it.timestamp } }, allEvents.map { it.timestamp })
+    val snapped = stops.nearestStop(cursorTimestamp) ?: cursorTimestamp
 
     if (!geometry.isReady) return
     val x = geometry.canvasXOf(timestampToX(snapped, minTimestamp))
@@ -625,11 +622,9 @@ internal fun GraphCursorOverlay(
         ScreenOrderItem(row, s.pinFirst, value?.let(s.height))
     }.inScreenOrder()
 
-    val (eventsFrom, eventsTo) = eventBucketBounds(snapTimes, snapped)
-    val events = allEvents.filter { it.timestamp > eventsFrom && it.timestamp <= eventsTo }.sortedBy { it.timestamp }
+    val events = allEvents.filter { abs(it.timestamp - snapped) <= CURSOR_EVENT_MATCH_MS }.sortedBy { it.timestamp }
 
     val dateUtil = LocalDateUtil.current
-    val eventTimes = events.map { dateUtil.timeString(it.timestamp) }
     val timeText = dateUtil.timeString(snapped)
     val deltaText = cursorDeltaText(snapped, dateUtil.now())
     val lineColor = MaterialTheme.colorScheme.onSurface
@@ -639,7 +634,7 @@ internal fun GraphCursorOverlay(
             drawLine(lineColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.dp.toPx())
         }
         CursorCardPlacement(anchorX = x, modifier = Modifier.matchParentSize()) {
-            CursorCard(timeText, deltaText, rows, events, eventTimes)
+            CursorCard(timeText, deltaText, rows, events)
         }
     }
 }
@@ -676,7 +671,7 @@ private fun CursorCardPlacement(anchorX: Float, modifier: Modifier, content: @Co
 }
 
 @Composable
-private fun CursorCard(timeText: String, deltaText: String, rows: List<CursorRow>, events: List<CursorEvent>, eventTimes: List<String>) {
+private fun CursorCard(timeText: String, deltaText: String, rows: List<CursorRow>, events: List<CursorEvent>) {
     val shape = MaterialTheme.shapes.small
     val textStyle = MaterialTheme.typography.labelSmall
     val numberStyle = textStyle.copy(fontFeatureSettings = "tnum")
@@ -717,7 +712,7 @@ private fun CursorCard(timeText: String, deltaText: String, rows: List<CursorRow
                 thickness = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant
             )
-            events.forEachIndexed { index, event ->
+            for (event in events) {
                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier
@@ -729,8 +724,6 @@ private fun CursorCard(timeText: String, deltaText: String, rows: List<CursorRow
                     Spacer(Modifier.width(AapsSpacing.large))
                     Spacer(Modifier.weight(1f))
                     Text(text = event.value, style = numberStyle)
-                    Spacer(Modifier.width(AapsSpacing.medium))
-                    Text(text = eventTimes[index], style = numberStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

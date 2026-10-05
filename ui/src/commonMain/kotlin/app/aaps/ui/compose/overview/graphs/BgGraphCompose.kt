@@ -55,6 +55,9 @@ import com.patrykandpatrick.vico.compose.common.data.ExtraStore
 private const val showBasalOnBgGraph = false
 
 private const val SERIES_REGULAR = "regular"
+
+/** Part of the BG axis height kept free above the highest profile switch icon, so it is never cut off at the top. */
+private const val EPS_TOP_MARGIN_FRACTION = 0.08
 private const val SERIES_BUCKETED = "bucketed"
 private const val SERIES_PRED_IOB = "pred_iob"
 private const val SERIES_PRED_COB = "pred_cob"
@@ -95,6 +98,17 @@ private class MutableYRangeProvider(
     override fun getMaxX(minX: Double, maxX: Double, extraStore: ExtraStore) = this.maxX
     override fun getMinY(minY: Double, maxY: Double, extraStore: ExtraStore) = this.minY
     override fun getMaxY(minY: Double, maxY: Double, extraStore: ExtraStore) = this.maxY
+}
+
+/**
+ * The BG axis range: the readings and predictions in the visible window (all of them when the window
+ * has none), widened to at least the low and high marks, rounded to clean numbers.
+ */
+internal fun bgAxisScale(points: List<BgDataPoint>, window: Pair<Long, Long>?, lowMark: Double, highMark: Double): NiceScale {
+    val windowed = points.filter { window == null || it.timestamp in window.first..window.second }.ifEmpty { points }.map { it.value }
+    val dataMax = maxOf(windowed.maxOrNull() ?: highMark, highMark)
+    val dataMin = minOf(windowed.minOrNull() ?: lowMark, lowMark)
+    return niceScale(dataMin, dataMax)
 }
 
 /**
@@ -284,11 +298,15 @@ fun BgGraphCompose(
             // Same principle as legacy (originalPercentage/100 * baseline); baseline = 75% of the BG axis
             // height. Anchored at currentMinBgY (not 0) — since the axis floor is no longer fixed at 0,
             // a 0%-profile point must sit at the axis' actual bottom, not fall below it and disappear.
+            // currentMinBgY/currentMaxBgY are the visible axis range, and the icon is kept a little
+            // below the top: anything drawn above the axis top is cut off at the edge of the graph.
             lineModel {
                 if (currentEpsPoints.isNotEmpty()) {
-                    val epsBaseline = (currentMaxBgY - currentMinBgY) * 0.75
+                    val range = currentMaxBgY - currentMinBgY
+                    val epsBaseline = range * 0.75
+                    val epsTop = currentMaxBgY - range * EPS_TOP_MARGIN_FRACTION
                     val pts = currentEpsPoints
-                        .map { eps -> timestampToX(eps.timestamp, minTimestamp) to (currentMinBgY + eps.originalPercentage / 100.0 * epsBaseline) }
+                        .map { eps -> timestampToX(eps.timestamp, minTimestamp) to minOf(currentMinBgY + eps.originalPercentage / 100.0 * epsBaseline, epsTop) }
                         .sortedBy { it.first }
                     series(x = pts.map { it.first }, y = pts.map { it.second })
                 } else {
@@ -351,13 +369,6 @@ fun BgGraphCompose(
         for ((key, points) in predictionsByType) {
             seriesRegistry[key] = points
         }
-        // maxBgY/minBgY clamped against highMark/lowMark (same as legacy GraphData.maxY logic) —
-        // used only for EPS baseline / Activity overlay proportional scaling, NOT the axis range
-        // itself (see below for that — windowed, unlike these full-range values).
-        val allBgValues = (bgReadings + bucketedData).map { it.value }
-        val maxBgY = if (allBgValues.isNotEmpty()) maxOf(allBgValues.max(), chartConfig.highMark) else chartConfig.highMark
-        val minBgY = if (allBgValues.isNotEmpty()) minOf(allBgValues.min(), chartConfig.lowMark) else chartConfig.lowMark
-
         // Windowed axis min/max: BG values within the visible scroll/zoom window (not the full
         // loaded range), floored/ceiled at chartConfig.lowMark/highMark (the "Low mark"/"High mark"
         // target-range preferences) so the axis never shrinks past the configured target range —
@@ -371,19 +382,14 @@ fun BgGraphCompose(
         // Includes predictions (when shown) — otherwise scrolling into a region with only future
         // prediction data (no real BG readings) makes the windowed set empty, falling back to the
         // full unwindowed history's max instead of the actually-visible prediction values.
-        fun inWindow(timestamp: Long) = visibleTimeRange == null || timestamp in visibleTimeRange.first..visibleTimeRange.second
-        val allBgAndPredictionValues = (bgReadings + bucketedData + predictions).map { it.value }
-        val windowedValues = (bgReadings + bucketedData + predictions).filter { inWindow(it.timestamp) }.map { it.value }
-        val windowedOrFull = windowedValues.ifEmpty { allBgAndPredictionValues }
-        val dataMax = maxOf(windowedOrFull.maxOrNull() ?: chartConfig.highMark, chartConfig.highMark)
-        val dataMin = minOf(windowedOrFull.minOrNull() ?: chartConfig.lowMark, chartConfig.lowMark)
-        val niceBgScale = niceScale(dataMin, dataMax)
+        val niceBgScale = bgAxisScale(bgReadings + bucketedData + predictions, visibleTimeRange, chartConfig.lowMark, chartConfig.highMark)
         startAxisRangeProvider.maxX = maxX
         startAxisRangeProvider.minY = niceBgScale.min
         startAxisRangeProvider.maxY = niceBgScale.max
         startAxisRangeProvider.yStep = niceBgScale.step
 
-        rebuildChart(basalData, targetData, epsPoints, activityData, minBgY, maxBgY, visibleTimeRange)
+        // EPS icons and the activity overlay are placed on the same (visible) range as the axis.
+        rebuildChart(basalData, targetData, epsPoints, activityData, niceBgScale.min, niceBgScale.max, visibleTimeRange)
     }
 
     // Build lookup map for BUCKETED points: x-value -> BgDataPoint (for PointProvider)
