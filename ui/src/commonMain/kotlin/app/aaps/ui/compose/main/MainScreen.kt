@@ -549,14 +549,6 @@ fun MainScreen(
         onSnackbar = { snackbarHostState.showSnackbar(it) }
     )
 
-    // Treatments sheet asked for from outside the screen (app shortcut)
-    LaunchedEffect(uiState.showTreatmentSheet) {
-        if (uiState.showTreatmentSheet) {
-            showTreatmentSheet = true
-            mainViewModel.setShowTreatmentSheet(false)
-        }
-    }
-
     // Shower mode dialog
     if (uiState.showShowerDialog) {
         val showerMinutesLeft by chipsViewModel.showerMinutesLeft.collectAsStateWithLifecycle()

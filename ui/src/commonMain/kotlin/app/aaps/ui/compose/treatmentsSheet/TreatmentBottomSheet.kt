@@ -11,7 +11,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Shower
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -288,27 +287,15 @@ internal fun TreatmentSelectionContent(
 
         // Shower mode changes only this phone's loop, so a client has nothing to start here.
         if (LocalInspectionMode.current || !LocalConfig.current.AAPSCLIENT) {
-            ShowerTreatmentItem(
+            TreatmentItem(
+                elementType = ElementType.SHOWER_MODE,
+                enabled = true,
+                disabledAlpha = disabledAlpha,
                 onDismiss = onDismiss,
-                onClick = { onNavigate(NavigationRequest.ShowerMode) }
+                onClick = { onNavigate(NavigationRequest.Element(ElementType.SHOWER_MODE)) }
             )
         }
     }
-}
-
-@Composable
-private fun ShowerTreatmentItem(onDismiss: () -> Unit, onClick: () -> Unit) {
-    val color = MaterialTheme.colorScheme.primary
-    ListItem(
-        headlineContent = { Text(text = stringResource(CoreUiStrings.shower_mode), color = color) },
-        supportingContent = { Text(text = stringResource(CoreUiStrings.shower_mode_desc), color = MaterialTheme.colorScheme.onSurfaceVariant) },
-        leadingContent = { TonalIcon(icon = Icons.Filled.Shower, color = color, enabled = true) },
-        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.clickable {
-            onDismiss()
-            onClick()
-        }
-    )
 }
 
 @Composable

@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Shower
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
@@ -27,10 +25,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import app.aaps.core.interfaces.navigation.ElementType
 import app.aaps.core.keys.IntKey
 import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.compose.AapsSpacing
 import app.aaps.core.ui.compose.NumberInputRow
+import app.aaps.core.ui.compose.navigation.color
+import app.aaps.core.ui.compose.navigation.icon
 import app.aaps.core.ui.compose.stringResource
 
 /**
@@ -56,9 +57,9 @@ fun ShowerModeBanner(minutesLeft: Int?, onEnd: () -> Unit, modifier: Modifier = 
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Shower,
+                    imageVector = ElementType.SHOWER_MODE.icon(),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = ElementType.SHOWER_MODE.color(),
                     modifier = Modifier.size(AapsSpacing.chipIconSize)
                 )
                 Text(
@@ -91,7 +92,7 @@ fun ShowerModeDialog(
     var minutes by remember { mutableIntStateOf(defaultMinutes) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(imageVector = Icons.Filled.Shower, contentDescription = null) },
+        icon = { Icon(imageVector = ElementType.SHOWER_MODE.icon(), contentDescription = null, tint = ElementType.SHOWER_MODE.color()) },
         title = { Text(stringResource(if (minutesLeft == null) CoreUiStrings.shower_mode_start else CoreUiStrings.shower_mode_end)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(AapsSpacing.medium)) {

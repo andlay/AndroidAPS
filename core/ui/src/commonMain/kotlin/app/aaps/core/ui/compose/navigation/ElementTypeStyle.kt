@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shower
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -65,6 +66,7 @@ fun ElementType.color(): Color = when (this) {
 
     ElementType.CARBS                   -> AapsTheme.elementColors.carbs
     ElementType.BOLUS_WIZARD            -> AapsTheme.elementColors.bolusWizard
+    ElementType.SHOWER_MODE             -> AapsTheme.elementColors.showerMode
     ElementType.QUICK_WIZARD,
     ElementType.QUICK_WIZARD_MANAGEMENT -> AapsTheme.elementColors.quickWizard
 
@@ -130,6 +132,7 @@ fun ElementType.icon(): ImageVector = when (this) {
     ElementType.INSULIN                 -> IcBolus
     ElementType.CARBS                   -> IcCarbs
     ElementType.BOLUS_WIZARD            -> IcCalculator
+    ElementType.SHOWER_MODE             -> Icons.Filled.Shower
     ElementType.QUICK_WIZARD,
     ElementType.QUICK_WIZARD_MANAGEMENT -> IcQuickwizard
 
@@ -203,6 +206,7 @@ fun ElementType.label(): TextRef? = when (this) {
     ElementType.INSULIN                 -> CoreUiStrings.overview_insulin_label
     ElementType.CARBS                   -> InterfacesStrings.carbs
     ElementType.BOLUS_WIZARD            -> CoreUiStrings.boluswizard
+    ElementType.SHOWER_MODE             -> CoreUiStrings.shower_mode
     ElementType.QUICK_WIZARD            -> null // dynamic label
     ElementType.QUICK_WIZARD_MANAGEMENT -> CoreUiStrings.quickwizard_managemnt
     ElementType.FOOD_MANAGEMENT         -> CoreUiStrings.food_management
@@ -256,6 +260,7 @@ fun ElementType.description(): TextRef? = when (this) {
     ElementType.INSULIN                 -> CoreUiStrings.treatment_insulin_desc
     ElementType.CARBS                   -> CoreUiStrings.treatment_carbs_desc
     ElementType.BOLUS_WIZARD            -> CoreUiStrings.treatment_calculator_desc
+    ElementType.SHOWER_MODE             -> CoreUiStrings.treatment_shower_mode_desc
     ElementType.TREATMENT               -> CoreUiStrings.treatment_desc
     ElementType.INSULIN_MANAGEMENT      -> CoreUiStrings.manage_insulin_desc
     ElementType.PROFILE_MANAGEMENT      -> CoreUiStrings.manage_profile_desc

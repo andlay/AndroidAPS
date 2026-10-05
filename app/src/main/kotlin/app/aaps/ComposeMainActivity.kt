@@ -28,9 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.core.app.ActivityCompat
-import androidx.core.content.pm.ShortcutInfoCompat
-import androidx.core.content.pm.ShortcutManagerCompat
-import androidx.core.graphics.drawable.IconCompat
 import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
@@ -139,7 +136,6 @@ import io.reactivex.rxjava3.disposables.CompositeDisposable
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import app.aaps.core.ui.R as CoreUiR
-import app.aaps.ui.R as UiR
 
 class ComposeMainActivity : MetroAppCompatActivity() {
 
@@ -232,6 +228,8 @@ class ComposeMainActivity : MetroAppCompatActivity() {
     }
     private var navController: NavHostController? = null
     private val _autoShowNotifications = mutableStateOf(false)
+    /** Treatment asked for by a launcher shortcut, opened once the app content (and its lock) is shown. */
+    private val pendingShortcut = mutableStateOf<ElementType?>(null)
     private val disposable = CompositeDisposable()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -240,9 +238,8 @@ class ComposeMainActivity : MetroAppCompatActivity() {
         // so a plain enableEdgeToEdge() here is enough.
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        publishShortcuts()
         // Opened from a launcher shortcut. Not again after a rotation: the request was already handled.
-        if (savedInstanceState == null) handleShortcutIntent(intent)
+        if (savedInstanceState == null) pendingShortcut.value = appShortcutElement(intent)
 
         // Activity result launchers (from base class)
         accessTree = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -335,6 +332,28 @@ class ComposeMainActivity : MetroAppCompatActivity() {
     private fun AppContent(navController: NavHostController) {
         // Trigger initial refresh when app content first appears (after init completes)
         LaunchedEffect(Unit) { refreshOnResume() }
+
+        // Launcher shortcuts: the same treatments the Treatments sheet shows.
+        val treatmentState by treatmentViewModel.uiState.collectAsStateWithLifecycle()
+        PublishAppShortcuts(
+            visible = appShortcutElements.filter { type ->
+                type.visibility.isVisible(visibilityContext) && when (type) {
+                    ElementType.CARBS        -> treatmentState.showCarbs
+                    ElementType.INSULIN      -> treatmentState.showInsulin
+                    ElementType.BOLUS_WIZARD -> treatmentState.showCalculator
+                    ElementType.TREATMENT    -> treatmentState.showTreatment
+                    else                     -> true
+                }
+            },
+            activityClass = ComposeMainActivity::class.java,
+            onError = { aapsLogger.error(LTag.CORE, "Publishing app shortcuts failed", it) }
+        )
+        val shortcut by pendingShortcut
+        LaunchedEffect(shortcut) {
+            val type = shortcut ?: return@LaunchedEffect
+            pendingShortcut.value = null
+            handleNavigationRequest(NavigationRequest.Element(type), navController)
+        }
 
         // Track last navigated route as a Crashlytics custom key for crash reports
         DisposableEffect(navController) {
@@ -670,6 +689,12 @@ class ComposeMainActivity : MetroAppCompatActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        appShortcutElement(intent)?.let { pendingShortcut.value = it }
+    }
+
     /**
      * The shared navigator, built with the four actions only Android can perform.
      *
@@ -677,50 +702,6 @@ class ComposeMainActivity : MetroAppCompatActivity() {
      * route lives in `:appshell` so every platform behaves the same; what differs is opening a CGM
      * app, opening a browser, launching the directory picker and finishing the activity.
      */
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleShortcutIntent(intent)
-    }
-
-    /**
-     * Shortcuts shown when the app icon is long pressed. Added in code, not in a shortcuts.xml,
-     * because that file needs the package name and every flavour has its own. Each one opens the
-     * normal screen with its usual confirmation, so nothing is delivered from the shortcut itself.
-     */
-    private fun publishShortcuts() {
-        val shortcuts = buildList {
-            add(
-                ShortcutInfoCompat.Builder(this@ComposeMainActivity, SHORTCUT_TREATMENTS)
-                    .setShortLabel(rh.gs(CoreUiR.string.treatments))
-                    .setIcon(IconCompat.createWithResource(this@ComposeMainActivity, UiR.drawable.ic_shortcut_treatments))
-                    .setIntent(Intent(this@ComposeMainActivity, ComposeMainActivity::class.java).setAction(ACTION_SHORTCUT_TREATMENTS))
-                    .build()
-            )
-            // Shower mode changes only this phone's loop, so a client does not get it.
-            if (!config.AAPSCLIENT) add(
-                ShortcutInfoCompat.Builder(this@ComposeMainActivity, SHORTCUT_SHOWER)
-                    .setShortLabel(rh.gs(CoreUiR.string.shower_mode))
-                    .setIcon(IconCompat.createWithResource(this@ComposeMainActivity, UiR.drawable.ic_shortcut_shower))
-                    .setIntent(Intent(this@ComposeMainActivity, ComposeMainActivity::class.java).setAction(ACTION_SHORTCUT_SHOWER))
-                    .build()
-            )
-        }
-        try {
-            ShortcutManagerCompat.setDynamicShortcuts(this, shortcuts)
-        } catch (e: Exception) {
-            // Some launchers refuse shortcuts (rate limit, work profile). The app works without them.
-            aapsLogger.error(LTag.CORE, "Publishing app shortcuts failed", e)
-        }
-    }
-
-    private fun handleShortcutIntent(intent: Intent?) {
-        when (intent?.action) {
-            ACTION_SHORTCUT_SHOWER     -> mainViewModel.setShowShowerDialog(true)
-            ACTION_SHORTCUT_TREATMENTS -> mainViewModel.setShowTreatmentSheet(true)
-        }
-    }
-
     private fun navigator(navController: NavController) = ElementNavigator(
         navController = navController,
         mainViewModel = mainViewModel,
@@ -781,12 +762,5 @@ class ComposeMainActivity : MetroAppCompatActivity() {
      * No `else` — compiler catches missing enum values.
      */
 
-    companion object {
-
-        private const val SHORTCUT_TREATMENTS = "treatments"
-        private const val SHORTCUT_SHOWER = "shower"
-        private const val ACTION_SHORTCUT_TREATMENTS = "app.aaps.action.SHORTCUT_TREATMENTS"
-        private const val ACTION_SHORTCUT_SHOWER = "app.aaps.action.SHORTCUT_SHOWER"
-    }
 }
 

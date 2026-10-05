@@ -8,12 +8,6 @@ sealed class NavigationRequest {
     data class QuickWizard(val guid: String) : NavigationRequest()
     data class Plugin(val className: String) : NavigationRequest()
     data class PluginPreferences(val pluginKey: String) : NavigationRequest()
-
-    /** Open the shower mode dialog (start, or end when it runs). */
-    data object ShowerMode : NavigationRequest()
-
-    /** Open the Treatments sheet, as from the bottom bar. */
-    data object TreatmentsSheet : NavigationRequest()
 }
 
 /**
