@@ -14,6 +14,7 @@ import app.aaps.core.interfaces.aps.AutosensResult
 import app.aaps.core.interfaces.aps.CurrentTemp
 import app.aaps.core.interfaces.aps.GlucoseStatus
 import app.aaps.core.interfaces.aps.OapsProfile
+import app.aaps.core.interfaces.aps.activeShowerCapMgdl
 import app.aaps.core.interfaces.bgQualityCheck.BgQualityCheck
 import app.aaps.core.interfaces.concurrent.AapsLock
 import app.aaps.core.interfaces.concurrent.withLock
@@ -63,6 +64,8 @@ import app.aaps.core.ui.compose.icons.IcPluginOpenAPS
 import app.aaps.core.ui.compose.preference.PreferenceSubScreenDef
 import app.aaps.core.utils.MidnightUtils
 import app.aaps.plugins.aps.ApsStrings
+import app.aaps.plugins.aps.openAPS.cappedAt
+import app.aaps.plugins.aps.openAPS.applySmbSafetyLimits
 import app.aaps.plugins.aps.events.EventOpenAPSUpdateGui
 import app.aaps.plugins.aps.events.EventResetOpenAPSGui
 import app.aaps.plugins.aps.keys.ApsIntentKey
@@ -249,7 +252,8 @@ open class OpenAPSSMBPlugin(
         // DynamicISF specific
         // without these values DynISF doesn't work properly
         // Current implementation is fallback to SMB if TDD history is not available. Thus calculated here
-        val glucoseStatus = glucoseStatusCalculatorSMB.getGlucoseStatusData(allowOldData = false)
+        val showerCap = preferences.activeShowerCapMgdl(dateUtil.now())
+        val glucoseStatus = glucoseStatusCalculatorSMB.getGlucoseStatusData(allowOldData = false)?.let { status -> showerCap?.let { status.cappedAt(it) } ?: status }
         dynIsfResult.tdd1D = tddCalculator.averageTDD(tddCalculator.calculate(1, allowMissingDays = false))?.data?.totalAmount
         tddCalculator.averageTDD(tddCalculator.calculate(7, allowMissingDays = false))?.let {
             dynIsfResult.tdd7D = it.data.totalAmount
@@ -287,7 +291,9 @@ open class OpenAPSSMBPlugin(
     override suspend fun invoke(initiator: String, tempBasalFallback: Boolean) = withContext(Dispatchers.Default) {
         aapsLogger.debug(LTag.APS, "invoke from $initiator tempBasalFallback: $tempBasalFallback")
         lastAPSResult = null
-        val glucoseStatus = glucoseStatusProvider.glucoseStatusData
+        // Shower mode: the loop does not see BG rise above the value at its start (see ShowerMode)
+        val showerCap = preferences.activeShowerCapMgdl(dateUtil.now())
+        val glucoseStatus = glucoseStatusProvider.glucoseStatusData?.let { status -> showerCap?.let { status.cappedAt(it) } ?: status }
         val profile = profileFunction.getProfile()
         val pump = activePlugin.activePump
         if (profile == null) {
@@ -448,7 +454,8 @@ open class OpenAPSSMBPlugin(
             insulinDivisor = dynIsfResult.insulinDivisor,
             TDD = dynIsfResult.tdd ?: 0.0
         )
-        val microBolusAllowed = constraintsChecker.isSMBModeEnabled(ConstraintObject(tempBasalFallback.not(), aapsLogger)).also { inputConstraints.copyReasons(it) }.value()
+        var microBolusAllowed = constraintsChecker.isSMBModeEnabled(ConstraintObject(tempBasalFallback.not(), aapsLogger)).also { inputConstraints.copyReasons(it) }.value()
+        microBolusAllowed = applySmbSafetyLimits(microBolusAllowed, showerCap != null, glucoseStatus.glucose, targetBg, preferences, profileUtil, rh, aapsLogger, inputConstraints, this)
         val flatBGsDetected = bgQualityCheck.state == BgQualityCheck.State.FLAT
         val effectiveDynIsfMode = dynIsfMode && dynIsfResult.tddPartsCalculated()
 

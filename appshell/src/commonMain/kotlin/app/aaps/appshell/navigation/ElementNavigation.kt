@@ -68,6 +68,9 @@ class ElementNavigator(
             is NavigationRequest.PluginPreferences -> guarded(ElementType.SETTINGS.protection) {
                 navController.navigate(AppRoute.PluginPreferences.createRoute(request.pluginKey))
             }
+
+            NavigationRequest.ShowerMode           -> mainViewModel.setShowShowerDialog(true)
+            NavigationRequest.TreatmentsSheet      -> mainViewModel.setShowTreatmentSheet(true)
         }
     }
 

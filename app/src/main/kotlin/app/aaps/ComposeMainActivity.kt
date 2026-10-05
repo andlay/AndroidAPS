@@ -28,6 +28,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.core.app.ActivityCompat
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import androidx.core.net.toUri
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
@@ -136,6 +139,7 @@ import io.reactivex.rxjava3.disposables.CompositeDisposable
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import app.aaps.core.ui.R as CoreUiR
+import app.aaps.ui.R as UiR
 
 class ComposeMainActivity : MetroAppCompatActivity() {
 
@@ -236,6 +240,9 @@ class ComposeMainActivity : MetroAppCompatActivity() {
         // so a plain enableEdgeToEdge() here is enough.
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        publishShortcuts()
+        // Opened from a launcher shortcut. Not again after a rotation: the request was already handled.
+        if (savedInstanceState == null) handleShortcutIntent(intent)
 
         // Activity result launchers (from base class)
         accessTree = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -670,6 +677,50 @@ class ComposeMainActivity : MetroAppCompatActivity() {
      * route lives in `:appshell` so every platform behaves the same; what differs is opening a CGM
      * app, opening a browser, launching the directory picker and finishing the activity.
      */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShortcutIntent(intent)
+    }
+
+    /**
+     * Shortcuts shown when the app icon is long pressed. Added in code, not in a shortcuts.xml,
+     * because that file needs the package name and every flavour has its own. Each one opens the
+     * normal screen with its usual confirmation, so nothing is delivered from the shortcut itself.
+     */
+    private fun publishShortcuts() {
+        val shortcuts = buildList {
+            add(
+                ShortcutInfoCompat.Builder(this@ComposeMainActivity, SHORTCUT_TREATMENTS)
+                    .setShortLabel(rh.gs(CoreUiR.string.treatments))
+                    .setIcon(IconCompat.createWithResource(this@ComposeMainActivity, UiR.drawable.ic_shortcut_treatments))
+                    .setIntent(Intent(this@ComposeMainActivity, ComposeMainActivity::class.java).setAction(ACTION_SHORTCUT_TREATMENTS))
+                    .build()
+            )
+            // Shower mode changes only this phone's loop, so a client does not get it.
+            if (!config.AAPSCLIENT) add(
+                ShortcutInfoCompat.Builder(this@ComposeMainActivity, SHORTCUT_SHOWER)
+                    .setShortLabel(rh.gs(CoreUiR.string.shower_mode))
+                    .setIcon(IconCompat.createWithResource(this@ComposeMainActivity, UiR.drawable.ic_shortcut_shower))
+                    .setIntent(Intent(this@ComposeMainActivity, ComposeMainActivity::class.java).setAction(ACTION_SHORTCUT_SHOWER))
+                    .build()
+            )
+        }
+        try {
+            ShortcutManagerCompat.setDynamicShortcuts(this, shortcuts)
+        } catch (e: Exception) {
+            // Some launchers refuse shortcuts (rate limit, work profile). The app works without them.
+            aapsLogger.error(LTag.CORE, "Publishing app shortcuts failed", e)
+        }
+    }
+
+    private fun handleShortcutIntent(intent: Intent?) {
+        when (intent?.action) {
+            ACTION_SHORTCUT_SHOWER     -> mainViewModel.setShowShowerDialog(true)
+            ACTION_SHORTCUT_TREATMENTS -> mainViewModel.setShowTreatmentSheet(true)
+        }
+    }
+
     private fun navigator(navController: NavController) = ElementNavigator(
         navController = navController,
         mainViewModel = mainViewModel,
@@ -730,5 +781,12 @@ class ComposeMainActivity : MetroAppCompatActivity() {
      * No `else` — compiler catches missing enum values.
      */
 
+    companion object {
+
+        private const val SHORTCUT_TREATMENTS = "treatments"
+        private const val SHORTCUT_SHOWER = "shower"
+        private const val ACTION_SHORTCUT_TREATMENTS = "app.aaps.action.SHORTCUT_TREATMENTS"
+        private const val ACTION_SHORTCUT_SHOWER = "app.aaps.action.SHORTCUT_SHOWER"
+    }
 }
 

@@ -32,6 +32,16 @@ enum class UnitDoubleKey(
         defaultedBySM = true,
         dependency = BooleanKey.ApsUseDynamicSensitivity,
         sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)
+    ),
+    /** No SMB while the current BG is below this. 0 = off. */
+    SafetySmbMinBg(
+        key = "safety_smb_min_bg",
+        defaultValue = 0.0,
+        minMgdl = 0,
+        maxMgdl = 270,
+        title = KeysStrings.pref_title_smb_min_bg,
+        summary = KeysStrings.pref_summary_smb_min_bg,
+        sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)
     )
     ;
 

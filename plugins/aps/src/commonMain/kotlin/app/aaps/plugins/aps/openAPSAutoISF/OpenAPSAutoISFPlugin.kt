@@ -14,7 +14,9 @@ import app.aaps.core.interfaces.aps.APSResult
 import app.aaps.core.interfaces.aps.AutosensResult
 import app.aaps.core.interfaces.aps.CurrentTemp
 import app.aaps.core.interfaces.aps.GlucoseStatus
+import app.aaps.core.interfaces.aps.GlucoseStatusAutoIsf
 import app.aaps.core.interfaces.aps.OapsProfileAutoIsf
+import app.aaps.core.interfaces.aps.activeShowerCapMgdl
 import app.aaps.core.interfaces.bgQualityCheck.BgQualityCheck
 import app.aaps.core.interfaces.concurrent.AapsLock
 import app.aaps.core.interfaces.concurrent.withLock
@@ -62,6 +64,8 @@ import app.aaps.core.ui.compose.icons.IcPluginOpenAPS
 import app.aaps.core.ui.compose.preference.PreferenceSubScreenDef
 import app.aaps.core.utils.MidnightUtils
 import app.aaps.plugins.aps.ApsStrings
+import app.aaps.plugins.aps.openAPS.applySmbSafetyLimits
+import app.aaps.plugins.aps.openAPS.cappedAt
 import app.aaps.plugins.aps.events.EventOpenAPSUpdateGui
 import app.aaps.plugins.aps.events.EventResetOpenAPSGui
 import app.aaps.plugins.aps.keys.ApsIntentKey
@@ -238,7 +242,9 @@ open class OpenAPSAutoISFPlugin(
     override suspend fun invoke(initiator: String, tempBasalFallback: Boolean) = withContext(Dispatchers.Default) {
         aapsLogger.debug(LTag.APS, "invoke from $initiator tempBasalFallback: $tempBasalFallback")
         lastAPSResult = null
-        val glucoseStatus = glucoseStatusProvider.glucoseStatusData
+        // Shower mode: the loop does not see BG rise above the value at its start (see ShowerMode)
+        val showerCap = preferences.activeShowerCapMgdl(dateUtil.now())
+        val glucoseStatus = glucoseStatusProvider.glucoseStatusData?.let { status -> showerCap?.let { status.cappedAt(it) } ?: status }
         val profile = profileFunction.getProfile()
         val pump = activePlugin.activePump
         if (profile == null) {
@@ -310,7 +316,8 @@ open class OpenAPSAutoISFPlugin(
         val mealData = iobCobCalculator.getMealDataWithWaitingForCalculationFinish()
         val iobData = iobArray[0]
         val profile_percentage = if (profile is ProfileSealed.EPS) profile.value.originalPercentage else 100
-        val microBolusAllowed = constraintsChecker.isSMBModeEnabled(ConstraintObject(tempBasalFallback.not(), aapsLogger)).also { inputConstraints.copyReasons(it) }.value()
+        var microBolusAllowed = constraintsChecker.isSMBModeEnabled(ConstraintObject(tempBasalFallback.not(), aapsLogger)).also { inputConstraints.copyReasons(it) }.value()
+        microBolusAllowed = applySmbSafetyLimits(microBolusAllowed, showerCap != null, glucoseStatus.glucose, targetBg, preferences, profileUtil, rh, aapsLogger, inputConstraints, this)
 
         if (autoIsfMode) {
             consoleError = mutableListOf()
@@ -551,7 +558,9 @@ open class OpenAPSAutoISFPlugin(
 
     suspend fun autoISF(profile: Profile): Double {
         val sens = profile.getProfileIsfMgdl()
+        val showerCap = preferences.activeShowerCapMgdl(dateUtil.now())
         val glucose_status = glucoseStatusCalculatorAutoIsf.getGlucoseStatusData(allowOldData = false)
+            ?.let { status -> showerCap?.let { status.cappedAt(it) as GlucoseStatusAutoIsf } ?: status }
 
         val high_temptarget_raises_sensitivity = exerciseMode || highTemptargetRaisesSensitivity
         var target_bg = hardLimits.verifyHardLimits(profile.getTargetMgdl(), CoreUiStrings.temp_target_value, HardLimits.LIMIT_TARGET_BG)

@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Shower
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -28,10 +29,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.dp
 import app.aaps.core.interfaces.navigation.ElementType
 import app.aaps.core.keys.interfaces.ElementVisibility
 import app.aaps.core.ui.CoreUiStrings
+import app.aaps.core.ui.compose.LocalConfig
 import app.aaps.core.ui.compose.MasterOfflineBanner
 import app.aaps.core.ui.compose.TonalIcon
 import app.aaps.core.ui.compose.consumeOverscroll
@@ -282,7 +285,30 @@ internal fun TreatmentSelectionContent(
                 onClick = { onNavigate(NavigationRequest.Element(ElementType.BOLUS_WIZARD)) }
             )
         }
+
+        // Shower mode changes only this phone's loop, so a client has nothing to start here.
+        if (LocalInspectionMode.current || !LocalConfig.current.AAPSCLIENT) {
+            ShowerTreatmentItem(
+                onDismiss = onDismiss,
+                onClick = { onNavigate(NavigationRequest.ShowerMode) }
+            )
+        }
     }
+}
+
+@Composable
+private fun ShowerTreatmentItem(onDismiss: () -> Unit, onClick: () -> Unit) {
+    val color = MaterialTheme.colorScheme.primary
+    ListItem(
+        headlineContent = { Text(text = stringResource(CoreUiStrings.shower_mode), color = color) },
+        supportingContent = { Text(text = stringResource(CoreUiStrings.shower_mode_desc), color = MaterialTheme.colorScheme.onSurfaceVariant) },
+        leadingContent = { TonalIcon(icon = Icons.Filled.Shower, color = color, enabled = true) },
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.clickable {
+            onDismiss()
+            onClick()
+        }
+    )
 }
 
 @Composable

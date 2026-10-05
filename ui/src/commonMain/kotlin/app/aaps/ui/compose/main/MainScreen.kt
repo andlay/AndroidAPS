@@ -71,6 +71,7 @@ import app.aaps.ui.compose.scenesSheet.ScenesBottomSheet
 import app.aaps.ui.compose.scenesSheet.ScenesViewModel
 import app.aaps.ui.compose.treatmentsSheet.TreatmentBottomSheet
 import app.aaps.ui.compose.treatmentsSheet.TreatmentViewModel
+import app.aaps.ui.compose.shower.ShowerModeDialog
 import app.aaps.ui.search.SearchIndexEntry
 import app.aaps.ui.search.SearchResults
 import app.aaps.ui.search.SearchUiState
@@ -547,6 +548,35 @@ fun MainScreen(
         onBringToForeground = onBringToForeground,
         onSnackbar = { snackbarHostState.showSnackbar(it) }
     )
+
+    // Treatments sheet asked for from outside the screen (app shortcut)
+    LaunchedEffect(uiState.showTreatmentSheet) {
+        if (uiState.showTreatmentSheet) {
+            showTreatmentSheet = true
+            mainViewModel.setShowTreatmentSheet(false)
+        }
+    }
+
+    // Shower mode dialog
+    if (uiState.showShowerDialog) {
+        val showerMinutesLeft by chipsViewModel.showerMinutesLeft.collectAsStateWithLifecycle()
+        val noBgText = stringResource(CoreUiStrings.shower_mode_no_bg)
+        ShowerModeDialog(
+            minutesLeft = showerMinutesLeft,
+            defaultMinutes = chipsViewModel.defaultShowerMinutes,
+            onStart = { minutes ->
+                mainViewModel.setShowShowerDialog(false)
+                chipsViewModel.startShower(minutes) { started ->
+                    if (!started) scope.launch { snackbarHostState.showSnackbar(noBgText) }
+                }
+            },
+            onEnd = {
+                chipsViewModel.endShower()
+                mainViewModel.setShowShowerDialog(false)
+            },
+            onDismiss = { mainViewModel.setShowShowerDialog(false) }
+        )
+    }
 
     // About dialog
     if (uiState.showAboutDialog && aboutDialogData != null) {

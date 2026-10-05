@@ -35,6 +35,7 @@ import app.aaps.ui.compose.overview.graphs.GraphViewModel
 import app.aaps.ui.compose.overview.graphs.GraphsSection
 import app.aaps.ui.compose.overview.statusLights.StatusViewModel
 import app.aaps.ui.compose.scenes.ActiveSceneBanner
+import app.aaps.ui.compose.shower.ShowerModeBanner
 
 @Composable
 fun OverviewScreenSplit(
@@ -95,6 +96,8 @@ fun OverviewScreenSplit(
             endEnabled = endSceneEnabled,
             formatDuration = formatDuration
         )
+        val showerMinutesLeft by chipsViewModel.showerMinutesLeft.collectAsStateWithLifecycle()
+        ShowerModeBanner(minutesLeft = showerMinutesLeft, onEnd = chipsViewModel::endShower)
 
         Row(
             modifier = Modifier

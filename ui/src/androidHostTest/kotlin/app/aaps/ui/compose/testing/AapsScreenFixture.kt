@@ -10,6 +10,7 @@ import app.aaps.core.interfaces.resources.ResourceHelper
 import app.aaps.core.interfaces.resources.TextRefIdRegistry
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.interfaces.utils.DecimalFormatter
+import app.aaps.core.keys.LongNonKey
 import app.aaps.core.keys.StringKey
 import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.ui.compose.AapsTheme
@@ -63,6 +64,8 @@ class AapsScreenFixture(
     init {
         TextRefIdRegistry.register("ui") { name -> UiStringIds.idOf(name) }
         whenever(preferences.observe(StringKey.GeneralDarkMode)).thenReturn(MutableStateFlow("light"))
+        // The shower mode banner watches this. 0 = not running.
+        whenever(preferences.observe(LongNonKey.ShowerModeEndsAt)).thenReturn(MutableStateFlow(0L))
         whenever(config.AAPSCLIENT).thenReturn(false)
         // ProfileUtil.units is non-null in the contract, so nothing guards against a mock's null.
         // The spoken description of the BG graph reads it to decide how many decimals a reading

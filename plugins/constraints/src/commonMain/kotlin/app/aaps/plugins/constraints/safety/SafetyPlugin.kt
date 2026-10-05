@@ -28,6 +28,7 @@ import app.aaps.core.interfaces.utils.Round
 import app.aaps.core.keys.DoubleKey
 import app.aaps.core.keys.IntKey
 import app.aaps.core.keys.StringKey
+import app.aaps.core.keys.UnitDoubleKey
 import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.keys.interfaces.TextRef
 import app.aaps.core.keys.interfaces.withEntries
@@ -193,7 +194,10 @@ class SafetyPlugin(
                 hardLimits.ageEntryValues().zip(hardLimits.ageEntries()).associate { it.first.toString() to TextRef.Literal(it.second.toString()) }
             ),
             DoubleKey.SafetyMaxBolus,
-            IntKey.SafetyMaxCarbs
+            IntKey.SafetyMaxCarbs,
+            UnitDoubleKey.SafetySmbMinBg,
+            IntKey.SafetySmbMinPercentOfTarget,
+            IntKey.SafetyShowerModeMinutes
         ),
         icon = pluginDescription.icon
     )

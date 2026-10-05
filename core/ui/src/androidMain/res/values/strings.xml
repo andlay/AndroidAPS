@@ -321,6 +321,17 @@
     <string name="careportal_announcement">Announcement</string>
     <string name="careportal_settings_export">Settings Export</string>
     <string name="careportal_note">Note</string>
+    <string name="shower_mode">Shower</string>
+    <string name="shower_mode_desc">The loop ignores a BG rise and gives no SMB for a while</string>
+    <string name="shower_mode_start">Start shower mode</string>
+    <string name="shower_mode_end">End shower mode</string>
+    <string name="shower_mode_minutes">Minutes</string>
+    <string name="shower_mode_confirm" comment="%1$s=duration with unit. Example: For 15 min the loop treats BG as no higher than it is now, and gives no SMB.">For %1$s the loop treats BG as no higher than it is now, and gives no SMB. The graph and alarms still show the real BG.</string>
+    <string name="shower_mode_stop">End</string>
+    <string name="shower_mode_running" comment="Shown in the shower dialog while shower mode runs. %1$s=time left with unit. Example: Shower mode is running, 12 min left.">Shower mode is running, %1$s left.</string>
+    <string name="shower_mode_note" comment="Note saved in treatments when shower mode starts. %1$s=duration with unit. Example: Shower mode, 15 min">Shower mode, %1$s</string>
+    <string name="shower_mode_left" comment="Overview chip while shower mode runs. %1$s=time left with unit. Example: Shower, 12 min left">Shower, %1$s left</string>
+    <string name="shower_mode_no_bg">Shower mode needs a recent BG reading.</string>
     <string name="careportal_question">Question</string>
     <string name="careportal_exercise">Exercise</string>
     <string name="careportal_announcement_message">Announcement : %1$s</string>
