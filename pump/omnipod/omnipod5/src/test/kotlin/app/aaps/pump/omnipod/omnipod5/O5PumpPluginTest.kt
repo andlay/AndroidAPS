@@ -28,6 +28,9 @@ import app.aaps.pump.omnipod.common.bledriver.pod.definition.DeliveryStatus
 import app.aaps.pump.omnipod.common.bledriver.pod.definition.PodStatus
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.O5PodStateManager
 import app.aaps.pump.omnipod.common.bledriver.pod.command.StopDeliveryCommand
+import app.aaps.pump.omnipod.common.bledriver.pod.command.SuspendDeliveryCommand
+import app.aaps.pump.omnipod.common.bledriver.pod.command.ProgramBasalCommand
+import app.aaps.pump.omnipod.common.bledriver.pod.command.ProgramAlertsCommand
 import app.aaps.pump.omnipod.common.queue.command.CommandDeactivatePod
 import app.aaps.pump.omnipod.common.queue.command.CommandDeliverBasalCorrection
 import app.aaps.pump.omnipod.common.queue.command.CommandDisableSuspendAlerts
@@ -38,7 +41,6 @@ import app.aaps.pump.omnipod.common.queue.command.CommandResumeDelivery
 import app.aaps.pump.omnipod.common.queue.command.CommandSilenceAlerts
 import app.aaps.pump.omnipod.common.queue.command.CommandSuspendDelivery
 import app.aaps.pump.omnipod.common.queue.command.CommandUpdateAlertConfiguration
-import app.aaps.pump.omnipod.omnipod5.history.O5History
 import app.aaps.shared.tests.TestBaseWithProfile
 import com.google.common.truth.Truth.assertThat
 import io.reactivex.rxjava3.core.Completable
@@ -54,6 +56,8 @@ import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.atLeast
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.argThat
+import org.mockito.kotlin.doAnswer
+import org.mockito.kotlin.inOrder
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.never
 import org.mockito.kotlin.times
@@ -63,8 +67,8 @@ import org.mockito.kotlin.whenever
 /**
  * Covers the safety-relevant gating logic and simple property surface of [O5PumpPlugin] -
  * not exhaustive RxJava-flow coverage (no other pump plugin in this codebase unit-tests its
- * full blocking-RxJava dosing flow either, see [app.aaps.pump.omnipod.eros
- * .OmnipodErosPumpPluginTest] for the closest precedent). Focus: the gates that must reject
+ * full blocking-RxJava dosing flow either, see `OmnipodErosPumpPluginTest`
+ * for the closest precedent). Focus: the gates that must reject
  * *before* any BLE command is sent (reservoir check, bolus-already-in-progress check,
  * no-op temp-basal-cancel), the `isBusy()`/`isConnected()`/`isInitialized()` state
  * transitions (the exact thing that caused the queue-deadlock bug during development), and
@@ -79,7 +83,6 @@ class O5PumpPluginTest : TestBaseWithProfile() {
     @Mock lateinit var bolusProgressData: BolusProgressData
     @Mock lateinit var protectionCheck: ProtectionCheck
     @Mock lateinit var blePreCheck: BlePreCheck
-    @Mock lateinit var history: O5History
 
     private lateinit var plugin: O5PumpPlugin
 
@@ -1043,6 +1046,52 @@ class O5PumpPluginTest : TestBaseWithProfile() {
 
     private fun flatProfile(): PumpProfile = mock<PumpProfile>().also {
         whenever(it.getBasalValues()).thenReturn(arrayOf(Profile.ProfileValue(0, 1.0)))
+    }
+
+    @Test
+    fun `profile change disables the suspend alert even when it was previously disabled`() = runBlocking<Unit> {
+        stubStopTempBasal()
+        whenever(podStateManager.ltk).thenReturn(ByteArray(16))
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.BASAL_ACTIVE)
+        var suspendAlertsEnabled = false
+        whenever(podStateManager.suspendAlertsEnabled).thenAnswer { suspendAlertsEnabled }
+        doAnswer {
+            suspendAlertsEnabled = it.getArgument(0)
+            null
+        }.whenever(podStateManager).suspendAlertsEnabled = any()
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+
+        val result = plugin.setNewBasalProfile(flatProfile())
+
+        assertThat(result.success).isTrue()
+        assertThat(result.enacted).isTrue()
+        inOrder(bleManager, podStateManager) {
+            verify(bleManager).sendCommand(argThat { this is SuspendDeliveryCommand }, any())
+            verify(podStateManager).suspendAlertsEnabled = true
+            verify(bleManager).sendCommand(argThat { this is ProgramBasalCommand }, any())
+            verify(bleManager).sendCommand(argThat { this is ProgramAlertsCommand }, any())
+            verify(podStateManager).suspendAlertsEnabled = false
+        }
+        assertThat(suspendAlertsEnabled).isFalse()
+    }
+
+    @Test
+    fun `failed profile write keeps the suspend alert armed`() = runBlocking<Unit> {
+        stubStopTempBasal()
+        whenever(podStateManager.ltk).thenReturn(ByteArray(16))
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.BASAL_ACTIVE)
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+        whenever(bleManager.sendCommand(argThat { this is ProgramBasalCommand }, any()))
+            .thenReturn(Observable.error(IllegalStateException("Profile write failed")))
+
+        val result = plugin.setNewBasalProfile(flatProfile())
+
+        assertThat(result.success).isFalse()
+        verify(podStateManager).suspendAlertsEnabled = true
+        verify(podStateManager, never()).suspendAlertsEnabled = false
+        verify(bleManager, never()).sendCommand(argThat { this is ProgramAlertsCommand }, any())
     }
 
     @Test
