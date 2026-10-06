@@ -298,7 +298,8 @@ enum class IntKey(
     ),
     SafetyMaxCarbs(key = "treatmentssafety_maxcarbs", defaultValue = 48, min = 1, max = 200, title = KeysStrings.pref_title_max_carbs, unitType = UnitType.GRAMS, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
     /** No SMB while the current BG is below this % of the loop's current target. 0 = off. */
-    SafetySmbMinPercentOfTarget(key = "safety_smb_min_percent_of_target", defaultValue = 0, min = 0, max = 300, title = KeysStrings.pref_title_smb_min_percent_of_target, summary = KeysStrings.pref_summary_smb_min_percent_of_target, unitType = UnitType.PERCENT, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
+    // Key string kept from when this sat in the Safety settings, so a stored value is not lost.
+    ApsSmbMinPercentOfTarget(key = "safety_smb_min_percent_of_target", defaultValue = 0, min = 0, max = 300, title = KeysStrings.pref_title_smb_min_percent_of_target, summary = KeysStrings.pref_summary_smb_min_percent_of_target, unitType = UnitType.PERCENT, dependency = BooleanKey.ApsUseSmb, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
     /** Default length of shower mode. */
     SafetyShowerModeMinutes(key = "safety_shower_mode_minutes", defaultValue = 15, min = 5, max = 120, title = KeysStrings.pref_title_shower_mode_minutes, summary = KeysStrings.pref_summary_shower_mode_minutes, unitType = UnitType.MIN, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
     LoopOpenModeMinChange(

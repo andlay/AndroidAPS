@@ -43,7 +43,7 @@ internal fun GlucoseStatus.cappedAt(capMgdl: Double): GlucoseStatus {
 }
 
 /**
- * No SMB while shower mode runs, or while the current BG is below the SMB minimum (Safety settings).
+ * No SMB while shower mode runs, or while the current BG is below the SMB minimum (SMB settings).
  * Temp basals are not affected. The reason is added to [inputConstraints], so it shows with the result.
  * Shared by OpenAPS SMB and AutoISF, so switching algorithm does not drop these limits.
  */
@@ -65,8 +65,8 @@ internal fun applySmbSafetyLimits(
         return false
     }
     val minBg = smbMinBgMgdl(
-        minBgMgdl = profileUtil.convertToMgdlDetect(preferences.get(UnitDoubleKey.SafetySmbMinBg)),
-        minPercentOfTarget = preferences.get(IntKey.SafetySmbMinPercentOfTarget),
+        minBgMgdl = profileUtil.convertToMgdlDetect(preferences.get(UnitDoubleKey.ApsSmbMinBg)),
+        minPercentOfTarget = preferences.get(IntKey.ApsSmbMinPercentOfTarget),
         targetMgdl = targetMgdl
     )
     if (bgMgdl < minBg) {
