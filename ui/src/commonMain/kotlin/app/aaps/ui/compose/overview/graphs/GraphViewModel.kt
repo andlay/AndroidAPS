@@ -238,7 +238,8 @@ class GraphViewModel(
         private set
 
     fun onGraphInteraction() {
-        preferences.put(BooleanNonKey.ObjectivesScaleUsed, true)
+        // Called for every frame of a pan, so write the preference only once.
+        if (!preferences.get(BooleanNonKey.ObjectivesScaleUsed)) preferences.put(BooleanNonKey.ObjectivesScaleUsed, true)
         lastInteractionMs = dateUtil.now()
     }
 

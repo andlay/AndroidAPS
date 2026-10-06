@@ -30,6 +30,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -202,14 +204,19 @@ fun GraphsSection(
 
     // Touch cursor (see GraphCursor.kt). One x layout for all graphs, reported by the fixed IOB graph.
     val cursorGeometry = remember { GraphGeometryHolder() }
-    var cursor by remember { mutableStateOf<GraphCursor?>(null) }
-    val onCursorChange: (GraphCursor?) -> Unit = { cursor = it }
+    // Read only through the derived values below and inside GraphCursorFor. Read here directly, every
+    // move of the cursor recomposed this whole section and with it every chart.
+    val cursorState = remember { mutableStateOf<GraphCursor?>(null) }
+    val cursorGraphId by remember { derivedStateOf { cursorState.value?.graphId } }
+    val cursorShown by remember { derivedStateOf { cursorState.value != null } }
+    val onCursorChange: (GraphCursor?) -> Unit = remember { { cursorState.value = it } }
 
     // BG's own visible window, sourced from the fixed IOB graph's already-computed visible range
     // (its scroll/zoom are synced to BG's, see the sync LaunchedEffect below) — not from a
     // decoration on BG's own chart, since that was tried and found to break BG's pinch-zoom
     // gesture handling (BG is the only graph with live scrollEnabled/zoomEnabled = true).
     var iobVisibleRange by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    val onIobVisibleRangeChanged: (Pair<Double, Double>?) -> Unit = remember { { iobVisibleRange = it } }
 
     // Settle further before feeding into BG specifically: unlike the secondary graphs (which are
     // non-interactive and unaffected by frequent updates), BG has live pinch-zoom. Updating its
@@ -268,8 +275,11 @@ fun GraphsSection(
         sec4scroll, sec4zoom
     ) {
         var initialValue = true
+        var lastZoom = Float.NaN
+        // Every change, every frame: a debounce here only fires when the finger pauses, so the other
+        // graphs stood still during a pan and jumped when it stopped. Zoom is only applied when it
+        // changed, and only then does scroll wait for it to settle.
         snapshotFlow { bgScrollState.value to bgZoomState.value }
-            .debounce(30) // Wait for gesture to settle
             .collect { (scroll, zoom) ->
                 if (initialValue) {
                     initialValue = false
@@ -278,10 +288,13 @@ fun GraphsSection(
                 }
                 val count = activeCount
                 // Sync zoom first, then scroll (order matters for proper positioning)
-                beltZoomState.zoom(Zoom.fixed(zoom))
-                iobZoomState.zoom(Zoom.fixed(zoom))
-                for (i in 0 until count) secZoomStates[i].zoom(Zoom.fixed(zoom))
-                delay(10)
+                if (zoom != lastZoom) {
+                    lastZoom = zoom
+                    beltZoomState.zoom(Zoom.fixed(zoom))
+                    iobZoomState.zoom(Zoom.fixed(zoom))
+                    for (i in 0 until count) secZoomStates[i].zoom(Zoom.fixed(zoom))
+                    delay(10)
+                }
                 beltScrollState.scroll(Scroll.Absolute.pixels(scroll))
                 iobScrollState.scroll(Scroll.Absolute.pixels(scroll))
                 for (i in 0 until count) secScrollStates[i].scroll(Scroll.Absolute.pixels(scroll))
@@ -370,7 +383,7 @@ fun GraphsSection(
     LaunchedEffect(bgScrollState, bgZoomState) {
         snapshotFlow { bgScrollState.value to bgZoomState.value }
             .drop(1)
-            .collect { cursor = null }
+            .collect { cursorState.value = null }
     }
 
     Column(
@@ -421,7 +434,7 @@ fun GraphsSection(
             else                                   -> stringResource(UiStrings.a11y_bg_graph_summary_values_only, recentValues)
         }
 
-        Box(modifier = Modifier.offset(y = (-16).dp).zIndex(if (cursor?.graphId == CURSOR_GRAPH_BG) 1f else 0f)) {
+        Box(modifier = Modifier.offset(y = (-16).dp).zIndex(if (cursorGraphId == CURSOR_GRAPH_BG) 1f else 0f)) {
             BgGraphCompose(
                 viewModel = graphViewModel,
                 bgOverlays = graphConfig.bgOverlays,
@@ -434,10 +447,12 @@ fun GraphsSection(
                     .fillMaxWidth()
                     .height(graphConfig.bgHeight.dp)
                     .then(
-                        if (graphDescription != null) Modifier.semantics { contentDescription = graphDescription }
-                        else Modifier
+                        remember(graphDescription) {
+                            if (graphDescription != null) Modifier.semantics { contentDescription = graphDescription }
+                            else Modifier
+                        }
                     )
-                    .then(rememberGraphCursorInput(CURSOR_GRAPH_BG, cursorGeometry, derivedTimeRange?.first, cursor != null, onCursorChange))
+                    .then(rememberGraphCursorInput(CURSOR_GRAPH_BG, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange))
             )
             if (!isSimpleMode) {
                 GraphEditButton(
@@ -447,7 +462,7 @@ fun GraphsSection(
                         .padding(end = 4.dp, top = 2.dp)
                 )
             }
-            GraphCursorFor(CURSOR_GRAPH_BG, cursor, graphViewModel, graphConfig.bgOverlays, derivedTimeRange?.first, cursorGeometry)
+            GraphCursorFor(CURSOR_GRAPH_BG, cursorState, graphViewModel, graphConfig.bgOverlays, derivedTimeRange?.first, cursorGeometry)
         }
         if (editingBgOverlays) {
             GraphSeriesBottomSheet(
@@ -468,21 +483,21 @@ fun GraphsSection(
         }
         // Fixed IOB graph (Graph 1) with optional Activity overlay
         var editingIobOverlays by remember { mutableStateOf(false) }
-        Box(modifier = Modifier.offset(y = (-8).dp).zIndex(if (cursor?.graphId == CURSOR_GRAPH_IOB) 1f else 0f)) {
+        Box(modifier = Modifier.offset(y = (-8).dp).zIndex(if (cursorGraphId == CURSOR_GRAPH_IOB) 1f else 0f)) {
             SecondaryGraphCompose(
                 viewModel = graphViewModel,
-                seriesTypes = listOf(SeriesType.IOB),
+                seriesTypes = IOB_SERIES,
                 scrollState = iobScrollState,
                 zoomState = iobZoomState,
                 derivedTimeRange = derivedTimeRange,
                 nowTimestamp = nowTimestamp,
                 activityOverlay = SeriesType.ACTIVITY in graphConfig.iobOverlays,
-                onVisibleRangeChanged = { iobVisibleRange = it },
+                onVisibleRangeChanged = onIobVisibleRangeChanged,
                 geometryHolder = cursorGeometry,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.iobHeight.dp)
-                    .then(rememberGraphCursorInput(CURSOR_GRAPH_IOB, cursorGeometry, derivedTimeRange?.first, cursor != null, onCursorChange, panTarget = bgScrollState))
+                    .then(rememberGraphCursorInput(CURSOR_GRAPH_IOB, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange, panTarget = bgScrollState))
             )
             Text(
                 text = stringResource(CoreUiStrings.iob) + " / " + stringResource(CoreUiStrings.basal_shortname),
@@ -500,7 +515,7 @@ fun GraphsSection(
                         .padding(end = 4.dp, top = 2.dp)
                 )
             }
-            GraphCursorFor(CURSOR_GRAPH_IOB, cursor, graphViewModel, graphConfig.iobOverlays, derivedTimeRange?.first, cursorGeometry)
+            GraphCursorFor(CURSOR_GRAPH_IOB, cursorState, graphViewModel, graphConfig.iobOverlays, derivedTimeRange?.first, cursorGeometry)
         }
         if (editingIobOverlays) {
             GraphSeriesBottomSheet(
@@ -525,7 +540,7 @@ fun GraphsSection(
         for (i in 0 until activeCount) {
             val secondary = graphConfig.secondaryGraphs[i]
             val cursorGraphId = i + 1
-            Box(modifier = Modifier.offset(y = (-8).dp).zIndex(if (cursor?.graphId == cursorGraphId) 1f else 0f)) {
+            Box(modifier = Modifier.offset(y = (-8).dp).zIndex(if (cursorGraphId == cursorGraphId) 1f else 0f)) {
                 SecondaryGraphCompose(
                     viewModel = graphViewModel,
                     seriesTypes = secondary.series,
@@ -536,7 +551,7 @@ fun GraphsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(secondary.height.dp)
-                        .then(rememberGraphCursorInput(cursorGraphId, cursorGeometry, derivedTimeRange?.first, cursor != null, onCursorChange, panTarget = bgScrollState))
+                        .then(rememberGraphCursorInput(cursorGraphId, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange, panTarget = bgScrollState))
                 )
                 Text(
                     text = seriesListLabel(secondary.series),
@@ -554,7 +569,7 @@ fun GraphsSection(
                             .padding(end = 4.dp, top = 2.dp)
                     )
                 }
-                GraphCursorFor(cursorGraphId, cursor, graphViewModel, secondary.series, derivedTimeRange?.first, cursorGeometry)
+                GraphCursorFor(cursorGraphId, cursorState, graphViewModel, secondary.series, derivedTimeRange?.first, cursorGeometry)
             }
         }
         if (editingGraphIndex >= 0 && editingGraphIndex < activeCount) {
@@ -644,16 +659,21 @@ fun GraphsSection(
     }
 }
 
+/** The fixed IOB graph's series, as one constant so the graph sees the same list on every pass. */
+private val IOB_SERIES = listOf(SeriesType.IOB)
+
 /** Shows the touch cursor in this graph's Box when the cursor is on this graph. */
 @Composable
 private fun BoxScope.GraphCursorFor(
     graphId: Int,
-    cursor: GraphCursor?,
+    cursorState: State<GraphCursor?>,
     viewModel: GraphViewModel,
     seriesTypes: List<SeriesType>,
     minTimestamp: Long?,
     geometry: GraphGeometryHolder
 ) {
+    // Read here, in the overlay's own scope, so a cursor move redraws only the overlay.
+    val cursor = cursorState.value
     if (cursor == null || cursor.graphId != graphId || minTimestamp == null) return
     GraphCursorOverlay(
         viewModel = viewModel,

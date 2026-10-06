@@ -6,7 +6,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -25,7 +24,6 @@ import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgType
 import app.aaps.core.interfaces.overview.graph.EpsGraphPoint
 import app.aaps.core.interfaces.overview.graph.SeriesType
-import app.aaps.core.interfaces.overview.graph.TargetLineData
 import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.AapsTheme
 import app.aaps.core.ui.compose.icons.IcProfile
@@ -71,11 +69,22 @@ private val PREDICTION_SERIES = listOf(SERIES_PRED_IOB, SERIES_PRED_COB, SERIES_
 /**
  * CartesianChartModelProducer.update() skips notifying receivers (and thus skips recomputing axis
  * ranges) when a transaction's partials AND extraStore are both unchanged from the last one. Since
- * scrolling/zooming re-submits identical series data (only the visible window changed), stashing
- * the visible window here forces the extraStore to differ, so Vico actually reprocesses the
- * transaction instead of silently dropping it. Same mechanism as SecondaryGraphCompose.kt.
+ * a new axis scale can re-submit identical series data, stashing the scale here forces the
+ * extraStore to differ, so Vico actually reprocesses the transaction instead of silently dropping
+ * it. An unchanged scale with unchanged data is rightly skipped. Same mechanism as SecondaryGraphCompose.kt.
  */
-private val BG_VISIBLE_RANGE_KEY = ExtraStore.Key<Pair<Long?, Long?>>()
+private val BG_AXIS_SCALE_KEY = ExtraStore.Key<NiceScale>()
+
+/** One series as chart coordinates: x in minutes from the start of the graph, sorted by time. */
+private class XySeries(val x: List<Double>, val y: List<Double>) {
+
+    val size: Int get() = x.size
+}
+
+private fun <T> List<T>.toXySeries(minTimestamp: Long, timestamp: (T) -> Long, value: (T) -> Double): XySeries {
+    val sorted = sortedBy(timestamp)
+    return XySeries(sorted.map { timestampToX(timestamp(it), minTimestamp) }, sorted.map(value))
+}
 
 /**
  * A [CartesianLayerRangeProvider] backed by plain mutable fields instead of an immutable value
@@ -163,9 +172,6 @@ fun BgGraphCompose(
     // Single model producer shared by all layers
     val modelProducer = remember { CartesianChartModelProducer() }
 
-    // Series registry - tracks current data for each series
-    val seriesRegistry = remember { mutableStateMapOf<String, List<BgDataPoint>>() }
-
     // Colors from theme (stable - won't change)
     val regularColor = AapsTheme.generalColors.originalBgValue
     val lowColor = AapsTheme.generalColors.bgLow
@@ -197,23 +203,22 @@ fun BgGraphCompose(
     // Track which series are currently included (for matching LineProvider)
     val activeSeriesState = remember { mutableStateOf(listOf<String>()) }
 
-    // Stable time range - only changes when timestamps change by more than 1 minute
-    val stableTimeRange = remember(minTimestamp / 60000, maxTimestamp / 60000) {
-        minTimestamp to maxTimestamp
-    }
-
-    // Function to rebuild chart from registry
+    // Function to rebuild the chart model
+    // The x/y series are converted beforehand (see the remembers below), so a new axis scale alone
+    // does not convert and sort every series again.
     suspend fun rebuildChart(
-        currentBasalData: BasalGraphData,
-        currentTargetData: TargetLineData,
+        regularPoints: XySeries,
+        bucketedPoints: XySeries,
+        predictionPoints: Map<String, XySeries>,
+        profileBasalPoints: XySeries,
+        actualBasalPoints: XySeries,
+        targetPoints: XySeries,
         currentEpsPoints: List<EpsGraphPoint>,
         currentActivityData: ActivityGraphData,
-        currentMinBgY: Double,
-        currentMaxBgY: Double,
-        currentVisibleTimeRange: Pair<Long, Long>?
+        bgScale: NiceScale
     ) {
-        val regularPoints = seriesRegistry[SERIES_REGULAR] ?: emptyList()
-        val bucketedPoints = seriesRegistry[SERIES_BUCKETED] ?: emptyList()
+        val currentMinBgY = bgScale.min
+        val currentMaxBgY = bgScale.max
 
         // Note: do NOT early-return when there are no BG points. With a clean DB the chart must
         // still build its frame (axes, now-line, in-range belt) via the normalizer + dummy layers,
@@ -224,30 +229,21 @@ fun BgGraphCompose(
             lineModel {
                 val activeSeries = mutableListOf<String>()
 
-                if (regularPoints.isNotEmpty()) {
-                    val dataPoints = regularPoints
-                        .map { timestampToX(it.timestamp, minTimestamp) to it.value }
-                        .sortedBy { it.first }
-                    series(x = dataPoints.map { it.first }, y = dataPoints.map { it.second })
+                if (regularPoints.size > 0) {
+                    series(x = regularPoints.x, y = regularPoints.y)
                     activeSeries.add(SERIES_REGULAR)
                 }
 
-                if (bucketedPoints.isNotEmpty()) {
-                    val dataPoints = bucketedPoints
-                        .map { timestampToX(it.timestamp, minTimestamp) to it.value }
-                        .sortedBy { it.first }
-                    series(x = dataPoints.map { it.first }, y = dataPoints.map { it.second })
+                if (bucketedPoints.size > 0) {
+                    series(x = bucketedPoints.x, y = bucketedPoints.y)
                     activeSeries.add(SERIES_BUCKETED)
                 }
 
                 // Prediction series - each type as a separate line
                 for (predSeries in PREDICTION_SERIES) {
-                    val predPoints = seriesRegistry[predSeries]
-                    if (!predPoints.isNullOrEmpty()) {
-                        val dataPoints = predPoints
-                            .map { timestampToX(it.timestamp, minTimestamp) to it.value }
-                            .sortedBy { it.first }
-                        series(x = dataPoints.map { it.first }, y = dataPoints.map { it.second })
+                    val predPoints = predictionPoints[predSeries]
+                    if (predPoints != null && predPoints.size > 0) {
+                        series(x = predPoints.x, y = predPoints.y)
                         activeSeries.add(predSeries)
                     }
                 }
@@ -260,21 +256,15 @@ fun BgGraphCompose(
 
             // Block 2 → Basal layer (layer 1, end axis)
             lineModel {
-                if (currentBasalData.profileBasal.size >= 2) {
-                    val pts = currentBasalData.profileBasal
-                        .map { timestampToX(it.timestamp, minTimestamp) to it.value }
-                        .sortedBy { it.first }
-                    series(x = pts.map { it.first }, y = pts.map { it.second })
+                if (profileBasalPoints.size >= 2) {
+                    series(x = profileBasalPoints.x, y = profileBasalPoints.y)
                 } else {
                     // Dummy series - invisible at y=0
                     series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
                 }
 
-                if (currentBasalData.actualBasal.size >= 2) {
-                    val pts = currentBasalData.actualBasal
-                        .map { timestampToX(it.timestamp, minTimestamp) to it.value }
-                        .sortedBy { it.first }
-                    series(x = pts.map { it.first }, y = pts.map { it.second })
+                if (actualBasalPoints.size >= 2) {
+                    series(x = actualBasalPoints.x, y = actualBasalPoints.y)
                 } else {
                     // Dummy series - invisible at y=0
                     series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
@@ -283,11 +273,8 @@ fun BgGraphCompose(
 
             // Block 3 → Target line layer (layer 2, start axis)
             lineModel {
-                if (currentTargetData.targets.size >= 2) {
-                    val pts = currentTargetData.targets
-                        .map { timestampToX(it.timestamp, minTimestamp) to it.value }
-                        .sortedBy { it.first }
-                    series(x = pts.map { it.first }, y = pts.map { it.second })
+                if (targetPoints.size >= 2) {
+                    series(x = targetPoints.x, y = targetPoints.y)
                 } else {
                     // Dummy series - invisible at y=0
                     series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
@@ -343,11 +330,10 @@ fun BgGraphCompose(
                 }
             }
 
-            // Forces Vico to reprocess this transaction even when the series data above is
-            // identical to last time (see BG_VISIBLE_RANGE_KEY doc) — otherwise scrolling/zooming
-            // would re-submit the same partials and get silently skipped, never picking up the
-            // updated startAxisRangeProvider.
-            extras { it[BG_VISIBLE_RANGE_KEY] = currentVisibleTimeRange?.first to currentVisibleTimeRange?.second }
+            // Forces Vico to reprocess this transaction when only the axis scale changed (see
+            // BG_AXIS_SCALE_KEY doc) — otherwise the same partials would be silently skipped,
+            // never picking up the updated startAxisRangeProvider.
+            extras { it[BG_AXIS_SCALE_KEY] = bgScale }
         }
     }
 
@@ -362,34 +348,45 @@ fun BgGraphCompose(
         )
     }
 
+    // Chart coordinates, converted once per data change rather than on every model rebuild.
+    val regularXy = remember(bgReadings, minTimestamp) { bgReadings.toXySeries(minTimestamp, { it.timestamp }, { it.value }) }
+    val bucketedXy = remember(bucketedData, minTimestamp) { bucketedData.toXySeries(minTimestamp, { it.timestamp }, { it.value }) }
+    val predictionXy = remember(predictionsByType, minTimestamp) {
+        predictionsByType.mapValues { (_, points) -> points.toXySeries(minTimestamp, { it.timestamp }, { it.value }) }
+    }
+    val profileBasalXy = remember(basalData.profileBasal, minTimestamp) { basalData.profileBasal.toXySeries(minTimestamp, { it.timestamp }, { it.value }) }
+    val actualBasalXy = remember(basalData.actualBasal, minTimestamp) { basalData.actualBasal.toXySeries(minTimestamp, { it.timestamp }, { it.value }) }
+    val targetXy = remember(targetData.targets, minTimestamp) { targetData.targets.toXySeries(minTimestamp, { it.timestamp }, { it.value }) }
+
+    // Windowed axis min/max: BG values within the visible scroll/zoom window (not the full
+    // loaded range), floored/ceiled at chartConfig.lowMark/highMark (the "Low mark"/"High mark"
+    // target-range preferences) so the axis never shrinks past the configured target range —
+    // but also never stays locked at a fixed 0 floor when real data sits well above it, which
+    // used to leave a large empty band under the curve (worse for mmol/L users, since niceScale
+    // can round the top up to a proportionally huge ceiling like 15 mmol/L). niceScale(...)
+    // rounds both bounds and the tick step to clean numbers (e.g. 70, 180) instead of the raw
+    // data values.
+    // Includes predictions (when shown) — otherwise scrolling into a region with only future
+    // prediction data (no real BG readings) makes the windowed set empty, falling back to the
+    // full unwindowed history's max instead of the actually-visible prediction values.
+    // The model below is rebuilt when this rounded scale changes, not when the window moves:
+    // most scrolls keep the same scale and then cost nothing.
+    val niceBgScale = remember(bgReadings, bucketedData, predictions, visibleTimeRange, chartConfig.lowMark, chartConfig.highMark) {
+        bgAxisScale(bgReadings + bucketedData + predictions, visibleTimeRange, chartConfig.lowMark, chartConfig.highMark)
+    }
+
     // Single LaunchedEffect for all data - ensures atomic updates
-    LaunchedEffect(bgReadings, bucketedData, predictionsByType, basalData, targetData, epsPoints, activityData, showActivity, chartConfig, stableTimeRange, visibleTimeRange) {
-        seriesRegistry[SERIES_REGULAR] = bgReadings
-        seriesRegistry[SERIES_BUCKETED] = bucketedData
-        for ((key, points) in predictionsByType) {
-            seriesRegistry[key] = points
-        }
-        // Windowed axis min/max: BG values within the visible scroll/zoom window (not the full
-        // loaded range), floored/ceiled at chartConfig.lowMark/highMark (the "Low mark"/"High mark"
-        // target-range preferences) so the axis never shrinks past the configured target range —
-        // but also never stays locked at a fixed 0 floor when real data sits well above it, which
-        // used to leave a large empty band under the curve (worse for mmol/L users, since niceScale
-        // can round the top up to a proportionally huge ceiling like 15 mmol/L). niceScale(...)
-        // rounds both bounds and the tick step to clean numbers (e.g. 70, 180) instead of the raw
-        // data values. Mutate the stable provider in place (see MutableYRangeProvider) — Vico picks
-        // up the new values when it processes the transaction submitted below, without ever
-        // recreating BG's chart object.
-        // Includes predictions (when shown) — otherwise scrolling into a region with only future
-        // prediction data (no real BG readings) makes the windowed set empty, falling back to the
-        // full unwindowed history's max instead of the actually-visible prediction values.
-        val niceBgScale = bgAxisScale(bgReadings + bucketedData + predictions, visibleTimeRange, chartConfig.lowMark, chartConfig.highMark)
+    LaunchedEffect(regularXy, bucketedXy, predictionXy, profileBasalXy, actualBasalXy, targetXy, epsPoints, activityData, showActivity, maxX, niceBgScale) {
+        // Mutate the stable provider in place (see MutableYRangeProvider) — Vico picks up the new
+        // values when it processes the transaction submitted below, without ever recreating BG's
+        // chart object.
         startAxisRangeProvider.maxX = maxX
         startAxisRangeProvider.minY = niceBgScale.min
         startAxisRangeProvider.maxY = niceBgScale.max
         startAxisRangeProvider.yStep = niceBgScale.step
 
         // EPS icons and the activity overlay are placed on the same (visible) range as the axis.
-        rebuildChart(basalData, targetData, epsPoints, activityData, niceBgScale.min, niceBgScale.max, visibleTimeRange)
+        rebuildChart(regularXy, bucketedXy, predictionXy, profileBasalXy, actualBasalXy, targetXy, epsPoints, activityData, niceBgScale)
     }
 
     // Build lookup map for BUCKETED points: x-value -> BgDataPoint (for PointProvider)

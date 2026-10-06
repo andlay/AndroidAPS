@@ -187,63 +187,67 @@ internal fun rememberGraphCursorInput(
     val currentCursorVisible by rememberUpdatedState(cursorVisible)
     val currentOnCursorChange by rememberUpdatedState(onCursorChange)
 
-    return Modifier.pointerInput(graphId, geometry) {
-        fun timestampAt(canvasX: Float): Long? {
-            val minTs = currentMinTimestamp ?: return null
-            if (!geometry.isReady) return null
-            return minTs + (geometry.xValueAt(canvasX) * 60_000).toLong()
-        }
+    // Remembered: the handler reads everything through the updated states above, so the same
+    // modifier can be returned on every pass and the chart it is attached to can skip recomposing.
+    return remember(graphId, geometry) {
+        Modifier.pointerInput(graphId, geometry) {
+            fun timestampAt(canvasX: Float): Long? {
+                val minTs = currentMinTimestamp ?: return null
+                if (!geometry.isReady) return null
+                return minTs + (geometry.xValueAt(canvasX) * 60_000).toLong()
+            }
 
-        awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            var lastX = down.position.x
-            val outcome = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                var result = PressOutcome.MOVED
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    // A second finger is a pinch zoom: leave it to the chart.
-                    if (event.changes.size > 1) break
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    if (!change.pressed) {
-                        result = PressOutcome.TAP
-                        break
-                    }
-                    val moved = change.position - down.position
-                    if (moved.getDistance() > viewConfiguration.touchSlop) {
-                        if (abs(moved.x) > abs(moved.y)) result = PressOutcome.MOVED_SIDEWAYS
-                        break
-                    }
-                    lastX = change.position.x
-                }
-                result
-            } ?: PressOutcome.LONG_PRESS
-
-            when (outcome) {
-                PressOutcome.TAP            -> if (currentCursorVisible) currentOnCursorChange(null)
-                PressOutcome.MOVED          -> Unit
-                PressOutcome.MOVED_SIDEWAYS -> {
-                    val target = currentPanTarget ?: return@awaitEachGesture
-                    val startScroll = target.value
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                var lastX = down.position.x
+                val outcome = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                    var result = PressOutcome.MOVED
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
+                        // A second finger is a pinch zoom: leave it to the chart.
+                        if (event.changes.size > 1) break
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        event.changes.forEach { it.consume() }
-                        if (!change.pressed || event.changes.size > 1) break
-                        val scroll = startScroll - (change.position.x - down.position.x)
-                        scope.launch { target.scroll(Scroll.Absolute.pixels(scroll)) }
+                        if (!change.pressed) {
+                            result = PressOutcome.TAP
+                            break
+                        }
+                        val moved = change.position - down.position
+                        if (moved.getDistance() > viewConfiguration.touchSlop) {
+                            if (abs(moved.x) > abs(moved.y)) result = PressOutcome.MOVED_SIDEWAYS
+                            break
+                        }
+                        lastX = change.position.x
                     }
-                }
+                    result
+                } ?: PressOutcome.LONG_PRESS
 
-                PressOutcome.LONG_PRESS     -> {
-                    val start = timestampAt(lastX) ?: return@awaitEachGesture
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    currentOnCursorChange(GraphCursor(graphId, start))
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        event.changes.forEach { it.consume() }
-                        val change = event.changes.firstOrNull { it.id == down.id }
-                        if (change == null || !change.pressed) break
-                        timestampAt(change.position.x)?.let { currentOnCursorChange(GraphCursor(graphId, it)) }
+                when (outcome) {
+                    PressOutcome.TAP            -> if (currentCursorVisible) currentOnCursorChange(null)
+                    PressOutcome.MOVED          -> Unit
+                    PressOutcome.MOVED_SIDEWAYS -> {
+                        val target = currentPanTarget ?: return@awaitEachGesture
+                        val startScroll = target.value
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            event.changes.forEach { it.consume() }
+                            if (!change.pressed || event.changes.size > 1) break
+                            val scroll = startScroll - (change.position.x - down.position.x)
+                            scope.launch { target.scroll(Scroll.Absolute.pixels(scroll)) }
+                        }
+                    }
+
+                    PressOutcome.LONG_PRESS     -> {
+                        val start = timestampAt(lastX) ?: return@awaitEachGesture
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        currentOnCursorChange(GraphCursor(graphId, start))
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            event.changes.forEach { it.consume() }
+                            val change = event.changes.firstOrNull { it.id == down.id }
+                            if (change == null || !change.pressed) break
+                            timestampAt(change.position.x)?.let { currentOnCursorChange(GraphCursor(graphId, it)) }
+                        }
                     }
                 }
             }
