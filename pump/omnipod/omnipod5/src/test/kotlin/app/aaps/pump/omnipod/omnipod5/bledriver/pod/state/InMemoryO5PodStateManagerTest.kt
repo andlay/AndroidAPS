@@ -38,6 +38,24 @@ class InMemoryO5PodStateManagerTest {
         assertThat(state.reservoirPulsesRemaining).isEqualTo(1000.toShort())
     }
 
+    @Test
+    fun `alarm status keeps the PDM-style Ref code until reset`() {
+        // Same message as AlarmStatusResponseTest in the Dash module, with a flash failure fault.
+        val encoded = hexToBytes("021602080100000501BD00000003FF01950000000000670A")
+        encoded[10] = AlarmType.ALARM_FLASH_FAILURE.value
+        encoded[11] = 0
+        encoded[12] = 180.toByte()
+        encoded[15] = (900 shr 8).toByte()
+        encoded[16] = 900.toByte()
+        val state = InMemoryO5PodStateManager()
+
+        state.updateFromAlarmStatusResponse(AlarmStatusResponse(encoded))
+        assertThat(state.pdmRef).isEqualTo("19-00003-02251-062")
+
+        state.reset()
+        assertThat(state.pdmRef).isNull()
+    }
+
     private fun hexToBytes(hex: String): ByteArray =
         ByteArray(hex.length / 2) { i -> hex.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
 

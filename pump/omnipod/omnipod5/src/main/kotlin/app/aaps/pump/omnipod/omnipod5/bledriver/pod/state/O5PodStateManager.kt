@@ -227,6 +227,9 @@ interface O5PodStateManager {
     /** Pod-clock minutes-since-activation timestamp of when the alarm occurred (not a
      *  wall-clock time - the pod has no wall clock of its own). */
     val alarmTime: Short?
+    /** PDM-style fault reference ("Ref: TT-VVVHH-IIIRR-FFF") from the alarm status, for a support
+     *  call. Null without a fault, or when only the fault code is known (activation-time page). */
+    val pdmRef: String?
     val occlusionAlarm: Boolean?
     val podStatusWhenAlarmOccurred: PodStatus?
     val rssi: Short?
@@ -420,6 +423,7 @@ class InMemoryO5PodStateManager : O5PodStateManager {
     @Volatile override var alarmType: AlarmType? = null
         private set
     @Volatile override var alarmTime: Short? = null
+    @Volatile override var pdmRef: String? = null
         private set
     @Volatile override var occlusionAlarm: Boolean? = null
         private set
@@ -496,6 +500,7 @@ class InMemoryO5PodStateManager : O5PodStateManager {
         sequenceNumberOfLastProgrammingCommand = response.sequenceNumberOfLastProgrammingCommand
         alarmType = response.alarmType
         alarmTime = response.alarmTime
+        pdmRef = response.pdmRef
         occlusionAlarm = response.occlusionAlarm
         podStatusWhenAlarmOccurred = response.podStatusWhenAlarmOccurred
         rssi = response.rssi
@@ -588,6 +593,7 @@ class InMemoryO5PodStateManager : O5PodStateManager {
         lastStatusResponseReceived = null
         alarmType = null
         alarmTime = null
+        pdmRef = null
         occlusionAlarm = null
         podStatusWhenAlarmOccurred = null
         rssi = null

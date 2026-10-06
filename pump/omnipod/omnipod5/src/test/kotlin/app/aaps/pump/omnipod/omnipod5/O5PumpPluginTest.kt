@@ -92,7 +92,7 @@ class O5PumpPluginTest : TestBaseWithProfile() {
     fun setup() {
         plugin = O5PumpPlugin(
             aapsLogger, rh, preferences, commandQueue, bleManager, podStateManager, history, pumpSync,
-            notificationManager, pumpEnactResultProvider, bolusProgressData, protectionCheck, blePreCheck, config
+            notificationManager, pumpEnactResultProvider, bolusProgressData, protectionCheck, blePreCheck
         )
         whenever(rh.gs(R.string.omnipod_5_error_not_enough_insulin)).thenReturn("Not enough insulin")
         whenever(rh.gs(R.string.omnipod_5_error_bolus_already_in_progress)).thenReturn("Bolus already in progress")
@@ -475,12 +475,62 @@ class O5PumpPluginTest : TestBaseWithProfile() {
         verify(podStateManager).suspendAlertsEnabled = false
     }
 
+    /** A running pod with [basalPulses] basal pulses delivered and [expected] units expected. */
+    private fun stubBasalDrift(basalPulses: Int, expected: Double) {
+        whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.COMPLETED)
+        whenever(podStateManager.deliverySuspended).thenReturn(false)
+        whenever(podStateManager.alarmType).thenReturn(null)
+        whenever(podStateManager.lastBasalCorrectionTime).thenReturn(null)
+        whenever(podStateManager.activeTempBasalRate).thenReturn(null)
+        whenever(podStateManager.totalPulsesDelivered).thenReturn((basalPulses + 100).toShort())
+        whenever(podStateManager.cumulativeBolusPulsesDelivered).thenReturn(100.toShort())
+        whenever(podStateManager.basalExpected).thenReturn(expected)
+    }
+
     @Test
-    fun `executeCustomCommand rejects CommandDeliverBasalCorrection when drift compensation is disabled - the default`() {
+    fun `no basal correction before the pod is activated`() {
+        whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.NOT_STARTED)
+
         val result = plugin.executeCustomCommand(CommandDeliverBasalCorrection())
 
         assertThat(result!!.success).isTrue()
         assertThat(result.enacted).isFalse()
+        verify(bleManager, never()).sendCommand(any(), any())
+    }
+
+    @Test
+    fun `no basal correction when basal is on track`() {
+        stubBasalDrift(basalPulses = 20, expected = 1.0)
+
+        val result = plugin.executeCustomCommand(CommandDeliverBasalCorrection())
+
+        assertThat(result!!.enacted).isFalse()
+        verify(bleManager, never()).sendCommand(any(), any())
+    }
+
+    @Test
+    fun `a basal drift of two pulses or more is reset, not corrected`() {
+        stubBasalDrift(basalPulses = 20, expected = 1.2)
+
+        val result = plugin.executeCustomCommand(CommandDeliverBasalCorrection())
+
+        assertThat(result!!.enacted).isFalse()
+        verify(podStateManager).basalExpected = 1.0
+        verify(bleManager, never()).sendCommand(any(), any())
+    }
+
+    @Test
+    fun `drift compensation is on - one pulse behind passes the gate`() {
+        // One pulse behind is a correction case. An unresolved earlier dose stops it just after the
+        // gate, which shows the gate let it through without driving the whole bolus flow.
+        stubBasalDrift(basalPulses = 20, expected = 1.05)
+        whenever(podStateManager.pendingDoseCommand).thenReturn(mock())
+
+        val result = plugin.executeCustomCommand(CommandDeliverBasalCorrection())
+
+        assertThat(result!!.success).isFalse()
+        assertThat(result.enacted).isFalse()
+        verify(podStateManager, never()).lastBasalCorrectionTime = any()
         verify(bleManager, never()).sendCommand(any(), any())
     }
 

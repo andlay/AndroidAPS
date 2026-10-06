@@ -262,6 +262,7 @@ class PersistedO5PodStateManager @Inject constructor(
 
     override val alarmType: AlarmType? get() = podState.alarmType
     override val alarmTime: Short? get() = podState.alarmTime
+    override val pdmRef: String? get() = podState.pdmRef
     override val occlusionAlarm: Boolean? get() = podState.occlusionAlarm
     override val podStatusWhenAlarmOccurred: PodStatus? get() = podState.podStatusWhenAlarmOccurred
     override val rssi: Short? get() = podState.rssi
@@ -431,6 +432,7 @@ class PersistedO5PodStateManager @Inject constructor(
         }
         podState.alarmType = response.alarmType
         podState.alarmTime = response.alarmTime
+        podState.pdmRef = response.pdmRef
         podState.occlusionAlarm = response.occlusionAlarm
         podState.podStatusWhenAlarmOccurred = response.podStatusWhenAlarmOccurred
         podState.rssi = response.rssi
@@ -561,6 +563,7 @@ class PersistedO5PodStateManager @Inject constructor(
         var lastStatusResponseReceived: Long? = null,
         var alarmType: AlarmType? = null,
         var alarmTime: Short? = null,
+        var pdmRef: String? = null,
         var occlusionAlarm: Boolean? = null,
         var podStatusWhenAlarmOccurred: PodStatus? = null,
         var rssi: Short? = null,

@@ -33,6 +33,7 @@ import app.aaps.core.ui.compose.pump.PumpOverviewUiState
 import app.aaps.core.ui.compose.pump.tickerFlow
 import app.aaps.pump.omnipod.common.bledriver.pod.definition.ActivationProgress
 import app.aaps.pump.omnipod.common.bledriver.pod.definition.AlertType
+import app.aaps.pump.omnipod.common.bledriver.pod.definition.PdmFaultCategory
 import app.aaps.pump.omnipod.common.bledriver.pod.definition.PodConstants
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.O5PodStateManager
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.expiry
@@ -249,6 +250,28 @@ class O5OverviewViewModel @Inject constructor(
             }
             val errorsText = if (errors.isEmpty()) PLACEHOLDER else errors.joinToString("\n")
             add(PumpInfoRow(label = rh.gs(CoreUiR.string.errors), value = errorsText, level = if (errors.isEmpty()) StatusLevel.NORMAL else StatusLevel.CRITICAL))
+
+            // PDM-style notification, as in DashOverviewViewModel: the fault the way the PDM would have
+            // shown it (header + text + Ref code), so it can be reported to Insulet. Which header and
+            // text applies follows the same fault category as the Ref code (AlarmType.pdmFaultCategory).
+            podStateManager.alarmType?.pdmFaultCategory?.let { category ->
+                podStateManager.pdmRef?.let { ref ->
+                    val (headerRes, textRes) = when (category) {
+                        PdmFaultCategory.RESERVOIR_EMPTY -> CommonR.string.omnipod_common_pdm_notification_header_reservoir_empty to
+                            CommonR.string.omnipod_common_pdm_notification_text_reservoir_empty
+                        PdmFaultCategory.AUTO_OFF         -> CommonR.string.omnipod_common_pdm_notification_header_auto_off to
+                            CommonR.string.omnipod_common_pdm_notification_text_auto_off
+                        PdmFaultCategory.POD_EXPIRED      -> CommonR.string.omnipod_common_pdm_notification_header_pod_expired to
+                            CommonR.string.omnipod_common_pdm_notification_text_pod_expired
+                        PdmFaultCategory.OCCLUDED         -> CommonR.string.omnipod_common_pdm_notification_header_occluded to
+                            CommonR.string.omnipod_common_pdm_notification_text_occluded
+                        PdmFaultCategory.POD_ERROR        -> CommonR.string.omnipod_common_pdm_notification_header_pod_error to
+                            CommonR.string.omnipod_common_pdm_notification_text_pod_error
+                    }
+                    val value = rh.gs(headerRes) + "\n" + rh.gs(textRes) + "\n\n" + rh.gs(CommonR.string.omnipod_common_pdm_ref, ref)
+                    add(PumpInfoRow(label = rh.gs(CommonR.string.omnipod_common_pdm_notification_label), value = value))
+                }
+            }
         }
     }
 

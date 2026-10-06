@@ -18,7 +18,6 @@ import app.aaps.core.data.pump.defs.ManufacturerType
 import app.aaps.core.data.pump.defs.PumpDescription
 import app.aaps.core.data.pump.defs.PumpType
 import app.aaps.core.data.time.T
-import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.notifications.AlarmSound
@@ -178,8 +177,7 @@ class O5PumpPlugin @Inject constructor(
     private val pumpEnactResultProvider: () -> PumpEnactResult,
     private val bolusProgressData: BolusProgressData,
     private val protectionCheck: ProtectionCheck,
-    private val blePreCheck: BlePreCheck,
-    private val config: Config
+    private val blePreCheck: BlePreCheck
 ) : PumpPluginBase(
     pluginDescription = PluginDescription()
         .mainType(PluginType.PUMP)
@@ -217,9 +215,6 @@ class O5PumpPlugin @Inject constructor(
         private const val STATUS_CHECK_INTERVAL_MS = 60L * 1000
         private const val POD_WARNING_INTERVAL_MS = 15L * 60 * 1000
         private const val RESERVOIR_OVER_50_UNITS_DEFAULT = 75.0
-
-        /** Basal drift compensation (see needsBasalCorrection). Off until tested on O5. */
-        private const val O5_DRIFT_COMPENSATION = false
 
         /** Serial reported before any pod is paired, and used for the zero "no delivery" temp
          *  basal when AAPS has no pump registered yet. */
@@ -510,7 +505,11 @@ class O5PumpPlugin @Inject constructor(
             }
         }
 
-        val description = podStateManager.alarmType?.toString()
+        // Same as Dash: the fault, plus the PDM-style Ref code when the alarm status page gave one,
+        // so the fault can be reported to Insulet as if a PDM had shown it.
+        val description = podStateManager.alarmType?.let { alarm ->
+            alarm.toString() + (podStateManager.pdmRef?.let { ref -> "\n" + rh.gs(R.string.omnipod_common_pdm_ref, ref) } ?: "")
+        }
             ?: if (podStateManager.isPodActivationTimeExceeded) {
                 rh.gs(R.string.omnipod_common_error_pod_fault_activation_time_exceeded)
             } else {
@@ -1470,12 +1469,9 @@ class O5PumpPlugin @Inject constructor(
 
     /** Mirrors OmnipodDashPodStateManagerImpl.needsBasalCorrection() exactly (thresholds,
      *  cooldown, drift-reset/zero-TBR safety checks), adapted to O5's flat temp-basal
-     *  fields in place of Dash's TempBasal object.
-     *  Off for O5: Dash made drift compensation always on and removed the opt-in semaphore file,
-     *  but O5 has not been tested with it, so it stays off here until that is decided. */
+     *  fields in place of Dash's TempBasal object. Always on, like Dash since the opt-in
+     *  semaphore file was removed. */
     private fun needsBasalCorrection(): Boolean {
-        if (!O5_DRIFT_COMPENSATION) return false
-
         val correctionThreshold = -PodConstants.POD_PULSE_BOLUS_UNITS / 2
 
         if (podStateManager.activationProgress != ActivationProgress.COMPLETED) return false
