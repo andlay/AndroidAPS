@@ -411,6 +411,9 @@ resistance_lowers_target|BooleanKey|true
 rs_last_clear_key_request|DanaLongKey|true
 rs_logcanulachange|DanaBooleanKey|true
 rs_loginsulinchange|DanaBooleanKey|true
+safety_shower_mode_minutes|IntKey|true
+safety_smb_min_bg|UnitDoubleKey|true
+safety_smb_min_percent_of_target|IntKey|true
 scan_on_connection_error|MedtrumBooleanKey|true
 scene_definitions|StringNonKey|true
 sensitivity_raises_target|BooleanKey|true
@@ -425,6 +428,9 @@ show_insulin_button|BooleanKey|true
 show_notes_entry_dialogs|BooleanKey|true
 show_treatment_button|BooleanKey|true
 show_wizard_button|BooleanKey|true
+shower_mode_cap_mgdl|DoubleNonKey|false
+shower_mode_ends_at|LongNonKey|false
+shower_mode_started_at|LongNonKey|false
 simple_mode|BooleanKey|true
 site_rotation_manage_cgm|BooleanKey|true
 site_rotation_manage_pump|BooleanKey|true

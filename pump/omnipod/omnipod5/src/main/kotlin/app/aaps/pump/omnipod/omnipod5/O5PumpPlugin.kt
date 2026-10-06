@@ -19,7 +19,6 @@ import app.aaps.core.data.pump.defs.PumpDescription
 import app.aaps.core.data.pump.defs.PumpType
 import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.configuration.Config
-import app.aaps.core.interfaces.configuration.ExternalOptions
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.notifications.AlarmSound
@@ -194,7 +193,6 @@ class O5PumpPlugin @Inject constructor(
         }
         .icon(IcPluginOmnipod)
         .pluginName(TextRef.AndroidRes(R.string.omnipod_5_name))
-        .shortName(TextRef.AndroidRes(R.string.omnipod_5_name_short))
         .description(TextRef.AndroidRes(R.string.omnipod_5_pump_description)),
     ownPreferences = OmnipodBooleanPreferenceKey.entries + OmnipodIntPreferenceKey.entries +
         DashBooleanPreferenceKey.entries + O5IntentKey.entries,
@@ -219,6 +217,9 @@ class O5PumpPlugin @Inject constructor(
         private const val STATUS_CHECK_INTERVAL_MS = 60L * 1000
         private const val POD_WARNING_INTERVAL_MS = 15L * 60 * 1000
         private const val RESERVOIR_OVER_50_UNITS_DEFAULT = 75.0
+
+        /** Basal drift compensation (see needsBasalCorrection). Off until tested on O5. */
+        private const val O5_DRIFT_COMPENSATION = false
 
         /** Serial reported before any pod is paired, and used for the zero "no delivery" temp
          *  basal when AAPS has no pump registered yet. */
@@ -1469,10 +1470,11 @@ class O5PumpPlugin @Inject constructor(
 
     /** Mirrors OmnipodDashPodStateManagerImpl.needsBasalCorrection() exactly (thresholds,
      *  cooldown, drift-reset/zero-TBR safety checks), adapted to O5's flat temp-basal
-     *  fields in place of Dash's TempBasal object. Opt-in via the same
-     *  [ExternalOptions.ENABLE_OMNIPOD_DRIFT_COMPENSATION] semaphore file Dash uses. */
+     *  fields in place of Dash's TempBasal object.
+     *  Off for O5: Dash made drift compensation always on and removed the opt-in semaphore file,
+     *  but O5 has not been tested with it, so it stays off here until that is decided. */
     private fun needsBasalCorrection(): Boolean {
-        if (!config.isEnabled(ExternalOptions.ENABLE_OMNIPOD_DRIFT_COMPENSATION)) return false
+        if (!O5_DRIFT_COMPENSATION) return false
 
         val correctionThreshold = -PodConstants.POD_PULSE_BOLUS_UNITS / 2
 

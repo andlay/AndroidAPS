@@ -515,6 +515,8 @@ enum class PumpType(
         baseBasalStep = 0.01,
         baseBasalSpecialSteps = null,
         pumpCapability = PumpCapability.DiaconnCapabilities,
+        isPatchPump = true,
+        maxReservoirReading = 200,
         source = Source.EQuil,
         useHardwareLink = true,
     );
