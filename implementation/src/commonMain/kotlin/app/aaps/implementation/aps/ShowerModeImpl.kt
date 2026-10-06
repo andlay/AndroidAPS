@@ -40,6 +40,7 @@ class ShowerModeImpl(
         val bg = glucoseStatusProvider.glucoseStatusData?.glucose ?: return false
         val now = dateUtil.now()
         preferences.put(DoubleNonKey.ShowerModeCapMgdl, bg)
+        preferences.put(LongNonKey.ShowerModeStartedAt, now)
         preferences.put(LongNonKey.ShowerModeEndsAt, now + T.mins(minutes.toLong()).msecs())
         val note = rh.gs(CoreUiStrings.shower_mode_note, rh.gs(CoreUiStrings.format_mins, minutes))
         persistenceLayer.insertPumpTherapyEventIfNewByTimestamp(

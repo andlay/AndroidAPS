@@ -33,5 +33,6 @@ enum class LongNonKey(
 
     // Shower mode: when it ends (0 = off). Not exported - a restored backup must not start one.
     ShowerModeEndsAt("shower_mode_ends_at", 0L, exportable = false),
+    ShowerModeStartedAt("shower_mode_started_at", 0L, exportable = false),
 }
 

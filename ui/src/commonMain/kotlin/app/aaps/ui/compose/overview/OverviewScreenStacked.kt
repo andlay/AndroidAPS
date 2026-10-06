@@ -33,7 +33,6 @@ import app.aaps.ui.compose.overview.graphs.GraphViewModel
 import app.aaps.ui.compose.overview.graphs.GraphsSection
 import app.aaps.ui.compose.overview.statusLights.StatusViewModel
 import app.aaps.ui.compose.scenes.ActiveSceneBanner
-import app.aaps.ui.compose.shower.ShowerModeBanner
 
 @Composable
 fun OverviewScreenStacked(
@@ -95,8 +94,7 @@ fun OverviewScreenStacked(
             endEnabled = endSceneEnabled,
             formatDuration = formatDuration
         )
-        val showerMinutesLeft by chipsViewModel.showerMinutesLeft.collectAsStateWithLifecycle()
-        ShowerModeBanner(minutesLeft = showerMinutesLeft, onEnd = chipsViewModel::endShower)
+        val showerState by chipsViewModel.showerState.collectAsStateWithLifecycle()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -128,6 +126,7 @@ fun OverviewScreenStacked(
                 tempTargetProgress = tempTargetProgress,
                 tempTargetReason = tempTargetReason,
                 tempTargetSceneManaged = tempTargetSceneManaged,
+                showerState = showerState,
                 tbrState = tbrState,
                 iobUiState = iobUiState,
                 cobUiState = cobUiState,

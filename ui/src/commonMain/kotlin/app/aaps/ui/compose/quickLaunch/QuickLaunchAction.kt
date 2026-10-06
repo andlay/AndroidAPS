@@ -100,7 +100,7 @@ sealed class QuickLaunchAction {
 
         /** All static actions available for the configuration screen (excluding QuickLaunchConfig) */
         val staticActions: List<QuickLaunchAction> = listOf(
-            Insulin, InsulinManagement, Carbs, Wizard, Treatment, ShowerMode, Cgm, Calibration,
+            Insulin, InsulinManagement, ProfileSwitch, Carbs, Wizard, Treatment, ShowerMode, Cgm, Calibration,
             BgCheck, Note, Exercise, Question, Announcement,
             SensorInsert, BatteryChange, CannulaChange, Fill, SiteRotation
         )

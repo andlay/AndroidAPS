@@ -551,10 +551,10 @@ fun MainScreen(
 
     // Shower mode dialog
     if (uiState.showShowerDialog) {
-        val showerMinutesLeft by chipsViewModel.showerMinutesLeft.collectAsStateWithLifecycle()
+        val showerState by chipsViewModel.showerState.collectAsStateWithLifecycle()
         val noBgText = stringResource(CoreUiStrings.shower_mode_no_bg)
         ShowerModeDialog(
-            minutesLeft = showerMinutesLeft,
+            minutesLeft = showerState?.minutesLeft,
             defaultMinutes = chipsViewModel.defaultShowerMinutes,
             onStart = { minutes ->
                 mainViewModel.setShowShowerDialog(false)

@@ -27,6 +27,8 @@ import app.aaps.ui.compose.overview.chips.IobUiState
 import app.aaps.ui.compose.overview.chips.ProfileChip
 import app.aaps.ui.compose.overview.chips.RunningModeChip
 import app.aaps.ui.compose.overview.chips.SensitivityUiState
+import app.aaps.ui.compose.overview.chips.ShowerChipState
+import app.aaps.ui.compose.overview.chips.ShowerModeChip
 import app.aaps.ui.compose.overview.chips.TbrChip
 import app.aaps.ui.compose.overview.chips.TempTargetChip
 
@@ -47,6 +49,7 @@ fun OverviewChipsColumn(
     tempTargetProgress: Float,
     tempTargetReason: TT.Reason?,
     tempTargetSceneManaged: Boolean = false,
+    showerState: ShowerChipState? = null,
     tbrState: TbrState,
     iobUiState: IobUiState,
     cobUiState: CobUiState,
@@ -91,6 +94,7 @@ fun OverviewChipsColumn(
                             tempTargetProgress = tempTargetProgress,
                             tempTargetReason = tempTargetReason,
                             tempTargetSceneManaged = tempTargetSceneManaged,
+                            showerState = showerState,
                             tbrState = tbrState,
                             onNavigate = onNavigate,
                             onTbrChipClick = onTbrChipClick,
@@ -120,6 +124,7 @@ fun OverviewChipsColumn(
                 tempTargetProgress = tempTargetProgress,
                 tempTargetReason = tempTargetReason,
                 tempTargetSceneManaged = tempTargetSceneManaged,
+                showerState = showerState,
                 tbrState = tbrState,
                 onNavigate = onNavigate,
                 onTbrChipClick = onTbrChipClick,
@@ -155,6 +160,7 @@ private fun NarrowChips(
     tempTargetProgress: Float,
     tempTargetReason: TT.Reason?,
     tempTargetSceneManaged: Boolean,
+    showerState: ShowerChipState?,
     tbrState: TbrState,
     onNavigate: (NavigationRequest) -> Unit,
     onTbrChipClick: () -> Unit,
@@ -201,6 +207,13 @@ private fun NarrowChips(
                 onClick = { onNavigate(NavigationRequest.Element(ElementType.TEMP_TARGET_MANAGEMENT)) },
                 sceneManaged = tempTargetSceneManaged,
                 enabled = commandsAllowed
+            )
+        }
+        if (showerState != null) {
+            ShowerModeChip(
+                state = showerState,
+                modifier = Modifier.weight(1f),
+                onClick = { onNavigate(NavigationRequest.Element(ElementType.SHOWER_MODE)) }
             )
         }
         TbrChip(

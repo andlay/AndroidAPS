@@ -194,6 +194,22 @@ fun QuickLauchConfigScreen(
                 }
             }
 
+            // ── Available: Manage ── (profile and insulin screens; hidden when empty)
+            val manageItems = state.availableStaticItems.filter {
+                it.action.elementType?.category == ElementCategory.MANAGEMENT
+            }
+            if (manageItems.isNotEmpty()) {
+                item(key = "divider_manage") {
+                    HorizontalDivider()
+                }
+                item(key = "header_manage") {
+                    SectionHeader(stringResource(CoreUiStrings.manage))
+                }
+                items(manageItems, key = { "avail_${it.action.typeId}" }) { item ->
+                    AvailableActionItem(item = item, onAdd = { viewModel.addAction(item.action) }, modifier = Modifier.animateItem())
+                }
+            }
+
             // ── Dynamic: Quick Wizard ── (hidden when empty)
             if (state.availableQuickWizardItems.isNotEmpty()) {
                 item(key = "divider_qw") {
