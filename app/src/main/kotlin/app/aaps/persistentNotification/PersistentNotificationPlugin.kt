@@ -64,13 +64,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlin.math.round
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlin.time.Duration.Companion.seconds
 import android.app.NotificationManager as AndroidNotificationManager
 
@@ -185,22 +186,35 @@ class PersistentNotificationPlugin(
     }
 
     /**
-     * The frequent events, one update for a burst of them. After a BG the calculation finishes, often
-     * twice, and the overview is refreshed several times within seconds. Every update reads the running
-     * temporary basal from the database and calculates IOB, so it was done several times for one BG.
+     * The frequent events, at most two updates for a burst of them. After a BG the calculation finishes,
+     * often twice, and the overview is refreshed several times within seconds. Every update reads the
+     * running temporary basal from the database and calculates IOB, so it was done several times for one BG.
+     *
+     * The first event of a burst updates at once, and one more update follows [UPDATE_DEBOUNCE] later if
+     * more events came. A plain debounce updated only after the wait, and with the screen off the phone
+     * can sleep as soon as the BG is handled: the delayed update then waited for the next wake-up, often
+     * the next BG, and the lock screen showed the previous value. The first update runs while the phone
+     * is still awake for the new BG, so the new value always shows.
      *
      * The sources are subscribed here, undispatched, into a channel. `merge` would subscribe a moment
      * later in its own coroutines, and an event sent before that would be lost (see `collectResilient`).
-     * The channel keeps the request until the debounce reads it.
+     * The channel keeps the request until it is read.
      */
-    @OptIn(FlowPreview::class)
     internal fun frequentUpdates(scope: CoroutineScope): Flow<Unit> {
         val requests = Channel<Unit>(Channel.CONFLATED)
         rxBus.toFlow(EventRefreshOverview::class)
             .collectResilient(scope, aapsLogger, LTag.CORE, start = CoroutineStart.UNDISPATCHED) { requests.trySend(Unit) }
         rxBus.toFlow(EventAutosensCalculationFinished::class)
             .collectResilient(scope, aapsLogger, LTag.CORE, start = CoroutineStart.UNDISPATCHED) { requests.trySend(Unit) }
-        return requests.receiveAsFlow().debounce(UPDATE_DEBOUNCE)
+        return flow {
+            while (true) {
+                requests.receive()
+                emit(Unit)
+                delay(UPDATE_DEBOUNCE)
+                // Events during the wait (conflated into one): update once more with the final state
+                if (requests.tryReceive().isSuccess) emit(Unit)
+            }
+        }
     }
 
     // Called from the collectors, which already run in a coroutine: no runBlocking, which held an IO
@@ -426,7 +440,7 @@ class PersistentNotificationPlugin(
 
     internal companion object {
 
-        /** Short, so the notification shows a new BG at once, but long enough for one BG's burst. */
+        /** The wait after the first update of a burst: long enough for one BG's burst. */
         val UPDATE_DEBOUNCE = 1.seconds
     }
 }

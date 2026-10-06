@@ -16,7 +16,7 @@ import org.mockito.kotlin.mock
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-/** The notification is updated once for a burst of the frequent events, see `frequentUpdates`. */
+/** The notification is updated at once, and once more after a burst of the frequent events, see `frequentUpdates`. */
 class PersistentNotificationPluginTest : TestBase() {
 
     private lateinit var sut: PersistentNotificationPlugin
@@ -56,36 +56,44 @@ class PersistentNotificationPluginTest : TestBase() {
     }
 
     @Test
-    fun `a burst after a BG gives one update`() = runTest {
+    fun `a burst after a BG updates at once and once more at the end`() = runTest {
         val updates = countUpdates()
 
         // The calculation finishes twice and the overview is refreshed, within a second
         rxBus.send(EventAutosensCalculationFinished(triggeredByNewBG = true))
+        runCurrent()
+        assertThat(updates()).isEqualTo(1)
         advanceTimeBy(300.milliseconds)
         rxBus.send(EventRefreshOverview("test"))
         advanceTimeBy(300.milliseconds)
         rxBus.send(EventAutosensCalculationFinished(triggeredByNewBG = false))
+        runCurrent()
+        assertThat(updates()).isEqualTo(1)
         advanceTimeBy(5.seconds)
         runCurrent()
 
-        assertThat(updates()).isEqualTo(1)
+        assertThat(updates()).isEqualTo(2)
     }
 
+    /**
+     * The first update must not wait: with the screen off the phone can sleep right after the BG is
+     * handled, and a delayed update then waited for the next wake-up, showing the previous BG.
+     */
     @Test
-    fun `one event updates after the debounce time and separate events update separately`() = runTest {
+    fun `one event updates at once and only once`() = runTest {
         val updates = countUpdates()
 
         rxBus.send(EventRefreshOverview("test"))
-        advanceTimeBy(PersistentNotificationPlugin.UPDATE_DEBOUNCE - 100.milliseconds)
         runCurrent()
-        assertThat(updates()).isEqualTo(0)
-        advanceTimeBy(200.milliseconds)
+        assertThat(updates()).isEqualTo(1)
+        advanceTimeBy(5.seconds)
         runCurrent()
         assertThat(updates()).isEqualTo(1)
 
-        // The next BG, minutes later, is a new update
-        advanceTimeBy(5.seconds)
+        // The next BG, minutes later, is a new update, again at once
         rxBus.send(EventAutosensCalculationFinished(triggeredByNewBG = true))
+        runCurrent()
+        assertThat(updates()).isEqualTo(2)
         advanceTimeBy(5.seconds)
         runCurrent()
         assertThat(updates()).isEqualTo(2)
