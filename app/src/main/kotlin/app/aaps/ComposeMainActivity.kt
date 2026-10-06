@@ -333,17 +333,12 @@ class ComposeMainActivity : MetroAppCompatActivity() {
         // Trigger initial refresh when app content first appears (after init completes)
         LaunchedEffect(Unit) { refreshOnResume() }
 
-        // Launcher shortcuts: the same treatments the Treatments sheet shows.
+        // Launcher shortcuts: shown only where the Treatments sheet shows the same item.
         val treatmentState by treatmentViewModel.uiState.collectAsStateWithLifecycle()
         PublishAppShortcuts(
             visible = appShortcutElements.filter { type ->
-                type.visibility.isVisible(visibilityContext) && when (type) {
-                    ElementType.CARBS        -> treatmentState.showCarbs
-                    ElementType.INSULIN      -> treatmentState.showInsulin
-                    ElementType.BOLUS_WIZARD -> treatmentState.showCalculator
-                    ElementType.TREATMENT    -> treatmentState.showTreatment
-                    else                     -> true
-                }
+                type.visibility.isVisible(visibilityContext) &&
+                    (type != ElementType.BOLUS_WIZARD || treatmentState.showCalculator)
             },
             activityClass = ComposeMainActivity::class.java,
             onError = { aapsLogger.error(LTag.CORE, "Publishing app shortcuts failed", it) }

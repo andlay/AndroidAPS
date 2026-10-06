@@ -32,18 +32,10 @@ import app.aaps.core.ui.compose.navigation.label
 import app.aaps.core.ui.compose.stringResourceOrNull
 import kotlin.math.roundToInt
 
-/**
- * Launcher shortcuts (long press on the app icon): the treatments from the Treatments sheet.
- *
- * Most launchers show only the first four, so the order matters: the most used first.
- * Treatment (insulin and carbs together) is last, because Insulin and Carbs cover it.
- */
+/** Launcher shortcuts (long press on the app icon), styled like their rows in the Treatments sheet. */
 internal val appShortcutElements = listOf(
-    ElementType.CARBS,
-    ElementType.INSULIN,
     ElementType.BOLUS_WIZARD,
-    ElementType.SHOWER_MODE,
-    ElementType.TREATMENT
+    ElementType.SHOWER_MODE
 )
 
 internal const val ACTION_APP_SHORTCUT = "app.aaps.action.APP_SHORTCUT"
