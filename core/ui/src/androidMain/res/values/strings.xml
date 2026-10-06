@@ -323,7 +323,7 @@
     <string name="careportal_note">Note</string>
     <string name="shower_mode">Shower mode</string>
     <string name="shower_mode_start">Start shower mode</string>
-    <string name="shower_mode_end">End shower mode</string>
+    <string name="shower_mode_cancel">Cancel shower mode</string>
     <string name="shower_mode_minutes">Minutes</string>
     <string name="shower_mode_confirm" comment="%1$s=duration with unit. Example: For 15 min the loop treats BG as no higher than it is now, and gives no SMB.">For %1$s the loop treats BG as no higher than it is now, and gives no SMB. The graph and alarms still show the real BG.</string>
     <string name="shower_mode_running" comment="Shown in the shower dialog while shower mode runs. %1$s=time left with unit. Example: Shower mode is running, 12 min left.">Shower mode is running, %1$s left.</string>
