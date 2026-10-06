@@ -18,6 +18,7 @@ import app.aaps.core.interfaces.di.APS
 import kotlin.jvm.JvmSuppressWildcards
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.notifications.NotificationManager
+import app.aaps.core.interfaces.plugin.EnforcedState
 import app.aaps.core.interfaces.plugin.PluginBase
 import app.aaps.core.interfaces.plugin.PluginBaseWithPreferences
 import app.aaps.core.interfaces.plugin.PluginDescription
@@ -56,8 +57,11 @@ class ObjectivesPlugin(
         .composeContent { ObjectivesComposeContent() }
         .icon(IcPluginObjectives)
         .pluginName(CoreUiStrings.objectives)
-        .shortName(ConstraintsStrings.objectives_shortname)
-        .enforceEnabledOnlyWhen(condition = { config.APS })
+        // Objectives must be present on a master and must not be switchable off. Declared even though a
+        // CONSTRAINTS plugin is enabled by registration anyway (see PluginBase.enforcedState): stating the
+        // rule keeps it true if the plugin's mainType ever changes, and it is what makes canToggle false so
+        // the Config Builder shows a locked switch rather than a live one that does nothing.
+        .enforce(EnforcedState.Enabled) { config.APS }
         .description(ConstraintsStrings.description_objectives),
     ownPreferences = ObjectivesBooleanComposedKey.entries + ObjectivesLongComposedKey.entries,
     aapsLogger, rh, preferences, notificationManager
