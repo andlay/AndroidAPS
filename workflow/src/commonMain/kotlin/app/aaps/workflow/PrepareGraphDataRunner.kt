@@ -794,10 +794,13 @@ class PrepareGraphDataRunner(
                 dsMinListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(autosensData.slopeFromMinDeviation)))
             }
 
-            if (time <= now) activityListCompose.add(GraphDataPoint(time, iob.activity))
-            else activityPredictionListCompose.add(GraphDataPoint(time, iob.activity))
-            if (iob.activity > maxActivity) maxActivity = iob.activity
-            else if (-iob.activity > maxActivity) maxActivity = -iob.activity
+            // Activity is insulin per minute; the graph shows it per 5 minutes (e.g. 0.025 U), the
+            // same step as the BG readings. Display only: the loop uses its own IOB, not this list.
+            val activityPer5Min = iob.activity * ACTIVITY_DISPLAY_MINUTES
+            if (time <= now) activityListCompose.add(GraphDataPoint(time, activityPer5Min))
+            else activityPredictionListCompose.add(GraphDataPoint(time, activityPer5Min))
+            if (activityPer5Min > maxActivity) maxActivity = activityPer5Min
+            else if (-activityPer5Min > maxActivity) maxActivity = -activityPer5Min
 
             time += 5 * 60 * 1000L
         }
@@ -838,6 +841,13 @@ class PrepareGraphDataRunner(
         data.cache.updateVarSensGraph(VarSensGraphData(varSens = varSensListCompose))
 
         data.signals.emitProgress(CalculationWorkflow.ProgressData.PREPARE_IOB_AUTOSENS_DATA, 100)
+    }
+
+
+    private companion object {
+
+        /** The graphs show insulin activity per this many minutes. */
+        const val ACTIVITY_DISPLAY_MINUTES = 5.0
     }
 
 }
