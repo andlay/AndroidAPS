@@ -335,7 +335,7 @@ private fun rememberCursorFormats(): CursorFormats {
             glucoseChange = { if (mgdl) decimalFormatter.to1Decimal(it) else decimalFormatter.to2Decimal(it) },
             insulin = { decimalFormatter.to2Decimal(it) },
             whole = { decimalFormatter.to0Decimal(it) },
-            activity = { decimalFormatter.to3Decimal(it) }
+            activity = { decimalFormatter.to2Decimal(it) }
         )
     }
 }
