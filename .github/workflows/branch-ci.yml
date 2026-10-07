@@ -197,7 +197,10 @@ jobs:
         with:
           # Java version is defined in .github/versions.env
           java-version: ${{ env.JAVA_VERSION }}
-          distribution: 'temurin'
+          # JetBrains Runtime, because gradle/gradle-daemon-jvm.properties asks for a JETBRAINS JDK
+          # for the Gradle daemon. With any other JDK, Gradle downloads one from foojay.io first,
+          # and a build fails whenever that service is down.
+          distribution: 'jetbrains'
           cache: gradle
 
       - name: Grant execute permission for gradlew
