@@ -71,6 +71,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.drop
 
 /**
@@ -323,18 +324,24 @@ fun GraphsSection(
         lastBgTimestamp = newTimestamp
     }
 
-    // After a reset, the recreated bgScrollState defaults to Scroll.Absolute.End. If predictions
-    // are visible, nudge it further so "now + 2h" sits at the right edge instead, leaving room to
-    // see the forecast — same positioning as before, reapplied once the fresh scrollState (a new
-    // instance, since it's keyed on bgViewportResetTrigger too) is composed and ready.
+    // Where the graphs open. The axis can reach past the usual right edge, on to the end of the insulin
+    // tail (now + DIA), so Scroll.Absolute.End alone would open on hours of future. Instead put the
+    // usual right edge (homeTimeRange) at the right of the screen: first composition and after every
+    // reset (the recreated bgScrollState defaults to Scroll.Absolute.End). After a reset with
+    // predictions visible, "now + 2h" sits at the right edge instead, leaving room to see the forecast.
+    // The tail is then a swipe to the left away.
+    val homeTimeRange by graphViewModel.homeTimeRange.collectAsStateWithLifecycle()
     LaunchedEffect(bgViewportResetTrigger, bgScrollState) {
-        if (bgViewportResetTrigger == 0) return@LaunchedEffect
+        val (minTimestamp, homeEnd) = snapshotFlow { derivedTimeRange?.first to homeTimeRange?.second }
+            .first { it.first != null && it.second != null }
+        // Wait until the chart has been measured, or the scroll is clamped to a range of nothing
+        snapshotFlow { bgScrollState.maxValue }.first { it > 0f }
         val showPredictions = SeriesType.PREDICTIONS in graphConfig.bgOverlays
-        val timeRange = derivedTimeRange
-        if (showPredictions && predictions.isNotEmpty() && timeRange != null) {
-            val (minTimestamp, _) = timeRange
-            val nowX = timestampToX(dateUtil.now(), minTimestamp)
+        if (bgViewportResetTrigger != 0 && showPredictions && predictions.isNotEmpty()) {
+            val nowX = timestampToX(dateUtil.now(), minTimestamp!!)
             bgScrollState.animateScroll(Scroll.Absolute.x(nowX + 120.0, bias = 1f))
+        } else {
+            bgScrollState.scroll(Scroll.Absolute.x(timestampToX(homeEnd!!, minTimestamp!!), bias = 1f))
         }
     }
 

@@ -789,6 +789,8 @@ class PrepareGraphDataRunner(
         val dsMinListCompose: MutableList<GraphDataPoint> = ArrayList()
 
         val adsData = data.iobCobCalculator.ads.clone()
+        // ISF of the newest calculated point: the future has no autosens data, so the projected BGI uses it
+        var lastSens: Double? = null
 
         while (time <= endTime) {
             if (isStopped()) return
@@ -813,6 +815,7 @@ class PrepareGraphDataRunner(
                     cobFailOverListCompose.add(CobFailOverPoint(time, autosensData.cob))
                 }
 
+                lastSens = autosensData.sens
                 val bgiCompose: Double = glucoseChangeInUnits(iob.activity * autosensData.sens * 5.0)
                 if (time <= now) bgiListCompose.add(GraphDataPoint(time, bgiCompose))
                 else bgiPredictionListCompose.add(GraphDataPoint(time, bgiCompose))
@@ -833,6 +836,9 @@ class PrepareGraphDataRunner(
 
                 dsMaxListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(autosensData.slopeFromMaxDeviation)))
                 dsMinListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(autosensData.slopeFromMinDeviation)))
+            } else if (time > now) {
+                // No autosens data in the future: project BGI with the newest known ISF
+                lastSens?.let { bgiPredictionListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(iob.activity * it * 5.0))) }
             }
 
             // Activity is insulin per minute; the graph shows it per 5 minutes (e.g. 0.025 U), the
@@ -844,6 +850,25 @@ class PrepareGraphDataRunner(
             else if (-activityPer5Min > maxActivity) maxActivity = -activityPer5Min
 
             time += 5 * 60 * 1000L
+        }
+
+        // Insulin tail: projected activity and BGI on to the end of insulin action (DIA), past the
+        // graph's normal right edge. Only for the live view - a past day has no future to project.
+        var insulinTailEnd: Long? = null
+        val nowMs = now.toLong()
+        if (endTime >= nowMs - 5 * 60 * 1000L) {
+            val tailEnd = nowMs + (profileFunction.getProfile()?.iCfg?.insulinEndTime ?: DEFAULT_INSULIN_TAIL_MS)
+            while (time <= tailEnd) {
+                if (isStopped()) return
+                val profile = profileFunction.getProfile(time) ?: break
+                val iob = data.iobCobCalculator.calculateFromTreatmentsAndTemps(time, profile)
+                val activityPer5Min = iob.activity * ACTIVITY_DISPLAY_MINUTES
+                activityPredictionListCompose.add(GraphDataPoint(time, activityPer5Min))
+                if (abs(activityPer5Min) > maxActivity) maxActivity = abs(activityPer5Min)
+                lastSens?.let { bgiPredictionListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(iob.activity * it * 5.0))) }
+                insulinTailEnd = time
+                time += 5 * 60 * 1000L
+            }
         }
 
         val iobPredictionsListCompose: MutableList<GraphDataPoint> = ArrayList()
@@ -876,6 +901,8 @@ class PrepareGraphDataRunner(
             )
         )
         data.cache.updateBgiGraph(BgiGraphData(bgi = bgiListCompose, bgiPrediction = bgiPredictionListCompose))
+        // Let the shared axis reach the end of the insulin tail; the overview still opens at its usual right edge
+        data.cache.timeRangeFlow.value?.let { current -> data.cache.updateTimeRange(current.copy(insulinTailEnd = insulinTailEnd)) }
         data.cache.updateDeviationsGraph(DeviationsGraphData(deviations = deviationsListCompose))
         data.cache.updateRatioGraph(RatioGraphData(ratio = ratioListCompose))
         data.cache.updateDevSlopeGraph(DevSlopeGraphData(dsMax = dsMaxListCompose, dsMin = dsMinListCompose))
@@ -892,6 +919,9 @@ class PrepareGraphDataRunner(
 
         /** A capped value equals the cap; anything this far below it is a real reading again. */
         const val CAP_EPSILON = 0.001
+
+        /** How far the insulin tail is drawn when the profile has no insulin set (the minimum DIA). */
+        const val DEFAULT_INSULIN_TAIL_MS = 5L * 60 * 60 * 1000
     }
 
 }

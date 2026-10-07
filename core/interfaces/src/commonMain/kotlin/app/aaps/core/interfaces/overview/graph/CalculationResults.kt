@@ -40,7 +40,12 @@ enum class BgType {
 data class TimeRange(
     val fromTime: Long,
     val toTime: Long,
-    val endTime: Long // includes predictions
+    val endTime: Long, // includes predictions
+    /**
+     * End of the projected insulin activity (now + DIA), or null. The axis reaches this far so the
+     * activity and BGI tail can be scrolled to, but the overview still opens at its usual right edge.
+     */
+    val insulinTailEnd: Long? = null
 )
 
 /**

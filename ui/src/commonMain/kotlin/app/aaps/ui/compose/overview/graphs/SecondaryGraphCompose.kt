@@ -269,8 +269,6 @@ fun SecondaryGraphCompose(
             }
             bgiData?.let {
                 if (it.bgi.isNotEmpty()) add(SeriesType.BGI to processPoints(it.bgi, minTimestamp, minX, maxX))
-                // TODO: differentiate prediction line style (e.g., dashed) from historical
-                if (it.bgiPrediction.isNotEmpty()) add(SeriesType.BGI to processPoints(it.bgiPrediction, minTimestamp, minX, maxX))
             }
             ratioData?.ratio?.takeIf { it.isNotEmpty() }?.let { pts ->
                 // Stored as 100*(ratio-1), display shifted by +100 to show as percentage (90%, 110%)
@@ -293,7 +291,22 @@ fun SecondaryGraphCompose(
             if (primaryType == SeriesType.ACTIVITY) {
                 activityData?.let {
                     if (it.activity.isNotEmpty()) add(SeriesType.ACTIVITY to processPoints(it.activity, minTimestamp, minX, maxX))
-                    if (it.activityPrediction.isNotEmpty()) add(SeriesType.ACTIVITY to processPoints(it.activityPrediction, minTimestamp, minX, maxX))
+                }
+            }
+        }
+    }
+
+    // The future part of BGI and activity, drawn dashed (see SeriesSlot.PredictionLine). It runs on
+    // to the end of insulin action, past the usual right edge of the overview.
+    val processedPredictionSeries = remember(stableTimeRange, bgiData, activityData) {
+        if (!hasRealTimeRange) return@remember emptyList()
+        buildList {
+            bgiData?.bgiPrediction?.takeIf { it.isNotEmpty() }?.let {
+                add(SeriesType.BGI to processPoints(it, minTimestamp, minX, maxX))
+            }
+            if (primaryType == SeriesType.ACTIVITY) {
+                activityData?.activityPrediction?.takeIf { it.isNotEmpty() }?.let {
+                    add(SeriesType.ACTIVITY to processPoints(it, minTimestamp, minX, maxX))
                 }
             }
         }
@@ -456,7 +469,7 @@ fun SecondaryGraphCompose(
     // stale 0..1 axis until the next recomposition ("renders wrong, then fixes itself").
     val primarySeries = remember(
         processedDeviationLines, processedIob, processedIobTreatments, processedCob,
-        processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedActivityOverlay
+        processedCarbs, processedSimpleSeries, processedPredictionSeries, processedDevSlopeMin, processedActivityOverlay
     ) {
         buildList {
             // Deviation lines (per-type step lines) — first so other series draw on top
@@ -491,6 +504,10 @@ fun SecondaryGraphCompose(
                 if (pts.isNotEmpty())
                     add(PrimarySeriesSpec(pts.map { it.first }, pts.map { it.second }, SeriesSlot.SimpleLine(type)))
             }
+            processedPredictionSeries.forEach { (type, pts) ->
+                if (pts.isNotEmpty())
+                    add(PrimarySeriesSpec(pts.map { it.first }, pts.map { it.second }, SeriesSlot.PredictionLine(type)))
+            }
             // DevSlope min (separate slot for magenta color)
             if (processedDevSlopeMin.isNotEmpty())
                 add(PrimarySeriesSpec(processedDevSlopeMin.map { it.first }, processedDevSlopeMin.map { it.second }, SeriesSlot.DevSlopeMin))
@@ -499,7 +516,7 @@ fun SecondaryGraphCompose(
             if (actHist.isNotEmpty())
                 add(PrimarySeriesSpec(actHist.map { it.first }, actHist.map { it.second }, SeriesSlot.ActivityOverlay))
             if (actPred.isNotEmpty())
-                add(PrimarySeriesSpec(actPred.map { it.first }, actPred.map { it.second }, SeriesSlot.ActivityOverlay))
+                add(PrimarySeriesSpec(actPred.map { it.first }, actPred.map { it.second }, SeriesSlot.PredictionLine(SeriesType.ACTIVITY)))
         }
     }
     val hasPrimaryData = primarySeries.isNotEmpty()
@@ -531,6 +548,7 @@ fun SecondaryGraphCompose(
                         SeriesSlot.DevSlopeMin      -> createDevSlopeMinLine()
                         SeriesSlot.ActivityOverlay  -> createSeriesLine(SeriesType.ACTIVITY, seriesColors)
                         is SeriesSlot.SimpleLine    -> createSeriesLine(slot.type, seriesColors)
+                        is SeriesSlot.PredictionLine -> createPredictionLine(slot.type, seriesColors)
                     }
                 )
             }
@@ -590,9 +608,9 @@ fun SecondaryGraphCompose(
     // `primaryY=[null..null] n=0` against `modelY=[0.0..43.0] slots=[CarbsMarker]`, giving an axis of
     // 0..44 that a COB curve reaching 148 was drawn straight through.
     val primaryYValues = remember(
-        processedIob, processedCob, processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedDeviationLines, visibleMinX, visibleMaxX
+        processedIob, processedCob, processedCarbs, processedSimpleSeries, processedPredictionSeries, processedDevSlopeMin, processedDeviationLines, visibleMinX, visibleMaxX
     ) {
-        windowedPrimaryY(visibleMinX, visibleMaxX, processedIob, processedCob.first, processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedDeviationLines)
+        windowedPrimaryY(visibleMinX, visibleMaxX, processedIob, processedCob.first, processedCarbs, processedSimpleSeries + processedPredictionSeries, processedDevSlopeMin, processedDeviationLines)
     }
 
     // IOB (with basal overlay active): zero-floor nice range — 0 if the visible window has no
@@ -804,6 +822,7 @@ fun SecondaryGraphCompose(
 
     LaunchedEffect(
         processedSimpleSeries,
+        processedPredictionSeries,
         processedDevSlopeMin,
         processedDeviationLines,
         processedIob,
@@ -968,6 +987,9 @@ private sealed class SeriesSlot {
     data object FailoverDots : SeriesSlot()
     data object CarbsMarker : SeriesSlot()
     data class SimpleLine(val type: SeriesType) : SeriesSlot()
+
+    /** The future part of a line (projected BGI or activity): same colour, dashed. */
+    data class PredictionLine(val type: SeriesType) : SeriesSlot()
     data object DevSlopeMin : SeriesSlot()
     data object ActivityOverlay : SeriesSlot()
 }
@@ -1221,6 +1243,19 @@ private fun createDevSlopeMinLine(): LineCartesianLayer.Line {
         areaFill = null
     )
 }
+
+/** A dashed line in the series colour, for the projected (future) part of a series. */
+fun createPredictionLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer.Line =
+    LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(colors.colorFor(type))),
+        stroke = LineCartesianLayer.LineStroke.Dashed(
+            thickness = 1.5.dp,
+            cap = StrokeCap.Round,
+            dashLength = 4.dp,
+            gapLength = 4.dp
+        ),
+        areaFill = null
+    )
 
 /** Create a line style for a given series type, matching legacy rendering */
 fun createSeriesLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer.Line {

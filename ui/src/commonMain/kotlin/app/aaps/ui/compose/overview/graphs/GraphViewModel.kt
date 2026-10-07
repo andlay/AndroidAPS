@@ -160,10 +160,11 @@ class GraphViewModel(
         initialValue = BgInfoUiState(bgInfo = null, timeAgoText = "")
     )
 
-    // Derived time range from actual data (recalculates as series arrive)
+    // Time range from actual data (recalculates as series arrive)
     // When PREDICTIONS overlay is enabled, extends into the future to fit prediction points;
     // otherwise clamps to toTime so the x-axis doesn't reserve empty future space.
-    val derivedTimeRange: StateFlow<Pair<Long, Long>?> = combine(
+    // This is where the overview opens; the shared axis is [derivedTimeRange].
+    val homeTimeRange: StateFlow<Pair<Long, Long>?> = combine(
         cache.bgReadingsFlow,
         cache.bucketedDataFlow,
         cache.predictionsFlow,
@@ -225,6 +226,17 @@ class GraphViewModel(
                 "predictions=${if (showPredictions) "on" else "off"}"
         }
         range
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = null
+    )
+
+    // The axis every graph shares: [homeTimeRange] widened to the end of the insulin tail (now + DIA),
+    // so the projected activity and BGI can be scrolled to. Not in the whole-day view of a past day.
+    val derivedTimeRange: StateFlow<Pair<Long, Long>?> = combine(homeTimeRange, cache.timeRangeFlow) { home, cacheTimeRange ->
+        val tail = cacheTimeRange?.insulinTailEnd
+        if (home == null || fullWindow || tail == null || tail <= home.second) home else home.first to tail
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
