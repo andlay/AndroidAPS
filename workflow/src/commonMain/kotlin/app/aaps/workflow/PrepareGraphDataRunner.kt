@@ -1,5 +1,10 @@
 package app.aaps.workflow
 
+import app.aaps.core.data.iob.InMemoryGlucoseValue
+import app.aaps.core.interfaces.aps.showerEpisodes
+import app.aaps.core.interfaces.aps.applyShowerCaps
+import app.aaps.core.interfaces.aps.ShowerEpisode
+import app.aaps.core.interfaces.aps.SHOWER_CAP_TAIL_MS
 import app.aaps.core.objects.workflow.WorkOutcome
 import dev.zacsweers.metro.Inject
 import kotlin.time.Instant
@@ -202,7 +207,9 @@ class PrepareGraphDataRunner(
             bucketedData?.map { it.copy(smoothed = null, calibrated = null) }?.toMutableList()
         } ?: return
         val calibrated = activePlugin.activeCalibration.calibrate(workingCopy, CalibrationContext.NONE)
-        val smoothed = activePlugin.activeSmoothing.smooth(calibrated)
+        // Shower mode: everything the loop reads (deltas, autosens, COB) comes from this data, so the
+        // cap is applied here, once, after smoothing. The raw readings in the database are not changed.
+        val smoothed = activePlugin.activeSmoothing.smooth(calibrated).applyShowerCaps(preferences.showerEpisodes()).toMutableList()
         dataLock.withLock {
             bucketedData = smoothed
         }
@@ -242,6 +249,29 @@ class PrepareGraphDataRunner(
                 )
             }
         data.cache.updateBucketedData(bucketedDataPoints)
+        data.cache.updateShowerCap(showerCapSegments(bucketedData, preferences.showerEpisodes(), newFromTime, newToTime))
+    }
+
+    /**
+     * What the loop saw during each shower, for the line on the BG graph: the (capped) values inside
+     * the episode, and after it while the cap still held - it holds until the first value below it.
+     * `internal` so it can be unit-tested.
+     */
+    internal fun showerCapSegments(bucketed: List<InMemoryGlucoseValue>, episodes: List<ShowerEpisode>, from: Long, to: Long): List<List<GraphDataPoint>> {
+        val byTime = bucketed.sortedBy { it.timestamp }
+        return episodes.mapNotNull { episode ->
+            if (episode.end + SHOWER_CAP_TAIL_MS < from || episode.start > to) return@mapNotNull null
+            val segment = ArrayList<GraphDataPoint>()
+            for (gv in byTime) {
+                val t = gv.timestamp
+                if (t < episode.start) continue
+                if (t > episode.end + SHOWER_CAP_TAIL_MS) break
+                val value = gv.recalculated
+                if (t >= episode.end && value < episode.capMgdl - CAP_EPSILON) break
+                segment.add(GraphDataPoint(t, profileUtil.fromMgdlToUnits(value)))
+            }
+            segment.takeIf { it.size >= 2 }
+        }
     }
 
     // ---------- Phase 3 (PrepareBgDataWorker logic) ----------
@@ -848,6 +878,9 @@ class PrepareGraphDataRunner(
 
         /** The graphs show insulin activity per this many minutes. */
         const val ACTIVITY_DISPLAY_MINUTES = 5.0
+
+        /** A capped value equals the cap; anything this far below it is a real reading again. */
+        const val CAP_EPSILON = 0.001
     }
 
 }

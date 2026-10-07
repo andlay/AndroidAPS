@@ -64,6 +64,8 @@ private const val SERIES_PRED_UAM = "pred_uam"
 private const val SERIES_PRED_ZT = "pred_zt"
 
 /** All prediction series identifiers */
+/** One per shower segment: the capped BG the loop used (see ShowerMode). */
+private const val SERIES_SHOWER = "shower"
 private val PREDICTION_SERIES = listOf(SERIES_PRED_IOB, SERIES_PRED_COB, SERIES_PRED_ACOB, SERIES_PRED_UAM, SERIES_PRED_ZT)
 
 /**
@@ -210,6 +212,7 @@ fun BgGraphCompose(
         regularPoints: XySeries,
         bucketedPoints: XySeries,
         predictionPoints: Map<String, XySeries>,
+        showerPoints: List<XySeries>,
         profileBasalPoints: XySeries,
         actualBasalPoints: XySeries,
         targetPoints: XySeries,
@@ -246,6 +249,12 @@ fun BgGraphCompose(
                         series(x = predPoints.x, y = predPoints.y)
                         activeSeries.add(predSeries)
                     }
+                }
+
+                // Shower mode: what the loop saw, one line per shower
+                for (segment in showerPoints) {
+                    series(x = segment.x, y = segment.y)
+                    activeSeries.add(SERIES_SHOWER)
                 }
 
                 // Normalizer series
@@ -356,6 +365,10 @@ fun BgGraphCompose(
     }
     val profileBasalXy = remember(basalData.profileBasal, minTimestamp) { basalData.profileBasal.toXySeries(minTimestamp, { it.timestamp }, { it.value }) }
     val actualBasalXy = remember(basalData.actualBasal, minTimestamp) { basalData.actualBasal.toXySeries(minTimestamp, { it.timestamp }, { it.value }) }
+    val showerCap by viewModel.showerCapFlow.collectAsStateWithLifecycle()
+    val showerXy = remember(showerCap, minTimestamp) {
+        showerCap.map { segment -> segment.toXySeries(minTimestamp, { it.timestamp }, { it.value }) }
+    }
     val targetXy = remember(targetData.targets, minTimestamp) { targetData.targets.toXySeries(minTimestamp, { it.timestamp }, { it.value }) }
 
     // Windowed axis min/max: BG values within the visible scroll/zoom window (not the full
@@ -376,7 +389,7 @@ fun BgGraphCompose(
     }
 
     // Single LaunchedEffect for all data - ensures atomic updates
-    LaunchedEffect(regularXy, bucketedXy, predictionXy, profileBasalXy, actualBasalXy, targetXy, epsPoints, activityData, showActivity, maxX, niceBgScale) {
+    LaunchedEffect(regularXy, bucketedXy, predictionXy, showerXy, profileBasalXy, actualBasalXy, targetXy, epsPoints, activityData, showActivity, maxX, niceBgScale) {
         // Mutate the stable provider in place (see MutableYRangeProvider) — Vico picks up the new
         // values when it processes the transaction submitted below, without ever recreating BG's
         // chart object.
@@ -386,7 +399,7 @@ fun BgGraphCompose(
         startAxisRangeProvider.yStep = niceBgScale.step
 
         // EPS icons and the activity overlay are placed on the same (visible) range as the axis.
-        rebuildChart(regularXy, bucketedXy, predictionXy, profileBasalXy, actualBasalXy, targetXy, epsPoints, activityData, niceBgScale)
+        rebuildChart(regularXy, bucketedXy, predictionXy, showerXy, profileBasalXy, actualBasalXy, targetXy, epsPoints, activityData, niceBgScale)
     }
 
     // Build lookup map for BUCKETED points: x-value -> BgDataPoint (for PointProvider)
@@ -441,8 +454,17 @@ fun BgGraphCompose(
     val uamPredLine = remember(uamPredColor) { createPredictionLine(uamPredColor) }
     val ztPredLine = remember(ztPredColor) { createPredictionLine(ztPredColor) }
 
+    val showerColor = AapsTheme.elementColors.showerMode
+    val showerLine = remember(showerColor) {
+        LineCartesianLayer.Line(
+            fill = LineCartesianLayer.LineFill.single(Fill(showerColor)),
+            stroke = LineCartesianLayer.LineStroke.Continuous(thickness = 2.dp),
+            areaFill = null
+        )
+    }
+
     val activeSeries by activeSeriesState
-    val bgLines = remember(activeSeries, regularLine, bucketedLine, iobPredLine, cobPredLine, aCobPredLine, uamPredLine, ztPredLine, normalizerLine) {
+    val bgLines = remember(activeSeries, regularLine, bucketedLine, iobPredLine, cobPredLine, aCobPredLine, uamPredLine, ztPredLine, showerLine, normalizerLine) {
         buildList {
             if (SERIES_REGULAR in activeSeries) add(regularLine)
             if (SERIES_BUCKETED in activeSeries) add(bucketedLine)
@@ -451,6 +473,7 @@ fun BgGraphCompose(
             if (SERIES_PRED_ACOB in activeSeries) add(aCobPredLine)
             if (SERIES_PRED_UAM in activeSeries) add(uamPredLine)
             if (SERIES_PRED_ZT in activeSeries) add(ztPredLine)
+            repeat(activeSeries.count { it == SERIES_SHOWER }) { add(showerLine) }
             add(normalizerLine)
         }
     }

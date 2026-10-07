@@ -21,6 +21,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.aaps.core.ui.compose.navigation.icon
+import app.aaps.core.interfaces.navigation.ElementType
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.RM
 import app.aaps.core.interfaces.InterfacesStrings
@@ -88,7 +90,8 @@ private val modeSegmentsKey = ExtraStore.Key<List<Triple<Double, Double, RM.Mode
  *   6. General event points (conditional)
  *   7. Exercise duration lines (0..M, each = 2-point at Y=1.0, top)
  *   8. General with duration lines (0..K, each = 2-point at Y=1.0, top)
- *   9. Normalizer (always last)
+ *   9. Shower mode lines (0..S, each = 2-point at Y=1.0, top)
+ *  10. Normalizer (always last)
  */
 @Composable
 fun TreatmentBeltGraphCompose(
@@ -119,6 +122,7 @@ fun TreatmentBeltGraphCompose(
     val announcementColor = elementColors.announcement
     val careportalColor = elementColors.careportal
     val exerciseColor = elementColors.exercise
+    val showerColor = elementColors.showerMode
 
     // Icon painters for therapy events
     val bgCheckPainter = rememberVectorPainter(IcBgCheck)
@@ -126,6 +130,7 @@ fun TreatmentBeltGraphCompose(
     val activityPainter = rememberVectorPainter(IcActivity)
     val notePainter = rememberVectorPainter(IcNote)
     val clinicalNotesPainter = rememberVectorPainter(IcClinicalNotes)
+    val showerPainter = rememberVectorPainter(ElementType.SHOWER_MODE.icon())
 
     val minX = 0.0
     val maxX = remember(minTimestamp, maxTimestamp) {
@@ -152,6 +157,7 @@ fun TreatmentBeltGraphCompose(
     val hasGeneralState = remember { mutableStateOf(false) }
     val exerciseDurationCountState = remember { mutableIntStateOf(0) }
     val generalDurationCountState = remember { mutableIntStateOf(0) }
+    val showerDurationCountState = remember { mutableIntStateOf(0) }
 
     // Cache last non-empty running mode data to survive reset() cycles
     val lastRunningModeData = remember { mutableStateOf(runningModeData) }
@@ -175,6 +181,7 @@ fun TreatmentBeltGraphCompose(
             hasGeneralState.value = false
             exerciseDurationCountState.intValue = 0
             generalDurationCountState.intValue = 0
+            showerDurationCountState.intValue = 0
             return@LaunchedEffect
         }
 
@@ -239,6 +246,18 @@ fun TreatmentBeltGraphCompose(
                 cStart to cEnd
             }
 
+        val showerDurationSeries = therapyEvents
+            .filter { it.eventType == TherapyEventType.SHOWER && it.duration > 0 }
+            .mapNotNull { event ->
+                val startX = timestampToX(event.timestamp, minTimestamp)
+                val endX = timestampToX(event.timestamp + event.duration, minTimestamp)
+                if (endX < minX || startX > maxX) return@mapNotNull null
+                val cStart = startX.coerceIn(minX, maxX)
+                val cEnd = endX.coerceIn(minX, maxX)
+                if (cEnd - cStart < 0.5) return@mapNotNull null
+                cStart to cEnd
+            }
+
         var hasMbg = false
         var hasFingerStick = false
         var hasAnnouncement = false
@@ -286,6 +305,9 @@ fun TreatmentBeltGraphCompose(
                 for ((start, end) in generalDurationSeries) {
                     series(x = listOf(start, end), y = listOf(1.0, 1.0))
                 }
+                for ((start, end) in showerDurationSeries) {
+                    series(x = listOf(start, end), y = listOf(1.0, 1.0))
+                }
 
                 // 4. Normalizer (always last)
                 series(x = normalizerX(maxX), y = NORMALIZER_Y)
@@ -314,6 +336,7 @@ fun TreatmentBeltGraphCompose(
         hasGeneralState.value = hasGeneral
         exerciseDurationCountState.intValue = exerciseDurationSeries.size
         generalDurationCountState.intValue = generalDurationSeries.size
+        showerDurationCountState.intValue = showerDurationSeries.size
     }
 
     // =========================================================================
@@ -425,6 +448,19 @@ fun TreatmentBeltGraphCompose(
         )
     }
 
+    val showerDurationLine = remember(showerColor, showerPainter) {
+        LineCartesianLayer.Line(
+            fill = LineCartesianLayer.LineFill.single(Fill(showerColor)),
+            areaFill = null,
+            pointProvider = LineCartesianLayer.PointProvider.single(
+                LineCartesianLayer.Point(
+                    component = PainterComponent(showerPainter, tint = showerColor),
+                    size = 14.dp
+                )
+            )
+        )
+    }
+
     // Normalizer line
     val normalizerLine = remember { createNormalizerLine() }
 
@@ -437,13 +473,14 @@ fun TreatmentBeltGraphCompose(
     val hasGeneral by hasGeneralState
     val exerciseDurationCount by exerciseDurationCountState
     val generalDurationCount by generalDurationCountState
+    val showerDurationCount by showerDurationCountState
 
     val lines = remember(
         modeSegmentCount, renderedModeSegments,
         hasMbg, hasFingerStick, hasAnnouncement, hasSettingsExport, hasGeneral,
-        exerciseDurationCount, generalDurationCount,
+        exerciseDurationCount, generalDurationCount, showerDurationCount,
         mbgLine, fingerStickLine, announcementLine, settingsExportLine, generalLine,
-        exerciseDurationLine, generalDurationLine, normalizerLine
+        exerciseDurationLine, generalDurationLine, showerDurationLine, normalizerLine
     ) {
         buildList {
             // 1. Running mode segment lines (area fill) — from rendered segments (includes gap fills)
@@ -459,6 +496,7 @@ fun TreatmentBeltGraphCompose(
             // 3. Duration event lines
             repeat(exerciseDurationCount) { add(exerciseDurationLine) }
             repeat(generalDurationCount) { add(generalDurationLine) }
+            repeat(showerDurationCount) { add(showerDurationLine) }
             // 4. Normalizer (always last)
             add(normalizerLine)
         }

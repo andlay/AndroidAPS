@@ -14,6 +14,9 @@ enum class StringNonKey(
 
     QuickWizard(key = "QuickWizard", defaultValue = "[]", sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
     WearCwfWatchfaceName(key = "wear_cwf_watchface_name", defaultValue = ""),
+    // Shower mode history (start, end, BG cap). This phone's loop state, like the other shower keys,
+    // so not exported.
+    ShowerModeEpisodes(key = "shower_mode_episodes", defaultValue = "", exportable = false),
     WearCwfAuthorVersion(key = "wear_cwf_author_version", defaultValue = ""),
     WearCwfFileName(key = "wear_cwf_filename", defaultValue = ""),
     // Short lived caches of what is in flight to the pump, and deliberately NOT exportable: they

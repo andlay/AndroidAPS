@@ -430,6 +430,7 @@ show_treatment_button|BooleanKey|true
 show_wizard_button|BooleanKey|true
 shower_mode_cap_mgdl|DoubleNonKey|false
 shower_mode_ends_at|LongNonKey|false
+shower_mode_episodes|StringNonKey|false
 shower_mode_started_at|LongNonKey|false
 simple_mode|BooleanKey|true
 site_rotation_manage_cgm|BooleanKey|true
