@@ -13,7 +13,8 @@ import app.aaps.core.keys.interfaces.Preferences
  * showing the real sensor value, and the graph shows both.
  *
  * Each shower is kept as a [ShowerEpisode], and the BG history the loop works from stays capped for
- * it (see [applyShowerCaps]), so autosens, COB and the deltas never count the heat rise.
+ * it (see [applyShowerCaps]), so autosens, COB and the deltas never count the heat rise. Autosens also
+ * leaves out every deviation in the shower window (see [isInShowerWindow]), falls included.
  */
 interface ShowerMode {
 
@@ -48,6 +49,14 @@ fun encodeShowerEpisodes(episodes: List<ShowerEpisode>): String =
     episodes.joinToString(";") { "${it.start},${it.end},${it.capMgdl}" }
 
 fun Preferences.showerEpisodes(): List<ShowerEpisode> = decodeShowerEpisodes(get(StringNonKey.ShowerModeEpisodes))
+
+/**
+ * True when [time] is inside a shower or the [SHOWER_CAP_TAIL_MS] after it. Autosens leaves these
+ * deviations out, the same way it leaves out meals: the cap hides rises, and heat makes insulin
+ * absorb faster and can make the sensor read low, so a fall here says nothing about sensitivity.
+ */
+fun List<ShowerEpisode>.isInShowerWindow(time: Long): Boolean =
+    any { time >= it.start && time <= it.end + SHOWER_CAP_TAIL_MS }
 
 /**
  * Caps the BG the loop works from (the bucketed, smoothed data) for every shower episode. Only

@@ -1,6 +1,7 @@
 package app.aaps.workflow
 
 import app.aaps.core.data.iob.InMemoryGlucoseValue
+import app.aaps.core.interfaces.aps.isInShowerWindow
 import app.aaps.core.interfaces.aps.showerEpisodes
 import app.aaps.core.interfaces.aps.applyShowerCaps
 import app.aaps.core.interfaces.aps.ShowerEpisode
@@ -345,6 +346,7 @@ class PrepareGraphDataRunner(
                 ads.roundUpTime(bucketedData[0].timestamp),
                 true
             )
+            val showerEpisodes = preferences.showerEpisodes()
             // start from oldest to be able sub cob
             for (i in bucketedData.size - 4 downTo 0) {
                 data.signals.emitProgress(CalculationWorkflow.ProgressData.IOB_COB_OREF, 100 - (100.0 * i / bucketedData.size).toInt())
@@ -488,6 +490,9 @@ class PrepareGraphDataRunner(
                 when (autosensData.type) {
                     "non-meal" -> {
                         when {
+                            // Not a valid deviation: shower heat and the BG cap say nothing about sensitivity
+                            showerEpisodes.isInShowerWindow(bgTime)          -> autosensData.pastSensitivity += "s"
+
                             abs(deviation) < Constants.DEVIATION_TO_BE_EQUAL -> {
                                 autosensData.pastSensitivity += "="
                                 autosensData.validDeviation = true
@@ -572,6 +577,7 @@ class PrepareGraphDataRunner(
                 ads.roundUpTime(bucketedData[0].timestamp),
                 true
             )
+            val showerEpisodes = preferences.showerEpisodes()
             // start from oldest to be able to sub cob
             for (i in bucketedData.size - 4 downTo 0) {
                 data.signals.emitProgress(CalculationWorkflow.ProgressData.IOB_COB_OREF, 100 - (100.0 * i / bucketedData.size).toInt())
@@ -689,6 +695,9 @@ class PrepareGraphDataRunner(
                 // calculate autosens only without COB
                 if (autosensData.cob <= 0) {
                     when {
+                        // Not a valid deviation: shower heat and the BG cap say nothing about sensitivity
+                        showerEpisodes.isInShowerWindow(bgTime)          -> autosensData.pastSensitivity += "s"
+
                         abs(deviation) < Constants.DEVIATION_TO_BE_EQUAL -> {
                             autosensData.pastSensitivity += "="
                             autosensData.validDeviation = true
@@ -812,6 +821,8 @@ class PrepareGraphDataRunner(
                     autosensData.type == "uam"          -> DeviationType.UAM
                     autosensData.type == "csf"          -> DeviationType.CSF
                     autosensData.pastSensitivity == "C" -> DeviationType.CSF
+                    // Shower window: left out of autosens like a meal, so drawn grey like one
+                    autosensData.pastSensitivity == "s" -> DeviationType.CSF
                     autosensData.pastSensitivity == "+" -> DeviationType.POSITIVE
                     autosensData.pastSensitivity == "-" -> DeviationType.NEGATIVE
                     else                                -> DeviationType.EQUAL

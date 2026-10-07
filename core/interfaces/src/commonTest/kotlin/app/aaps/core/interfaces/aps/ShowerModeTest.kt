@@ -3,8 +3,10 @@ package app.aaps.core.interfaces.aps
 import app.aaps.core.data.iob.InMemoryGlucoseValue
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class ShowerModeTest {
 
@@ -67,5 +69,15 @@ class ShowerModeTest {
         assertEquals(episodes, decodeShowerEpisodes(encodeShowerEpisodes(episodes)))
         assertEquals(listOf(ShowerEpisode(1, 2, 3.0)), decodeShowerEpisodes("1,2,3.0;garbage;;4,x,5"))
         assertEquals(emptyList(), decodeShowerEpisodes(""))
+    }
+
+    @Test
+    fun `shower window covers the episode and the 30 minute tail`() {
+        val episodes = listOf(ShowerEpisode(start = 10 * min, end = 20 * min, capMgdl = 150.0))
+        assertFalse(episodes.isInShowerWindow(9 * min))
+        assertTrue(episodes.isInShowerWindow(10 * min))
+        assertTrue(episodes.isInShowerWindow(50 * min))
+        assertFalse(episodes.isInShowerWindow(51 * min))
+        assertFalse(emptyList<ShowerEpisode>().isInShowerWindow(15 * min))
     }
 }
