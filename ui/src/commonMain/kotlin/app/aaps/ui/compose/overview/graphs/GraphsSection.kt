@@ -1,5 +1,8 @@
 package app.aaps.ui.compose.overview.graphs
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -24,6 +27,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -106,6 +110,9 @@ private val SIMPLE_MODE_CONFIG = GraphConfig(
  * turning the description into a list nobody will sit through.
  */
 private const val RECENT_VALUES_SPOKEN = 5
+
+/** Series not made by the graph calculation (sensor and device data, UI flags): no busy ring for these. */
+private val NOT_CALCULATED_SERIES = setOf(SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.PREDICTIONS)
 
 /** Series types available as BG graph overlays */
 private val BG_OVERLAY_SERIES = listOf(SeriesType.ACTIVITY, SeriesType.PREDICTIONS)
@@ -202,6 +209,10 @@ fun GraphsSection(
     // causing minTimestamp divergence and scroll misalignment (pixel position
     // maps to different time when x-axis ranges differ).
     val derivedTimeRange by graphViewModel.derivedTimeRange.collectAsStateWithLifecycle()
+    val calculationProgress by graphViewModel.calculationProgress.collectAsStateWithLifecycle()
+    val calculationRunning = calculationProgress < 100
+    // The busy ring sits left of the edit button, or in the corner when there is none (simple mode)
+    val busyRingEnd = if (isSimpleMode) 8.dp else 36.dp
 
     // Touch cursor (see GraphCursor.kt). One x layout for all graphs, reported by the fixed IOB graph.
     val cursorGeometry = remember { GraphGeometryHolder() }
@@ -469,6 +480,12 @@ fun GraphsSection(
                         .padding(end = 4.dp, top = 2.dp)
                 )
             }
+            // BG readings themselves are not recalculated; activity and predictions are
+            GraphBusyRing(
+                busy = calculationRunning && (SeriesType.ACTIVITY in graphConfig.bgOverlays || SeriesType.PREDICTIONS in graphConfig.bgOverlays),
+                progress = calculationProgress,
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp)
+            )
             GraphCursorFor(CURSOR_GRAPH_BG, cursorState, graphViewModel, graphConfig.bgOverlays, derivedTimeRange?.first, cursorGeometry)
         }
         if (editingBgOverlays) {
@@ -522,6 +539,7 @@ fun GraphsSection(
                         .padding(end = 4.dp, top = 2.dp)
                 )
             }
+            GraphBusyRing(busy = calculationRunning, progress = calculationProgress, modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp))
             GraphCursorFor(CURSOR_GRAPH_IOB, cursorState, graphViewModel, graphConfig.iobOverlays, derivedTimeRange?.first, cursorGeometry)
         }
         if (editingIobOverlays) {
@@ -576,6 +594,11 @@ fun GraphsSection(
                             .padding(end = 4.dp, top = 2.dp)
                     )
                 }
+                GraphBusyRing(
+                    busy = calculationRunning && secondary.series.any { it !in NOT_CALCULATED_SERIES },
+                    progress = calculationProgress,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp)
+                )
                 GraphCursorFor(cursorGraphId, cursorState, graphViewModel, secondary.series, derivedTimeRange?.first, cursorGeometry)
             }
         }
@@ -723,6 +746,33 @@ internal fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
 // =========================================================================
 // Graph edit button + series picker bottom sheet
 // =========================================================================
+
+/**
+ * Small ring in a graph's top right corner while the data it draws is being recalculated. It fills
+ * with the calculation's progress, so it also shows how soon the graph will update. It only shows
+ * after a short wait, so the quick recalculation after each new reading does not flash it on and off.
+ */
+@Composable
+private fun GraphBusyRing(busy: Boolean, progress: Int, modifier: Modifier = Modifier) {
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(busy) {
+        if (busy) {
+            delay(BUSY_RING_DELAY_MS)
+            shown = true
+        } else shown = false
+    }
+    AnimatedVisibility(visible = shown, enter = fadeIn(), exit = fadeOut(), modifier = modifier) {
+        CircularProgressIndicator(
+            progress = { progress / 100f },
+            modifier = Modifier.size(12.dp),
+            strokeWidth = 1.5.dp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+        )
+    }
+}
+
+private const val BUSY_RING_DELAY_MS = 250L
 
 /** Small pencil icon button overlaid on a graph */
 @Composable
