@@ -226,7 +226,6 @@ class MainViewModel(
             isDrawerOpen = ev.isDrawerOpen,
             isSimpleMode = ev.isSimpleMode,
             showAboutDialog = ev.showAboutDialog,
-            showShowerDialog = ev.showShowerDialog,
             showMaintenanceSheet = ev.showMaintenanceSheet,
             showAuthFailedDialog = ev.showAuthFailedDialog,
             isProfileLoaded = chip.isProfileLoaded,
@@ -595,10 +594,6 @@ class MainViewModel(
         _eventState.update { it.copy(showAboutDialog = show) }
     }
 
-    fun setShowShowerDialog(show: Boolean) {
-        _eventState.update { it.copy(showShowerDialog = show) }
-    }
-
     fun setShowMaintenanceSheet(show: Boolean) {
         _eventState.update { it.copy(showMaintenanceSheet = show) }
     }
@@ -904,7 +899,6 @@ private data class EventState(
     val isSimpleMode: Boolean = true,
     val smbEnabled: Boolean = false,
     val showAboutDialog: Boolean = false,
-    val showShowerDialog: Boolean = false,
     val showMaintenanceSheet: Boolean = false,
     val showAuthFailedDialog: Boolean = false
 )

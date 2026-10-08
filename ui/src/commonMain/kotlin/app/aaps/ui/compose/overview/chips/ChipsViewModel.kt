@@ -5,22 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.aaps.core.interfaces.InterfacesStrings
 import app.aaps.core.interfaces.aps.Loop
-import app.aaps.core.interfaces.aps.ShowerMode
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.db.PersistenceLayer
 import app.aaps.core.interfaces.iob.IobCobCalculator
 import app.aaps.core.interfaces.overview.SensitivityOverview
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
-import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.resources.TextResolver
 import app.aaps.core.interfaces.rx.bus.RxBus
 import app.aaps.core.interfaces.rx.events.EventShowDialog
-import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.interfaces.utils.DecimalFormatter
-import app.aaps.core.keys.DoubleNonKey
-import app.aaps.core.keys.IntKey
-import app.aaps.core.keys.LongNonKey
-import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.objects.extensions.round
 import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.extensions.displayText
@@ -31,7 +24,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
@@ -48,49 +40,8 @@ class ChipsViewModel(
     private val sensitivityOverview: SensitivityOverview,
     private val rh: TextResolver,
     private val decimalFormatter: DecimalFormatter,
-    private val rxBus: RxBus,
-    private val preferences: Preferences,
-    private val showerMode: ShowerMode,
-    private val dateUtil: DateUtil,
-    private val profileUtil: ProfileUtil
+    private val rxBus: RxBus
 ) : ViewModel() {
-
-    // =========================================================================
-    // Shower mode (see ShowerMode). Lives here because every overview layout already gets this
-    // view model, and the Treatments sheet reaches it through the main screen.
-    // =========================================================================
-
-    /** Shower mode for its overview chip, or null when it is not running. */
-    val showerState: StateFlow<ShowerChipState?> = flow {
-        val ticker = flow {
-            while (true) {
-                emit(Unit)
-                delay(15_000L)
-            }
-        }
-        emitAll(preferences.observe(LongNonKey.ShowerModeEndsAt).combine(ticker) { endsAt, _ ->
-            val now = dateUtil.now()
-            val left = endsAt - now
-            if (left <= 0) return@combine null
-            val startedAt = preferences.get(LongNonKey.ShowerModeStartedAt)
-            ShowerChipState(
-                capText = profileUtil.fromMgdlToStringInUnits(preferences.get(DoubleNonKey.ShowerModeCapMgdl)),
-                remainingText = dateUtil.untilString(endsAt, rh),
-                minutesLeft = ((left + 59_999) / 60_000).toInt(),
-                progress = if (startedAt in 1 until endsAt) ((now - startedAt).toFloat() / (endsAt - startedAt)).coerceIn(0f, 1f) else 0f
-            )
-        })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-
-    /** The length offered when starting shower mode (Safety settings). */
-    val defaultShowerMinutes: Int get() = preferences.get(IntKey.SafetyShowerModeMinutes)
-
-    /** Starts shower mode. [onResult] gets false when there is no recent BG to cap at. */
-    fun startShower(minutes: Int, onResult: (Boolean) -> Unit) {
-        viewModelScope.launch { onResult(showerMode.start(minutes)) }
-    }
-
-    fun endShower() = showerMode.stop()
 
     @AssistedFactory
     interface Factory {

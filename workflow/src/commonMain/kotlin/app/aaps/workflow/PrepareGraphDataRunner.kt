@@ -1,11 +1,5 @@
 package app.aaps.workflow
 
-import app.aaps.core.data.iob.InMemoryGlucoseValue
-import app.aaps.core.interfaces.aps.isInShowerWindow
-import app.aaps.core.interfaces.aps.showerEpisodes
-import app.aaps.core.interfaces.aps.applyShowerCaps
-import app.aaps.core.interfaces.aps.ShowerEpisode
-import app.aaps.core.interfaces.aps.SHOWER_CAP_TAIL_MS
 import app.aaps.core.objects.workflow.WorkOutcome
 import dev.zacsweers.metro.Inject
 import kotlin.time.Instant
@@ -208,9 +202,7 @@ class PrepareGraphDataRunner(
             bucketedData?.map { it.copy(smoothed = null, calibrated = null) }?.toMutableList()
         } ?: return
         val calibrated = activePlugin.activeCalibration.calibrate(workingCopy, CalibrationContext.NONE)
-        // Shower mode: everything the loop reads (deltas, autosens, COB) comes from this data, so the
-        // cap is applied here, once, after smoothing. The raw readings in the database are not changed.
-        val smoothed = activePlugin.activeSmoothing.smooth(calibrated).applyShowerCaps(preferences.showerEpisodes()).toMutableList()
+        val smoothed = activePlugin.activeSmoothing.smooth(calibrated)
         dataLock.withLock {
             bucketedData = smoothed
         }
@@ -250,29 +242,6 @@ class PrepareGraphDataRunner(
                 )
             }
         data.cache.updateBucketedData(bucketedDataPoints)
-        data.cache.updateShowerCap(showerCapSegments(bucketedData, preferences.showerEpisodes(), newFromTime, newToTime))
-    }
-
-    /**
-     * What the loop saw during each shower, for the line on the BG graph: the (capped) values inside
-     * the episode, and after it while the cap still held - it holds until the first value below it.
-     * `internal` so it can be unit-tested.
-     */
-    internal fun showerCapSegments(bucketed: List<InMemoryGlucoseValue>, episodes: List<ShowerEpisode>, from: Long, to: Long): List<List<GraphDataPoint>> {
-        val byTime = bucketed.sortedBy { it.timestamp }
-        return episodes.mapNotNull { episode ->
-            if (episode.end + SHOWER_CAP_TAIL_MS < from || episode.start > to) return@mapNotNull null
-            val segment = ArrayList<GraphDataPoint>()
-            for (gv in byTime) {
-                val t = gv.timestamp
-                if (t < episode.start) continue
-                if (t > episode.end + SHOWER_CAP_TAIL_MS) break
-                val value = gv.recalculated
-                if (t >= episode.end && value < episode.capMgdl - CAP_EPSILON) break
-                segment.add(GraphDataPoint(t, profileUtil.fromMgdlToUnits(value)))
-            }
-            segment.takeIf { it.size >= 2 }
-        }
     }
 
     // ---------- Phase 3 (PrepareBgDataWorker logic) ----------
@@ -346,7 +315,6 @@ class PrepareGraphDataRunner(
                 ads.roundUpTime(bucketedData[0].timestamp),
                 true
             )
-            val showerEpisodes = preferences.showerEpisodes()
             // start from oldest to be able sub cob
             for (i in bucketedData.size - 4 downTo 0) {
                 data.signals.emitProgress(CalculationWorkflow.ProgressData.IOB_COB_OREF, 100 - (100.0 * i / bucketedData.size).toInt())
@@ -490,9 +458,6 @@ class PrepareGraphDataRunner(
                 when (autosensData.type) {
                     "non-meal" -> {
                         when {
-                            // Not a valid deviation: shower heat and the BG cap say nothing about sensitivity
-                            showerEpisodes.isInShowerWindow(bgTime)          -> autosensData.pastSensitivity += "s"
-
                             abs(deviation) < Constants.DEVIATION_TO_BE_EQUAL -> {
                                 autosensData.pastSensitivity += "="
                                 autosensData.validDeviation = true
@@ -577,7 +542,6 @@ class PrepareGraphDataRunner(
                 ads.roundUpTime(bucketedData[0].timestamp),
                 true
             )
-            val showerEpisodes = preferences.showerEpisodes()
             // start from oldest to be able to sub cob
             for (i in bucketedData.size - 4 downTo 0) {
                 data.signals.emitProgress(CalculationWorkflow.ProgressData.IOB_COB_OREF, 100 - (100.0 * i / bucketedData.size).toInt())
@@ -695,9 +659,6 @@ class PrepareGraphDataRunner(
                 // calculate autosens only without COB
                 if (autosensData.cob <= 0) {
                     when {
-                        // Not a valid deviation: shower heat and the BG cap say nothing about sensitivity
-                        showerEpisodes.isInShowerWindow(bgTime)          -> autosensData.pastSensitivity += "s"
-
                         abs(deviation) < Constants.DEVIATION_TO_BE_EQUAL -> {
                             autosensData.pastSensitivity += "="
                             autosensData.validDeviation = true
@@ -824,8 +785,6 @@ class PrepareGraphDataRunner(
                     autosensData.type == "uam"          -> DeviationType.UAM
                     autosensData.type == "csf"          -> DeviationType.CSF
                     autosensData.pastSensitivity == "C" -> DeviationType.CSF
-                    // Shower window: left out of autosens like a meal, so drawn grey like one
-                    autosensData.pastSensitivity == "s" -> DeviationType.CSF
                     autosensData.pastSensitivity == "+" -> DeviationType.POSITIVE
                     autosensData.pastSensitivity == "-" -> DeviationType.NEGATIVE
                     else                                -> DeviationType.EQUAL
@@ -925,9 +884,6 @@ class PrepareGraphDataRunner(
 
         /** The graphs show insulin activity per this many minutes. */
         const val ACTIVITY_DISPLAY_MINUTES = 5.0
-
-        /** A capped value equals the cap; anything this far below it is a real reading again. */
-        const val CAP_EPSILON = 0.001
 
         /** How far the insulin tail is drawn when the profile has no insulin set (the minimum DIA). */
         const val DEFAULT_INSULIN_TAIL_MS = 5L * 60 * 60 * 1000

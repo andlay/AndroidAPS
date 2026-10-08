@@ -92,10 +92,6 @@ interface OverviewDataCache {
     val varSensGraphFlow: StateFlow<VarSensGraphData>
     fun updateVarSensGraph(data: VarSensGraphData)
 
-    /** The capped BG the loop used during shower mode, one segment per shower, in the user's units. */
-    val showerCapFlow: StateFlow<List<List<GraphDataPoint>>>
-    fun updateShowerCap(data: List<List<GraphDataPoint>>)
-
     // Heart rate graph: BPM readings from smartwatch
     val heartRateGraphFlow: StateFlow<HeartRateGraphData>
     fun updateHeartRateGraph(data: HeartRateGraphData)

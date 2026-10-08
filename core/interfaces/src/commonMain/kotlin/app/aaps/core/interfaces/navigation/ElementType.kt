@@ -29,10 +29,6 @@ enum class ElementType(
     QUICK_WIZARD(protection = ProtectionCheck.Protection.BOLUS, visibility = ElementVisibility.MASTER_OR_PAIRED_CLIENT),
     TREATMENT(category = ElementCategory.TREATMENT, searchable = true, protection = ProtectionCheck.Protection.BOLUS, visibility = ElementVisibility.MASTER_OR_PAIRED_CLIENT),
 
-    // Shower mode changes only this phone's loop input, so a client has nothing to start.
-    // No protection: it can only make the loop give less insulin.
-    SHOWER_MODE(category = ElementCategory.TREATMENT, searchable = true, visibility = ElementVisibility { !it.isClient }),
-
     // CGM
     CGM_XDRIP(category = ElementCategory.CGM, searchable = true),
     CGM_DEX(category = ElementCategory.CGM),

@@ -33,9 +33,10 @@ import app.aaps.core.ui.compose.stringResourceOrNull
 import kotlin.math.roundToInt
 
 /** Launcher shortcuts (long press on the app icon), styled like their rows in the Treatments sheet. */
+// A shortcut pinned to the home screen keeps its name after an element is removed (as shower mode
+// was). appShortcutElement() then finds nothing, and the app simply opens.
 internal val appShortcutElements = listOf(
-    ElementType.BOLUS_WIZARD,
-    ElementType.SHOWER_MODE
+    ElementType.BOLUS_WIZARD
 )
 
 internal const val ACTION_APP_SHORTCUT = "app.aaps.action.APP_SHORTCUT"

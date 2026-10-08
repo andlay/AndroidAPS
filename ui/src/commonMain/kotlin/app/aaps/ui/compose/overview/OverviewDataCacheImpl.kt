@@ -1,7 +1,5 @@
 package app.aaps.ui.compose.overview
 
-import app.aaps.core.keys.StringNonKey
-import app.aaps.core.interfaces.aps.showerEpisodes
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.iob.InMemoryGlucoseValue
 import app.aaps.core.data.model.BS
@@ -249,8 +247,6 @@ class OverviewDataCacheImpl(
     override val devSlopeGraphFlow: StateFlow<DevSlopeGraphData> = _devSlopeGraphFlow.asStateFlow()
     private val _varSensGraphFlow = MutableStateFlow(VarSensGraphData(emptyList()))
     override val varSensGraphFlow: StateFlow<VarSensGraphData> = _varSensGraphFlow.asStateFlow()
-    private val _showerCapFlow = MutableStateFlow<List<List<GraphDataPoint>>>(emptyList())
-    override val showerCapFlow: StateFlow<List<List<GraphDataPoint>>> = _showerCapFlow.asStateFlow()
     private val _heartRateGraphFlow = MutableStateFlow(HeartRateGraphData(emptyList()))
     override val heartRateGraphFlow: StateFlow<HeartRateGraphData> = _heartRateGraphFlow.asStateFlow()
     private val _stepsGraphFlow = MutableStateFlow(StepsGraphData(emptyList()))
@@ -412,13 +408,6 @@ class OverviewDataCacheImpl(
                         .debounce(300)
                         .collect { rebuildTreatmentGraph() }
                 }
-            }
-            // Shower mode started or ended early: the marker follows the episode
-            scope.launch {
-                preferences.observe(StringNonKey.ShowerModeEpisodes)
-                    .drop(1)
-                    .debounce(300)
-                    .collect { rebuildTreatmentGraph() }
             }
             // Observe HR changes for treatment graph + heart rate graph
             scope.launch {
@@ -813,10 +802,6 @@ class OverviewDataCacheImpl(
         _varSensGraphFlow.value = data
     }
 
-    override fun updateShowerCap(data: List<List<GraphDataPoint>>) {
-        _showerCapFlow.value = data
-    }
-
     override fun updateHeartRateGraph(data: HeartRateGraphData) {
         _heartRateGraphFlow.value = data
     }
@@ -910,15 +895,11 @@ class OverviewDataCacheImpl(
                 }
         } else emptyList()
 
-        // Therapy events. The note shower mode saves becomes a shower marker that ends when shower mode
-        // really ended (it can be ended early), matched by its start time.
-        val showerEpisodes = preferences.showerEpisodes().associateBy { it.start }
+        // Therapy events
         val therapyEventPoints = persistenceLayer.getTherapyEventDataFromToTime(fromTime - T.hours(6).msecs(), toTime)
             .filter { te -> te.timestamp + te.duration >= fromTime && te.timestamp <= toTime }
             .map { te ->
-                val shower = if (te.type == TE.Type.NOTE) showerEpisodes[te.timestamp] else null
                 val teType = when {
-                    shower != null                           -> TherapyEventType.SHOWER
                     te.type == TE.Type.NS_MBG                -> TherapyEventType.MBG
                     te.type == TE.Type.FINGER_STICK_BG_VALUE -> TherapyEventType.FINGER_STICK
                     te.type == TE.Type.ANNOUNCEMENT          -> TherapyEventType.ANNOUNCEMENT
@@ -932,7 +913,7 @@ class OverviewDataCacheImpl(
                     timestamp = te.timestamp,
                     eventType = teType,
                     label = teLabel,
-                    duration = shower?.let { it.end - it.start } ?: te.duration
+                    duration = te.duration
                 )
             }
 
@@ -1262,7 +1243,6 @@ class OverviewDataCacheImpl(
         _ratioGraphFlow.value = RatioGraphData(emptyList())
         _devSlopeGraphFlow.value = DevSlopeGraphData(emptyList(), emptyList())
         _varSensGraphFlow.value = VarSensGraphData(emptyList())
-        _showerCapFlow.value = emptyList()
         _heartRateGraphFlow.value = HeartRateGraphData(emptyList())
         _stepsGraphFlow.value = StepsGraphData(emptyList())
         _treatmentGraphFlow.value = TreatmentGraphData(emptyList(), emptyList(), emptyList(), emptyList())

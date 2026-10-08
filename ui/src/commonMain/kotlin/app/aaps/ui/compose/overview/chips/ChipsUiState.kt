@@ -8,22 +8,6 @@ import androidx.compose.runtime.Immutable
  * Kept in their own file rather than beside `ChipsViewModel`: these are plain values with no Android
  * in them, and every composable and preview that reads them can then be shared code.
  */
-/**
- * Shower mode while it runs.
- *
- * @param capText the BG the loop is capped at, in the user's units
- * @param remainingText time left in the chips' usual form, e.g. "(12')"
- * @param minutesLeft time left, rounded up
- * @param progress share of the time already gone, 0..1
- */
-@Immutable
-data class ShowerChipState(
-    val capText: String,
-    val remainingText: String,
-    val minutesLeft: Int,
-    val progress: Float
-)
-
 @Immutable
 data class IobUiState(
     val text: String = "",

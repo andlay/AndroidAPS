@@ -28,12 +28,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.unit.dp
 import app.aaps.core.interfaces.navigation.ElementType
 import app.aaps.core.keys.interfaces.ElementVisibility
 import app.aaps.core.ui.CoreUiStrings
-import app.aaps.core.ui.compose.LocalConfig
 import app.aaps.core.ui.compose.MasterOfflineBanner
 import app.aaps.core.ui.compose.TonalIcon
 import app.aaps.core.ui.compose.consumeOverscroll
@@ -282,17 +280,6 @@ internal fun TreatmentSelectionContent(
                 disabledAlpha = disabledAlpha,
                 onDismiss = onDismiss,
                 onClick = { onNavigate(NavigationRequest.Element(ElementType.BOLUS_WIZARD)) }
-            )
-        }
-
-        // Shower mode changes only this phone's loop, so a client has nothing to start here.
-        if (LocalInspectionMode.current || !LocalConfig.current.AAPSCLIENT) {
-            TreatmentItem(
-                elementType = ElementType.SHOWER_MODE,
-                enabled = true,
-                disabledAlpha = disabledAlpha,
-                onDismiss = onDismiss,
-                onClick = { onNavigate(NavigationRequest.Element(ElementType.SHOWER_MODE)) }
             )
         }
     }

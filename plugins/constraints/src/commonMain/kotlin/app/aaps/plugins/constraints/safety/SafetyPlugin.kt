@@ -193,8 +193,7 @@ class SafetyPlugin(
                 hardLimits.ageEntryValues().zip(hardLimits.ageEntries()).associate { it.first.toString() to TextRef.Literal(it.second.toString()) }
             ),
             DoubleKey.SafetyMaxBolus,
-            IntKey.SafetyMaxCarbs,
-            IntKey.SafetyShowerModeMinutes
+            IntKey.SafetyMaxCarbs
         ),
         icon = pluginDescription.icon
     )

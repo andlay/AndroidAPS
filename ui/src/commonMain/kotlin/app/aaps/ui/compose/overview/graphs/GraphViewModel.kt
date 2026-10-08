@@ -109,7 +109,6 @@ class GraphViewModel(
     val absIobGraphFlow = cache.absIobGraphFlow
     val cobGraphFlow = cache.cobGraphFlow
     val activityGraphFlow = cache.activityGraphFlow
-    val showerCapFlow = cache.showerCapFlow
     val bgiGraphFlow = cache.bgiGraphFlow
     val deviationsGraphFlow = cache.deviationsGraphFlow
     val ratioGraphFlow = cache.ratioGraphFlow

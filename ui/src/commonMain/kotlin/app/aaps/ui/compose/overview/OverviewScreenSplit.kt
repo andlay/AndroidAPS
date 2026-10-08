@@ -95,7 +95,6 @@ fun OverviewScreenSplit(
             endEnabled = endSceneEnabled,
             formatDuration = formatDuration
         )
-        val showerState by chipsViewModel.showerState.collectAsStateWithLifecycle()
 
         Row(
             modifier = Modifier
@@ -140,7 +139,6 @@ fun OverviewScreenSplit(
                         tempTargetProgress = tempTargetProgress,
                         tempTargetReason = tempTargetReason,
                         tempTargetSceneManaged = tempTargetSceneManaged,
-                        showerState = showerState,
                         tbrState = tbrState,
                         iobUiState = iobUiState,
                         cobUiState = cobUiState,

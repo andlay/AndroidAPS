@@ -27,7 +27,6 @@ data class MainUiState(
     val isSimpleMode: Boolean = true,
     val isProfileLoaded: Boolean = false,
     val showAboutDialog: Boolean = false,
-    val showShowerDialog: Boolean = false,
     val showMaintenanceSheet: Boolean = false,
     // Profile state for top bar chip
     val profileName: String = "",

@@ -286,8 +286,7 @@ enum class TherapyEventType {
     SETTINGS_EXPORT,       // Settings export
     EXERCISE,              // Exercise
     GENERAL,               // General event (no duration)
-    GENERAL_WITH_DURATION, // General event with duration
-    SHOWER                 // Shower mode: from start to its actual end
+    GENERAL_WITH_DURATION  // General event with duration
 }
 
 /**

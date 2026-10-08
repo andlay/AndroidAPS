@@ -118,6 +118,17 @@ class PreferenceMigrations(
         tidepool(sp)
         apsMode(sp)
         tempTargetPresets(sp)
+        showerModeRemoved(sp)
+    }
+
+    /**
+     * Shower mode was removed (BG smoothing does the job). Its settings and its stored state - a
+     * running cap, the episode history - are dead keys now, so they are deleted. The shower notes in
+     * treatments stay: they are ordinary notes.
+     */
+    private fun showerModeRemoved(sp: KeyValueStore) {
+        listOf("shower_mode_ends_at", "shower_mode_started_at", "shower_mode_cap_mgdl", "shower_mode_episodes", "safety_shower_mode_minutes")
+            .forEach { if (sp.contains(it)) sp.remove(it) }
     }
 
     /**

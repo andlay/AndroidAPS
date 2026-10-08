@@ -143,7 +143,6 @@ class ElementNavigator(
             ElementType.FILL                    -> navController.navigate(AppRoute.FillDialog.createRoute(FillPreselect.CARTRIDGE_CHANGE.ordinal))
             ElementType.CANNULA_CHANGE          -> navController.navigate(AppRoute.FillDialog.createRoute(FillPreselect.SITE_CHANGE.ordinal))
             ElementType.BOLUS_WIZARD            -> navController.navigate(AppRoute.WizardDialog.createRoute())
-            ElementType.SHOWER_MODE             -> mainViewModel.setShowShowerDialog(true)
             ElementType.TEMP_BASAL              -> navController.navigate(AppRoute.TempBasalDialog.route)
             ElementType.EXTENDED_BOLUS          -> navController.navigate(AppRoute.ExtendedBolusDialog.route)
 
