@@ -549,7 +549,7 @@ fun BgGraphCompose(
     val epsLines = remember(epsLine) { listOf(epsLine) }
 
     // =========================================================================
-    // Activity layer lines (layer 4) — solid historical + dashed prediction
+    // Activity layer lines (layer 4) — the prediction is drawn like the history
     // =========================================================================
 
     val activityHistLine = remember(activityColor) {
@@ -560,21 +560,8 @@ fun BgGraphCompose(
         )
     }
 
-    val activityPredLine = remember(activityColor) {
-        LineCartesianLayer.Line(
-            fill = LineCartesianLayer.LineFill.single(Fill(activityColor)),
-            stroke = LineCartesianLayer.LineStroke.Dashed(
-                thickness = 1.5.dp,
-                cap = StrokeCap.Round,
-                dashLength = 4.dp,
-                gapLength = 4.dp
-            ),
-            areaFill = null
-        )
-    }
-
-    val activityLines = remember(activityHistLine, activityPredLine) {
-        listOf(activityHistLine, activityPredLine)
+    val activityLines = remember(activityHistLine) {
+        listOf(activityHistLine, activityHistLine)
     }
 
     // Basal Y-axis range: maxBasal / BASAL_HEIGHT_FRACTION so basal occupies that fraction of chart height

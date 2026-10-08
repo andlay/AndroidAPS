@@ -31,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -273,8 +272,6 @@ internal fun rememberGraphCursorInput(
  * It is the value itself unless the series is drawn rescaled (activity overlay, second axis).
  * @param pinFirst always the first row, whatever its value: basal hangs down from the top of the graph
  * @param marker how the series is drawn, so its row in the card shows the same mark
- * @param futureMarker the mark for points after now, where the graph draws the series differently
- * (projected activity is dashed, projected BGI is hollow dots)
  */
 private data class CursorSeries(
     val label: String,
@@ -286,8 +283,7 @@ private data class CursorSeries(
     val colorAt: ((Long) -> Color?)? = null,
     val height: (Double) -> Double = { it },
     val pinFirst: Boolean = false,
-    val marker: CursorMarker = CursorMarker.LINE,
-    val futureMarker: CursorMarker? = null
+    val marker: CursorMarker = CursorMarker.LINE
 )
 
 /** How a series is drawn on the graph: the card row draws the same mark in front of its label. */
@@ -296,14 +292,11 @@ internal enum class CursorMarker {
     /** Filled dots: BG readings, predictions, heart rate, steps, BGI */
     DOT,
 
-    /** Outlined dots: raw sensor readings, projected BGI */
+    /** Outlined dots: raw sensor readings */
     RING,
 
     /** A line: IOB, basal, target, activity... */
     LINE,
-
-    /** A dashed line: the projected (future) part of activity */
-    DASHED_LINE,
 
     /** Bars: deviations */
     BAR
@@ -431,7 +424,7 @@ private fun rememberBgCursorSeries(viewModel: GraphViewModel, overlays: List<Ser
                 add(
                     CursorSeries(
                         activityLabel, activityColor, activity.activity + activity.activityPrediction, formats.activity,
-                        height = { axis.min + it * scale }, futureMarker = CursorMarker.DASHED_LINE
+                        height = { axis.min + it * scale }
                     )
                 )
             }
@@ -463,7 +456,7 @@ private fun rememberIobCursorSeries(viewModel: GraphViewModel, overlays: List<Se
                 add(
                     CursorSeries(
                         activityLabel, colors.activity, activity.activity + activity.activityPrediction, formats.activity,
-                        height = { it * scale }, futureMarker = CursorMarker.DASHED_LINE
+                        height = { it * scale }
                     )
                 )
             }
@@ -496,7 +489,7 @@ private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, types: List
 
             SeriesType.BGI             -> {
                 val data by viewModel.bgiGraphFlow.collectAsStateWithLifecycle()
-                listOf(CursorSeries(label, color, data.bgi + data.bgiPrediction, formats.glucoseChange, marker = CursorMarker.DOT, futureMarker = CursorMarker.RING))
+                listOf(CursorSeries(label, color, data.bgi + data.bgiPrediction, formats.glucoseChange, marker = CursorMarker.DOT))
             }
 
             SeriesType.DEVIATIONS      -> {
@@ -538,7 +531,7 @@ private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, types: List
 
             SeriesType.ACTIVITY        -> {
                 val data by viewModel.activityGraphFlow.collectAsStateWithLifecycle()
-                listOf(CursorSeries(label, color, data.activity + data.activityPrediction, formats.activity, futureMarker = CursorMarker.DASHED_LINE))
+                listOf(CursorSeries(label, color, data.activity + data.activityPrediction, formats.activity))
             }
 
             SeriesType.PREDICTIONS     -> emptyList() // a BG graph overlay flag, never a secondary series
@@ -659,7 +652,7 @@ internal fun GraphCursorOverlay(
             label = s.label,
             color = pointTime?.let { s.colorAt?.invoke(it) } ?: s.color,
             value = value?.let(s.format),
-            marker = if (s.futureMarker != null && snapped > now) s.futureMarker else s.marker
+            marker = s.marker
         )
         ScreenOrderItem(row, s.pinFirst, value?.let(s.height))
     }.inScreenOrder()
@@ -769,7 +762,7 @@ private fun CursorCard(timeText: String, deltaText: String, rows: List<CursorRow
     }
 }
 
-/** Width of the mark in front of each card row: wide enough to show a dashed line. */
+/** Width of the mark in front of each card row: wide enough to show a line. */
 private val MARKER_WIDTH = AapsSpacing.large + AapsSpacing.small
 
 /** The mark of a card row, drawn like the series on the graph. */
@@ -782,11 +775,6 @@ private fun CursorMarkerIcon(marker: CursorMarker, color: Color) {
             CursorMarker.DOT         -> drawCircle(color, radius = radius * 0.8f, center = center)
             CursorMarker.RING        -> drawCircle(color, radius = radius * 0.8f, center = center, style = Stroke(width = 1.dp.toPx()))
             CursorMarker.LINE        -> drawLine(color, Offset(0f, midY), Offset(size.width, midY), strokeWidth = 2.dp.toPx())
-            CursorMarker.DASHED_LINE -> drawLine(
-                color, Offset(0f, midY), Offset(size.width, midY), strokeWidth = 2.dp.toPx(),
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 2.dp.toPx()))
-            )
-
             CursorMarker.BAR         -> drawRect(color, topLeft = Offset(size.width / 2f - radius * 0.6f, 0f), size = Size(radius * 1.2f, size.height))
         }
     }

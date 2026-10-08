@@ -296,7 +296,7 @@ fun SecondaryGraphCompose(
         }
     }
 
-    // The future part of BGI and activity (see SeriesSlot.PredictionLine). It runs on
+    // The future part of BGI and activity, drawn like the past part. It runs on
     // to the end of insulin action, past the usual right edge of the overview.
     val processedPredictionSeries = remember(stableTimeRange, bgiData, activityData) {
         if (!hasRealTimeRange) return@remember emptyList()
@@ -506,7 +506,7 @@ fun SecondaryGraphCompose(
             }
             processedPredictionSeries.forEach { (type, pts) ->
                 if (pts.isNotEmpty())
-                    add(PrimarySeriesSpec(pts.map { it.first }, pts.map { it.second }, SeriesSlot.PredictionLine(type)))
+                    add(PrimarySeriesSpec(pts.map { it.first }, pts.map { it.second }, SeriesSlot.SimpleLine(type)))
             }
             // DevSlope min (separate slot for magenta color)
             if (processedDevSlopeMin.isNotEmpty())
@@ -516,7 +516,7 @@ fun SecondaryGraphCompose(
             if (actHist.isNotEmpty())
                 add(PrimarySeriesSpec(actHist.map { it.first }, actHist.map { it.second }, SeriesSlot.ActivityOverlay))
             if (actPred.isNotEmpty())
-                add(PrimarySeriesSpec(actPred.map { it.first }, actPred.map { it.second }, SeriesSlot.PredictionLine(SeriesType.ACTIVITY)))
+                add(PrimarySeriesSpec(actPred.map { it.first }, actPred.map { it.second }, SeriesSlot.ActivityOverlay))
         }
     }
     val hasPrimaryData = primarySeries.isNotEmpty()
@@ -548,7 +548,6 @@ fun SecondaryGraphCompose(
                         SeriesSlot.DevSlopeMin      -> createDevSlopeMinLine()
                         SeriesSlot.ActivityOverlay  -> createSeriesLine(SeriesType.ACTIVITY, seriesColors)
                         is SeriesSlot.SimpleLine    -> createSeriesLine(slot.type, seriesColors)
-                        is SeriesSlot.PredictionLine -> createPredictionLine(slot.type, seriesColors)
                     }
                 )
             }
@@ -988,8 +987,6 @@ private sealed class SeriesSlot {
     data object CarbsMarker : SeriesSlot()
     data class SimpleLine(val type: SeriesType) : SeriesSlot()
 
-    /** The future part of a series: projected activity (dashed line) or BGI (hollow dots). */
-    data class PredictionLine(val type: SeriesType) : SeriesSlot()
     data object DevSlopeMin : SeriesSlot()
     data object ActivityOverlay : SeriesSlot()
 }
@@ -1251,27 +1248,6 @@ internal val DEV_SLOPE_MIN_COLOR = Color(0xFFFF00FF)
 private fun createDevSlopeMinLine(): LineCartesianLayer.Line {
     return LineCartesianLayer.Line(
         fill = LineCartesianLayer.LineFill.single(Fill(DEV_SLOPE_MIN_COLOR)),
-        areaFill = null
-    )
-}
-
-/**
- * The projected (future) part of a series: a dashed line in the series colour. Projected BGI is
- * hollow dots instead, to match the filled dots of the past BGI.
- */
-fun createPredictionLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer.Line {
-    val color = colors.colorFor(type)
-    if (type == SeriesType.BGI) return dotsOnly(
-        ShapeComponent(fill = Fill(Color.Transparent), shape = CircleShape, strokeFill = Fill(color), strokeThickness = 1.dp)
-    )
-    return LineCartesianLayer.Line(
-        fill = LineCartesianLayer.LineFill.single(Fill(color)),
-        stroke = LineCartesianLayer.LineStroke.Dashed(
-            thickness = 1.5.dp,
-            cap = StrokeCap.Round,
-            dashLength = 4.dp,
-            gapLength = 4.dp
-        ),
         areaFill = null
     )
 }
