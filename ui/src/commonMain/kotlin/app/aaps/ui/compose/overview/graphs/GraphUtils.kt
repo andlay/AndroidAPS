@@ -49,7 +49,7 @@ import kotlinx.datetime.toLocalDateTime
  * - See OverviewGraphsSection for full implementation
  *
  * **Point Connectors:**
- * - Adaptive step graphs (COB): Use `AdaptiveStep` - steps for steep angles (>45°), lines for gradual
+ * - Adaptive step graphs (COB): Use `AdaptiveStep` - a step for a steep rise (carb entry), lines otherwise
  * - Fixed step graphs (IOB, AbsIOB): Use `Square` PointConnector from core.graph.vico
  * - Smooth graphs (Activity, BGI, Ratio): Use default connector (no pointConnector parameter)
  */
