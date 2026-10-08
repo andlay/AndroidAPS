@@ -1254,7 +1254,18 @@ fun createPredictionLine(type: SeriesType, colors: SeriesColors): LineCartesianL
             dashLength = 4.dp,
             gapLength = 4.dp
         ),
-        areaFill = null
+        areaFill = null,
+        // Projected BGI keeps its 5-minute dots too
+        pointProvider = if (type == SeriesType.BGI) fiveMinuteDots(colors.colorFor(type)) else null
+    )
+
+/** A small filled dot at each point, for series that are a value per 5 minutes (BGI). */
+private fun fiveMinuteDots(color: Color): LineCartesianLayer.PointProvider =
+    LineCartesianLayer.PointProvider.single(
+        LineCartesianLayer.Point(
+            component = ShapeComponent(fill = Fill(color), shape = CircleShape),
+            size = 3.dp
+        )
     )
 
 /** Create a line style for a given series type, matching legacy rendering */
@@ -1284,6 +1295,14 @@ fun createSeriesLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer
                     size = 4.dp
                 )
             )
+        )
+        // BGI is a change per 5 minutes: the default line plus a small dot at each 5-minute point
+        SeriesType.BGI                                                           -> LineCartesianLayer.Line(
+            fill = LineCartesianLayer.LineFill.single(Fill(color)),
+            areaFill = LineCartesianLayer.AreaFill.single(
+                Fill(Brush.verticalGradient(listOf(color.copy(alpha = 0.3f), Color.Transparent)))
+            ),
+            pointProvider = fiveMinuteDots(color)
         )
         // Default: smooth line with gradient area fill
         else                                                                     -> LineCartesianLayer.Line(
