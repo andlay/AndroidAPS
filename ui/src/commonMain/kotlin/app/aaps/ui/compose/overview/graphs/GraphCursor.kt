@@ -1,10 +1,13 @@
 package app.aaps.ui.compose.overview.graphs
 
+import androidx.compose.animation.core.snap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -60,6 +63,8 @@ import app.aaps.ui.UiStrings
 import com.patrykandpatrick.vico.compose.cartesian.CartesianDrawingContext
 import com.patrykandpatrick.vico.compose.cartesian.Scroll
 import com.patrykandpatrick.vico.compose.cartesian.VicoScrollState
+import com.patrykandpatrick.vico.compose.cartesian.VicoZoomState
+import com.patrykandpatrick.vico.compose.cartesian.Zoom
 import com.patrykandpatrick.vico.compose.cartesian.decoration.Decoration
 import kotlin.concurrent.Volatile
 import kotlin.math.abs
@@ -161,7 +166,7 @@ class GraphGeometryReporter(private val holder: GraphGeometryHolder) : Decoratio
 // =========================================================================
 
 /** What a touch did before the long-press time ran out. */
-private enum class PressOutcome { TAP, MOVED, MOVED_SIDEWAYS, LONG_PRESS }
+private enum class PressOutcome { TAP, MOVED, MOVED_SIDEWAYS, PINCH, LONG_PRESS }
 
 /**
  * Touch handling for the cursor. Put it on the graph's own modifier.
@@ -170,9 +175,10 @@ private enum class PressOutcome { TAP, MOVED, MOVED_SIDEWAYS, LONG_PRESS }
  * Until the long-press time is over nothing is consumed, so a drag or a pinch goes to the chart as
  * before. After it, every event is consumed, so the chart does not scroll while the cursor moves.
  *
- * Only the BG graph scrolls by itself. On the other graphs, pass the BG graph's scroll state as
- * [panTarget]: a sideways drag then scrolls BG, and the other graphs follow it as usual. An up or
- * down drag is left alone, so the screen still scrolls.
+ * Only the BG graph scrolls and zooms by itself. On the other graphs, pass the BG graph's scroll
+ * state as [panTarget] and its zoom state as [zoomTarget]: a sideways drag then scrolls BG and a
+ * pinch zooms BG, and the other graphs follow it as usual. An up or down drag is left alone, so the
+ * screen still scrolls.
  */
 @Composable
 internal fun rememberGraphCursorInput(
@@ -181,11 +187,13 @@ internal fun rememberGraphCursorInput(
     minTimestamp: Long?,
     cursorVisible: Boolean,
     onCursorChange: (GraphCursor?) -> Unit,
-    panTarget: VicoScrollState? = null
+    panTarget: VicoScrollState? = null,
+    zoomTarget: VicoZoomState? = null
 ): Modifier {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val currentPanTarget by rememberUpdatedState(panTarget)
+    val currentZoomTarget by rememberUpdatedState(zoomTarget)
     val currentMinTimestamp by rememberUpdatedState(minTimestamp)
     val currentCursorVisible by rememberUpdatedState(cursorVisible)
     val currentOnCursorChange by rememberUpdatedState(onCursorChange)
@@ -207,8 +215,11 @@ internal fun rememberGraphCursorInput(
                     var result = PressOutcome.MOVED
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
-                        // A second finger is a pinch zoom: leave it to the chart.
-                        if (event.changes.size > 1) break
+                        // A second finger is a pinch zoom
+                        if (event.changes.size > 1) {
+                            result = PressOutcome.PINCH
+                            break
+                        }
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) {
                             result = PressOutcome.TAP
@@ -237,6 +248,25 @@ internal fun rememberGraphCursorInput(
                             if (!change.pressed || event.changes.size > 1) break
                             val scroll = startScroll - (change.position.x - down.position.x)
                             scope.launch { target.scroll(Scroll.Absolute.pixels(scroll)) }
+                        }
+                    }
+
+                    // BG zooms by itself. On the other graphs the pinch is passed on to BG.
+                    PressOutcome.PINCH          -> {
+                        val target = currentZoomTarget ?: return@awaitEachGesture
+                        var zoom = target.value
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.changes.none { it.pressed }) break
+                            val zoomChange = event.calculateZoom()
+                            val centroid = event.calculateCentroid(useCurrent = false)
+                            event.changes.forEach { it.consume() }
+                            if (zoomChange == 1f || centroid == Offset.Unspecified) continue
+                            zoom = (zoom * zoomChange).coerceIn(target.valueRange)
+                            val width = geometry.right - geometry.left
+                            val bias = if (width > 0f) ((centroid.x - geometry.left) / width).coerceIn(0f, 1f) else 0.5f
+                            val fixed = Zoom.fixed(zoom)
+                            scope.launch { target.animateZoom(fixed, snap(), bias) }
                         }
                     }
 

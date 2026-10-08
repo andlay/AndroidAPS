@@ -113,14 +113,30 @@ private class MutableYRangeProvider(
 
 /**
  * The BG axis range: the readings and predictions in the visible window (all of them when the window
- * has none), widened to at least the low and high marks, rounded to clean numbers.
+ * has none), rounded to clean numbers.
+ *
+ * At the default zoom or wider the range is widened to at least the low and high marks, so the
+ * target range is always in view. When the user zooms in further, the range fits the visible
+ * readings instead, so small changes can be seen. It is never smaller than a quarter of the target range
+ * (1.5 mmol/L or 27 mg/dL for 4-10), so noise of a few tenths does not fill the whole graph.
  */
 internal fun bgAxisScale(points: List<BgDataPoint>, window: Pair<Long, Long>?, lowMark: Double, highMark: Double): NiceScale {
     val windowed = points.filter { window == null || it.timestamp in window.first..window.second }.ifEmpty { points }.map { it.value }
+    val zoomedIn = window != null && window.second - window.first < ZOOMED_IN_WINDOW_MS
+    if (zoomedIn && windowed.isNotEmpty()) {
+        val dataMin = windowed.min()
+        val dataMax = windowed.max()
+        val halfSpan = maxOf(dataMax - dataMin, (highMark - lowMark) / 4.0) / 2.0
+        val middle = (dataMin + dataMax) / 2.0
+        return niceScale((middle - halfSpan).coerceAtLeast(0.0), middle + halfSpan)
+    }
     val dataMax = maxOf(windowed.maxOrNull() ?: highMark, highMark)
     val dataMin = minOf(windowed.minOrNull() ?: lowMark, lowMark)
     return niceScale(dataMin, dataMax)
 }
+
+/** A visible window shorter than this is zoomed in past the default (with a small margin for rounding). */
+private const val ZOOMED_IN_WINDOW_MS = (DEFAULT_GRAPH_ZOOM_MINUTES * 0.95 * 60_000).toLong()
 
 /**
  * BG Graph using Vico — dual-layer chart.
@@ -581,7 +597,12 @@ fun BgGraphCompose(
     val highMark = chartConfig.highMark
     val inRangeBox = remember(lowMark, highMark, inRangeColor) {
         HorizontalBox(
-            y = { lowMark..highMark },
+            // Kept inside the axis: when zoomed in, the axis can be narrower than the target range
+            y = {
+                val low = lowMark.coerceIn(startAxisRangeProvider.minY, startAxisRangeProvider.maxY)
+                val high = highMark.coerceIn(startAxisRangeProvider.minY, startAxisRangeProvider.maxY)
+                low..high
+            },
             box = ShapeComponent(fill = Fill(inRangeColor.copy(alpha = 0.2f))),
             verticalAxisPosition = Axis.Position.Vertical.Start
         )

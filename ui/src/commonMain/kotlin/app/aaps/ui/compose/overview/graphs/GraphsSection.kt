@@ -84,7 +84,8 @@ import kotlinx.coroutines.flow.drop
  * Pattern: Observe Primary + Sync to Secondary
  * - Each graph has its OWN VicoScrollState and VicoZoomState
  * - BG graph: Interactive - user can scroll/zoom
- * - Secondary graphs: Non-interactive - scroll/zoom disabled
+ * - Secondary graphs: scroll/zoom disabled on the chart; a sideways drag or a pinch on them is
+ *   passed on to the BG graph (see rememberGraphCursorInput)
  * - LaunchedEffect observes BG graph's state changes and syncs to secondary
  *
  * Synchronization Implementation:
@@ -520,7 +521,7 @@ fun GraphsSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.iobHeight.dp)
-                    .then(rememberGraphCursorInput(CURSOR_GRAPH_IOB, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange, panTarget = bgScrollState))
+                    .then(rememberGraphCursorInput(CURSOR_GRAPH_IOB, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange, panTarget = bgScrollState, zoomTarget = bgZoomState))
             )
             Text(
                 text = stringResource(CoreUiStrings.iob) + " / " + stringResource(CoreUiStrings.basal_shortname),
@@ -575,7 +576,7 @@ fun GraphsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(secondary.height.dp)
-                        .then(rememberGraphCursorInput(cursorGraphId, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange, panTarget = bgScrollState))
+                        .then(rememberGraphCursorInput(cursorGraphId, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange, panTarget = bgScrollState, zoomTarget = bgZoomState))
                 )
                 Text(
                     text = seriesListLabel(secondary.series),
