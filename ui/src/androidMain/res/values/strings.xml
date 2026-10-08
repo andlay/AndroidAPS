@@ -344,6 +344,7 @@
     <string name="graph_cursor_acob_shortname" comment="Short label for the absorbed carbs (aCOB) prediction in the graph touch card">aCOB</string>
     <string name="graph_cursor_uam_shortname" comment="Short label for the unannounced meal (UAM) prediction in the graph touch card">UAM</string>
     <string name="graph_cursor_zt_shortname" comment="Short label for the zero temp (ZT) prediction in the graph touch card">ZT</string>
+    <string name="graph_cursor_raw_shortname" comment="Short label for the raw sensor reading (before smoothing) in the graph touch card">RAW</string>
     <string name="graph_cursor_bolus_shortname" comment="Short label for a normal bolus in the graph touch card">BOL</string>
     <string name="graph_cursor_extended_shortname" comment="Short label for an extended bolus in the graph touch card">EXT</string>
     <string name="graph_cursor_carbs_shortname" comment="Short label for a carbs entry in the graph touch card">CARBS</string>
