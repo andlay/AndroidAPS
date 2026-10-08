@@ -483,7 +483,6 @@ fun GraphsSection(
             // BG readings themselves are not recalculated; activity and predictions are
             GraphBusyRing(
                 busy = calculationRunning && (SeriesType.ACTIVITY in graphConfig.bgOverlays || SeriesType.PREDICTIONS in graphConfig.bgOverlays),
-                progress = calculationProgress,
                 modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp)
             )
             GraphCursorFor(CURSOR_GRAPH_BG, cursorState, graphViewModel, graphConfig.bgOverlays, derivedTimeRange?.first, cursorGeometry)
@@ -539,7 +538,7 @@ fun GraphsSection(
                         .padding(end = 4.dp, top = 2.dp)
                 )
             }
-            GraphBusyRing(busy = calculationRunning, progress = calculationProgress, modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp))
+            GraphBusyRing(busy = calculationRunning, modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp))
             GraphCursorFor(CURSOR_GRAPH_IOB, cursorState, graphViewModel, graphConfig.iobOverlays, derivedTimeRange?.first, cursorGeometry)
         }
         if (editingIobOverlays) {
@@ -596,7 +595,6 @@ fun GraphsSection(
                 }
                 GraphBusyRing(
                     busy = calculationRunning && secondary.series.any { it !in NOT_CALCULATED_SERIES },
-                    progress = calculationProgress,
                     modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp)
                 )
                 GraphCursorFor(cursorGraphId, cursorState, graphViewModel, secondary.series, derivedTimeRange?.first, cursorGeometry)
@@ -748,12 +746,12 @@ internal fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
 // =========================================================================
 
 /**
- * Small ring in a graph's top right corner while the data it draws is being recalculated. It fills
- * with the calculation's progress, so it also shows how soon the graph will update. It only shows
- * after a short wait, so the quick recalculation after each new reading does not flash it on and off.
+ * Small spinning ring in a graph's top right corner while the data it draws is being recalculated.
+ * It goes round until the calculation is done. It only shows after a short wait, so the quick
+ * recalculation after each new reading does not flash it on and off.
  */
 @Composable
-private fun GraphBusyRing(busy: Boolean, progress: Int, modifier: Modifier = Modifier) {
+private fun GraphBusyRing(busy: Boolean, modifier: Modifier = Modifier) {
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(busy) {
         if (busy) {
@@ -763,7 +761,6 @@ private fun GraphBusyRing(busy: Boolean, progress: Int, modifier: Modifier = Mod
     }
     AnimatedVisibility(visible = shown, enter = fadeIn(), exit = fadeOut(), modifier = modifier) {
         CircularProgressIndicator(
-            progress = { progress / 100f },
             modifier = Modifier.size(12.dp),
             strokeWidth = 1.5.dp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),

@@ -39,7 +39,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 class FakeOverviewDataCache : OverviewDataCache {
 
     override val timeRangeFlow = MutableStateFlow<TimeRange?>(null)
-    override val calcProgressFlow = MutableStateFlow(0)
+    // 100 = no calculation running, as in the real cache at rest. Below 100 the graphs show an
+    // endless busy spinner, and an endless animation keeps a Compose test from ever going idle.
+    override val calcProgressFlow = MutableStateFlow(100)
 
     override val bgReadingsFlow = MutableStateFlow<List<BgDataPoint>>(emptyList())
     override val bucketedDataFlow = MutableStateFlow<List<BgDataPoint>>(emptyList())

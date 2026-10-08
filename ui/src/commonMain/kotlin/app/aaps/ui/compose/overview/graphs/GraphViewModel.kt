@@ -245,8 +245,8 @@ class GraphViewModel(
 
     /**
      * Progress (0-100) of the calculation that feeds the graphs (autosens, IOB, COB, deviations,
-     * activity); 100 when none is running. Each graph shows a small ring filling up while the data
-     * it draws is about to change.
+     * activity); 100 when none is running. Each graph shows a small spinning ring while the data it
+     * draws is about to change.
      */
     val calculationProgress: StateFlow<Int> = cache.calcProgressFlow
 
