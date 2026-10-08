@@ -836,9 +836,13 @@ class PrepareGraphDataRunner(
 
                 dsMaxListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(autosensData.slopeFromMaxDeviation)))
                 dsMinListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(autosensData.slopeFromMinDeviation)))
-            } else if (time > now) {
-                // No autosens data in the future: project BGI with the newest known ISF
-                lastSens?.let { bgiPredictionListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(iob.activity * it * 5.0))) }
+            } else {
+                // No autosens data: the future, and the minutes since the last BG reading. BGI only
+                // needs insulin and ISF, so use the newest known ISF instead of leaving a gap.
+                lastSens?.let {
+                    val bgi = GraphDataPoint(time, glucoseChangeInUnits(iob.activity * it * 5.0))
+                    if (time <= now) bgiListCompose.add(bgi) else bgiPredictionListCompose.add(bgi)
+                }
             }
 
             // Activity is insulin per minute; the graph shows it per 5 minutes (e.g. 0.025 U), the
@@ -870,6 +874,11 @@ class PrepareGraphDataRunner(
                 time += 5 * 60 * 1000L
             }
         }
+
+        // The projected activity is a separate line. Start it at the last past point, so the two
+        // lines meet at now instead of leaving a 5 minute gap.
+        if (activityListCompose.isNotEmpty() && activityPredictionListCompose.isNotEmpty())
+            activityPredictionListCompose.add(0, activityListCompose.last())
 
         val iobPredictionsListCompose: MutableList<GraphDataPoint> = ArrayList()
         val lastAutosensData = adsData.getLastAutosensData("GraphData", aapsLogger, dateUtil)

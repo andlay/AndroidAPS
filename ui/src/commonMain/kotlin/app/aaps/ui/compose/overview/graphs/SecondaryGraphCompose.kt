@@ -340,7 +340,13 @@ fun SecondaryGraphCompose(
         }
         // Only include types that have at least one non-zero value
         val activeTypes = perType.filter { (_, ys) -> ys.any { it != 0.0 } }
-        ProcessedDeviationLines(allX, activeTypes)
+        // A Square step holds each value until the next point, so the newest point had no width and
+        // its bar was missing. Close it with one more point 5 minutes later.
+        val closeX = minOf(allX.last() + 5.0, maxX)
+        if (closeX > allX.last())
+            ProcessedDeviationLines(allX + closeX, activeTypes.mapValues { (_, ys) -> ys + ys.last() })
+        else
+            ProcessedDeviationLines(allX, activeTypes)
     }
 
     // IOB line processing
