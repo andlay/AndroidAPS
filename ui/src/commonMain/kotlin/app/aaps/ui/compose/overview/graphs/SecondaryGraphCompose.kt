@@ -141,7 +141,7 @@ internal class ClampedVerticalAxisItemPlacer(
  * Each series type has its own color and rendering style:
  * - IOB: Blue line with area fill + bolus markers (SMBs, normal boluses, extended boluses)
  * - COB: Orange adaptive-step line with area fill + carbs markers + failover dots
- * - Simple line series (AbsIOB, BGI, Sensitivity, VarSens, DevSlope, HR, Steps): Colored line with gradient fill
+ * - Simple series (AbsIOB, BGI, Sensitivity, VarSens, DevSlope, HR, Steps): coloured line, or dots only for BGI, HR and Steps
  * - Deviations: Per-type colored step lines with gradient fill (POSITIVE/NEGATIVE/EQUAL/UAM/CSF)
  */
 @OptIn(FlowPreview::class)
@@ -268,7 +268,7 @@ fun SecondaryGraphCompose(
                 add(SeriesType.ABS_IOB to processPoints(it, minTimestamp, minX, maxX))
             }
             bgiData?.let {
-                if (it.bgi.isNotEmpty()) add(SeriesType.BGI to processPoints(it.bgi, minTimestamp, minX, maxX))
+                if (it.bgi.isNotEmpty()) add(SeriesType.BGI to centreOnBars(processPoints(it.bgi, minTimestamp, minX, maxX)))
             }
             ratioData?.ratio?.takeIf { it.isNotEmpty() }?.let { pts ->
                 // Stored as 100*(ratio-1), display shifted by +100 to show as percentage (90%, 110%)
@@ -296,13 +296,13 @@ fun SecondaryGraphCompose(
         }
     }
 
-    // The future part of BGI and activity, drawn dashed (see SeriesSlot.PredictionLine). It runs on
+    // The future part of BGI and activity (see SeriesSlot.PredictionLine). It runs on
     // to the end of insulin action, past the usual right edge of the overview.
     val processedPredictionSeries = remember(stableTimeRange, bgiData, activityData) {
         if (!hasRealTimeRange) return@remember emptyList()
         buildList {
             bgiData?.bgiPrediction?.takeIf { it.isNotEmpty() }?.let {
-                add(SeriesType.BGI to processPoints(it, minTimestamp, minX, maxX))
+                add(SeriesType.BGI to centreOnBars(processPoints(it, minTimestamp, minX, maxX)))
             }
             if (primaryType == SeriesType.ACTIVITY) {
                 activityData?.activityPrediction?.takeIf { it.isNotEmpty() }?.let {
@@ -988,7 +988,7 @@ private sealed class SeriesSlot {
     data object CarbsMarker : SeriesSlot()
     data class SimpleLine(val type: SeriesType) : SeriesSlot()
 
-    /** The future part of a line (projected BGI or activity): same colour, dashed. */
+    /** The future part of a series: projected activity (dashed line) or BGI (hollow dots). */
     data class PredictionLine(val type: SeriesType) : SeriesSlot()
     data object DevSlopeMin : SeriesSlot()
     data object ActivityOverlay : SeriesSlot()
@@ -1074,6 +1074,17 @@ private fun processPoints(points: List<GraphDataPoint>, minTimestamp: Long, minX
     val pts = points.map { timestampToX(it.timestamp, minTimestamp) to it.value }
     return filterToRange(pts, minX, maxX)
 }
+
+/**
+ * Moves each point to the middle of the step to the next point, so a dot sits in the centre of the
+ * DEV bar for the same 5 minutes. A DEV bar is drawn with [Square]: the value at x is held until the
+ * next point. The last point has no next point and moves half of a normal 5 minute step.
+ */
+private fun centreOnBars(points: List<Pair<Double, Double>>): List<Pair<Double, Double>> =
+    points.mapIndexed { index, (x, y) ->
+        val nextX = points.getOrNull(index + 1)?.first ?: (x + 5.0)
+        (x + (nextX - x) / 2.0) to y
+    }
 
 /**
  * [processPoints] for a step series that has to reach the right edge of the axis.
@@ -1244,28 +1255,33 @@ private fun createDevSlopeMinLine(): LineCartesianLayer.Line {
     )
 }
 
-/** A dashed line in the series colour, for the projected (future) part of a series. */
-fun createPredictionLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer.Line =
-    LineCartesianLayer.Line(
-        fill = LineCartesianLayer.LineFill.single(Fill(colors.colorFor(type))),
+/**
+ * The projected (future) part of a series: a dashed line in the series colour. Projected BGI is
+ * hollow dots instead, to match the filled dots of the past BGI.
+ */
+fun createPredictionLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer.Line {
+    val color = colors.colorFor(type)
+    if (type == SeriesType.BGI) return dotsOnly(
+        ShapeComponent(fill = Fill(Color.Transparent), shape = CircleShape, strokeFill = Fill(color), strokeThickness = 1.dp)
+    )
+    return LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(color)),
         stroke = LineCartesianLayer.LineStroke.Dashed(
             thickness = 1.5.dp,
             cap = StrokeCap.Round,
             dashLength = 4.dp,
             gapLength = 4.dp
         ),
-        areaFill = null,
-        // Projected BGI keeps its 5-minute dots too
-        pointProvider = if (type == SeriesType.BGI) fiveMinuteDots(colors.colorFor(type)) else null
+        areaFill = null
     )
+}
 
-/** A small filled dot at each point, for series that are a value per 5 minutes (BGI). */
-private fun fiveMinuteDots(color: Color): LineCartesianLayer.PointProvider =
-    LineCartesianLayer.PointProvider.single(
-        LineCartesianLayer.Point(
-            component = ShapeComponent(fill = Fill(color), shape = CircleShape),
-            size = 3.dp
-        )
+/** A dot at each point and no connecting line (heart rate, steps, BGI). */
+private fun dotsOnly(dot: ShapeComponent): LineCartesianLayer.Line =
+    LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
+        areaFill = null,
+        pointProvider = LineCartesianLayer.PointProvider.single(LineCartesianLayer.Point(component = dot, size = 4.dp))
     )
 
 /** Create a line style for a given series type, matching legacy rendering */
@@ -1285,25 +1301,10 @@ fun createSeriesLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer
             fill = LineCartesianLayer.LineFill.single(Fill(color)),
             areaFill = null
         )
-        // Points/dots only — no connecting line
-        SeriesType.HEART_RATE, SeriesType.STEPS                                  -> LineCartesianLayer.Line(
-            fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
-            areaFill = null,
-            pointProvider = LineCartesianLayer.PointProvider.single(
-                LineCartesianLayer.Point(
-                    component = ShapeComponent(fill = Fill(color), shape = CircleShape),
-                    size = 4.dp
-                )
-            )
-        )
-        // BGI is a change per 5 minutes: the default line plus a small dot at each 5-minute point
-        SeriesType.BGI                                                           -> LineCartesianLayer.Line(
-            fill = LineCartesianLayer.LineFill.single(Fill(color)),
-            areaFill = LineCartesianLayer.AreaFill.single(
-                Fill(Brush.verticalGradient(listOf(color.copy(alpha = 0.3f), Color.Transparent)))
-            ),
-            pointProvider = fiveMinuteDots(color)
-        )
+        // Points/dots only — no connecting line. BGI is a change per 5 minutes, one dot per
+        // 5 minutes (centred on the DEV bars, see centreOnBars).
+        SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.BGI                  ->
+            dotsOnly(ShapeComponent(fill = Fill(color), shape = CircleShape))
         // Default: smooth line with gradient area fill
         else                                                                     -> LineCartesianLayer.Line(
             fill = LineCartesianLayer.LineFill.single(Fill(color)),

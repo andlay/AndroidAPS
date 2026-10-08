@@ -274,7 +274,7 @@ internal fun rememberGraphCursorInput(
  * @param pinFirst always the first row, whatever its value: basal hangs down from the top of the graph
  * @param marker how the series is drawn, so its row in the card shows the same mark
  * @param futureMarker the mark for points after now, where the graph draws the series differently
- * (projected activity and BGI are dashed)
+ * (projected activity is dashed, projected BGI is hollow dots)
  */
 private data class CursorSeries(
     val label: String,
@@ -293,16 +293,16 @@ private data class CursorSeries(
 /** How a series is drawn on the graph: the card row draws the same mark in front of its label. */
 internal enum class CursorMarker {
 
-    /** Filled dots: BG readings, predictions, heart rate, steps */
+    /** Filled dots: BG readings, predictions, heart rate, steps, BGI */
     DOT,
 
-    /** Outlined dots: raw sensor readings */
+    /** Outlined dots: raw sensor readings, projected BGI */
     RING,
 
-    /** A line: IOB, basal, target, activity, BGI... */
+    /** A line: IOB, basal, target, activity... */
     LINE,
 
-    /** A dashed line: the projected (future) part of activity and BGI */
+    /** A dashed line: the projected (future) part of activity */
     DASHED_LINE,
 
     /** Bars: deviations */
@@ -496,7 +496,7 @@ private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, types: List
 
             SeriesType.BGI             -> {
                 val data by viewModel.bgiGraphFlow.collectAsStateWithLifecycle()
-                listOf(CursorSeries(label, color, data.bgi + data.bgiPrediction, formats.glucoseChange, futureMarker = CursorMarker.DASHED_LINE))
+                listOf(CursorSeries(label, color, data.bgi + data.bgiPrediction, formats.glucoseChange, marker = CursorMarker.DOT, futureMarker = CursorMarker.RING))
             }
 
             SeriesType.DEVIATIONS      -> {
