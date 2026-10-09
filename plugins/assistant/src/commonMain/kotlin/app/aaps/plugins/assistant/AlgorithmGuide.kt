@@ -81,13 +81,44 @@ ApsUseSmbWithLowTt (temp target below 100 mg/dL). A high temp target disables SM
 ApsUseSmbWithHighTt. No SMB when minGuardBG is below the threshold, when BG data is flat (sensor error)
 or old, or when BG is below the SMB minimum: this build adds UnitDoubleKey ApsSmbMinBg (fixed BG) and
 IntKey ApsSmbMinPercentOfTarget (% of the current target); the higher of the two is used, 0 = off.
-SMB size = about half of insulinReq, limited by maxBolus = profile basal * ApsMaxMinutesOfBasalToLimitSmb
-/ 60 (or ApsUamMaxMinutesOfBasalToLimitSmb when UAM drives it), and by max IOB. ApsMaxSmbFrequency is the
-minimum minutes between SMBs. While an SMB is given, a temp basal is set too (often low).
+SMB size (exact): smb = floor(min(insulinReq / 2, maxBolus) / bolus step) * bolus step, so half of
+insulinReq rounded DOWN to the pump step (0.05 U on Omnipod). maxBolus = current basal *
+ApsMaxMinutesOfBasalToLimitSmb / 60, or current basal * ApsUamMaxMinutesOfBasalToLimitSmb / 60 when IOB is
+more than COB / carb ratio (insulin already covers the carbs), rounded to 0.1 U. Max IOB can cut it further.
+Example: insulinReq 0.83 -> half 0.415 -> 0.40 U. ApsMaxSmbFrequency is the minimum time between SMBs;
+"Waiting Xm Ys to microbolus again" means that time has not passed yet.
+loopRun.smbMath holds these numbers for the run: insulinReqU, halfInsulinReqU, maxBolusU, bolusStepU,
+smbSizeU, highTempRateUph, naiveEventualBgMgdl, minIOBPredBgMgdl, worstCaseInsulinReqU.
+
+SMB zero temp (or low temp). With every SMB decision the loop also checks a worst case:
+worstCaseInsulinReq = (target - (naive_eventualBG + minIOBPredBG) / 2) / ISF, where naive_eventualBG is
+where BG ends from insulin alone (no deviations) and minIOBPredBG is the lowest point of the IOB line
+after the insulin peak. If it is positive, that much basal is held back:
+minutes = 60 * worstCaseInsulinReq / current basal; 30 or more -> a zero temp of 30 or 60 minutes; less than
+30 -> a 30 minute temp at basal * (30 - minutes) / 30. Log text: "setting 30m low temp of 0U/h". This is
+insurance for the SMB insulin: if the rise stops, the missing basal offsets it. It is NOT the low glucose
+suspend (that one says "minGuardBG ... < threshold"). It happens often with high IOB, when BG from
+insulin alone would end below target but the current rise (deviations) keeps eventualBG above it.
+
+High temp after an SMB. When no SMB zero temp is needed, the loop wants rate = basal + 2 * insulinReq
+(capped at max safe basal), as a 30 minute temp. "temp A < B U/hr" means the running temp A was below the
+wanted rate B, so a new temp of B was set. "temp A >~ req B" means the running temp was enough, so it was
+kept. "no temp, setting B" means no temp was running.
 
 UAM. With ApsUseUam on, the UAM prediction is used when BG rises with deviations not explained by COB.
-UAM can then drive SMBs. On the DEV graph, a deviation counted as "uam" means it was a meal-like rise with
-no carbs left.
+UAM can then drive SMBs. This is separate from the "uam" group of the DEV graph below.
+
+Groups of the 5-minute records and DEV graph colours (autosens, field "group" and "graphColour"):
+- "csf", grey bar: carbs on board, carbs still absorbing, or meal carbs not finished. The deviation goes to
+  carb absorption, not to autosens.
+- "uam", yellow bar: no carbs, AND one of: IOB > 2 * current basal rate (IOB in U against basal in U/h,
+  compared as numbers), the uamFlag carried from the point before (only right after carbs ran out), or
+  mealStartCounter < 9 (the first 45 minutes after carbs ran out). In practice it is mostly "IOB above twice
+  the basal rate". These points are left out of autosens. Yellow does NOT mean a meal was detected.
+- "non-meal": used by autosens. Green = deviation above +2 mg/dL (BG higher than insulin explains),
+  red = below -2 mg/dL (lower), black = within 2 mg/dL (as expected).
+Each record has iobU, basalUph and twiceBasal, so the reason for "uam" can be shown with numbers. For a
+question about an older time, use autosens24h (one line per record for 24 hours).
 
 COB and carb absorption. Carbs are absorbed by the observed deviations: absorbed per 5 min = max(deviation,
 min carb impact) / CSF, where CSF = ISF / CR. The minimum carb impact (min_5m_carbimpact, setting
