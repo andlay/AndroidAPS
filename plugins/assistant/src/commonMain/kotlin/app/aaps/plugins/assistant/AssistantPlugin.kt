@@ -6,6 +6,7 @@ import app.aaps.core.data.plugin.PluginType
 import app.aaps.core.interfaces.ai.AiAssistant
 import app.aaps.core.interfaces.ai.AiTopic
 import app.aaps.core.interfaces.ai.AiTurn
+import app.aaps.core.interfaces.concurrent.aapsBackgroundDispatcher
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.notifications.NotificationManager
 import app.aaps.core.interfaces.plugin.PluginBase
@@ -21,8 +22,12 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.IntKey
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
 
 /**
  * AI explanations of loop decisions. Reads data only; answers are text for the user and nothing else
@@ -44,17 +49,27 @@ class AssistantPlugin(
         .mainType(PluginType.GENERAL)
         .icon(Icons.Filled.AutoFixHigh)
         .pluginName(AssistantStrings.assistant_name)
-        .shortName(AssistantStrings.assistant_short)
         .description(AssistantStrings.assistant_description),
     ownPreferences = AssistantStringKey.entries,
     aapsLogger, rh, preferences, notificationManager
 ), AiAssistant {
 
-    private val client = OpenAiChatClient()
+    // Made when first used, not at app start
+    private val client by lazy { OpenAiChatClient() }
+
+    /**
+     * All AI work runs here: building the data, the request and reading the answer. One task at a
+     * time, on a low priority thread. Never on the main thread (the sheet starts it from the UI), and
+     * never on the default pool, where the calculation and the loop run, so the AI cannot take a
+     * thread or CPU time from them.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val aiDispatcher: CoroutineDispatcher = aapsBackgroundDispatcher.limitedParallelism(1)
 
     override fun isConfigured(): Boolean = preferences.get(AssistantStringKey.ApiKey).isNotBlank()
 
-    override suspend fun contextFor(topic: AiTopic, timestamp: Long): String = contextBuilder.build(topic, timestamp)
+    override suspend fun contextFor(topic: AiTopic, timestamp: Long): String =
+        withContext(aiDispatcher) { contextBuilder.build(topic, timestamp) }
 
     override fun ask(topic: AiTopic, timestamp: Long, conversation: List<AiTurn>): Flow<String> = flow {
         val apiKey = preferences.get(AssistantStringKey.ApiKey)
@@ -71,7 +86,7 @@ class AssistantPlugin(
         }
         client.stream(preferences.get(AssistantStringKey.BaseUrl), apiKey, preferences.get(AssistantStringKey.Model), messages)
             .collect { emit(it) }
-    }
+    }.flowOn(aiDispatcher)
 
     private fun firstQuestion(topic: AiTopic, t: Long): String {
         val at = dateUtil.timeString(t)

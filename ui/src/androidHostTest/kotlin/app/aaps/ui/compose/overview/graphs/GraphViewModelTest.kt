@@ -1,9 +1,11 @@
 package app.aaps.ui.compose.overview.graphs
 
 import app.aaps.core.interfaces.logging.AAPSLogger
+import app.aaps.core.interfaces.overview.graph.ActivityGraphData
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgRange
 import app.aaps.core.interfaces.overview.graph.BgType
+import app.aaps.core.interfaces.overview.graph.BgiGraphData
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
@@ -38,6 +40,7 @@ internal class GraphViewModelTest {
     @Mock private lateinit var preferences: Preferences
     @Mock private lateinit var dateUtil: DateUtil
     @Mock private lateinit var rh: ResourceHelper
+    @Mock private lateinit var insulinTailCalculator: InsulinTailCalculator
 
     private lateinit var sut: GraphViewModel
 
@@ -54,7 +57,7 @@ internal class GraphViewModelTest {
         whenever(preferences.observe(UnitDoubleKey.OverviewHighMark)).thenReturn(MutableStateFlow(180.0))
         whenever(preferences.observe(UnitDoubleKey.OverviewLowMark)).thenReturn(MutableStateFlow(72.0))
         // fullWindow = false: the overview behaviour, where the axis hugs the data.
-        sut = GraphViewModel(cache, false, graphConfigRepository, aapsLogger, preferences, dateUtil, rh)
+        sut = GraphViewModel(cache, false, graphConfigRepository, aapsLogger, preferences, dateUtil, rh, insulinTailCalculator)
     }
 
     @AfterEach
@@ -87,7 +90,10 @@ internal class GraphViewModelTest {
         whenever(cache.predictionsFlow).thenReturn(MutableStateFlow(predictions))
         whenever(cache.timeRangeFlow).thenReturn(MutableStateFlow(TimeRange(fromTime = windowStart, toTime = now, endTime = now + 2 * 3600_000L)))
         whenever(graphConfigRepository.graphConfigFlow).thenReturn(MutableStateFlow(GraphConfig()))
-        val vm = GraphViewModel(cache, false, graphConfigRepository, aapsLogger, preferences, dateUtil, rh)
+        // The shared axis also follows the insulin tail, which is made from these
+        whenever(cache.activityGraphFlow).thenReturn(MutableStateFlow(ActivityGraphData(emptyList(), emptyList())))
+        whenever(cache.bgiGraphFlow).thenReturn(MutableStateFlow(BgiGraphData(emptyList(), emptyList())))
+        val vm = GraphViewModel(cache, false, graphConfigRepository, aapsLogger, preferences, dateUtil, rh, insulinTailCalculator)
 
         val range = vm.derivedTimeRange.filterNotNull().first()
 

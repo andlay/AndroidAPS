@@ -40,12 +40,7 @@ enum class BgType {
 data class TimeRange(
     val fromTime: Long,
     val toTime: Long,
-    val endTime: Long, // includes predictions
-    /**
-     * End of the projected insulin activity (now + DIA), or null. The axis reaches this far so the
-     * activity and BGI tail can be scrolled to, but the overview still opens at its usual right edge.
-     */
-    val insulinTailEnd: Long? = null
+    val endTime: Long // includes predictions
 )
 
 /**
@@ -162,7 +157,9 @@ data class ActivityGraphData(
  */
 data class BgiGraphData(
     val bgi: List<GraphDataPoint>,
-    val bgiPrediction: List<GraphDataPoint>
+    val bgiPrediction: List<GraphDataPoint>,
+    /** ISF (mg/dL per U) of the newest point with autosens data, or null. The graph draws BGI on past the calculated data with it. */
+    val lastIsfMgdl: Double? = null
 )
 
 /**

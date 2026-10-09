@@ -44,6 +44,7 @@ import app.aaps.ui.compose.manageSheet.FakePumpPlugin
 import app.aaps.ui.compose.manageSheet.ManageViewModel
 import app.aaps.ui.compose.overview.chips.ChipsViewModel
 import app.aaps.ui.compose.overview.graphs.GraphViewModel
+import app.aaps.ui.compose.overview.graphs.InsulinTailCalculator
 import app.aaps.ui.compose.overview.statusLights.StatusViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -173,7 +174,7 @@ internal class OverviewViewModelFixture(private val screen: AapsScreenFixture) {
     }
 
     val graphViewModel: GraphViewModel by lazy {
-        GraphViewModel(cache, false, graphConfigRepository, aapsLogger, screen.preferences, screen.dateUtil, rh)
+        GraphViewModel(cache, false, graphConfigRepository, aapsLogger, screen.preferences, screen.dateUtil, rh, mock<InsulinTailCalculator>())
     }
 
     val chipsViewModel: ChipsViewModel by lazy {

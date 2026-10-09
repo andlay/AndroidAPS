@@ -5,10 +5,13 @@ import androidx.compose.runtime.Stable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.aaps.core.data.configuration.Constants
+import app.aaps.core.interfaces.concurrent.aapsBackgroundDispatcher
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
+import app.aaps.core.interfaces.overview.graph.ActivityGraphData
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgInfoData
+import app.aaps.core.interfaces.overview.graph.BgiGraphData
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
@@ -22,6 +25,7 @@ import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
 import kotlin.concurrent.Volatile
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -30,7 +34,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -56,7 +62,8 @@ class GraphViewModel(
     private val aapsLogger: AAPSLogger,
     private val preferences: Preferences,
     private val dateUtil: DateUtil,
-    private val rh: TextResolver
+    private val rh: TextResolver,
+    private val insulinTailCalculator: InsulinTailCalculator
 ) : ViewModel() {
 
     @AssistedFactory
@@ -108,8 +115,34 @@ class GraphViewModel(
     val iobGraphFlow = cache.iobGraphFlow
     val absIobGraphFlow = cache.absIobGraphFlow
     val cobGraphFlow = cache.cobGraphFlow
-    val activityGraphFlow = cache.activityGraphFlow
-    val bgiGraphFlow = cache.bgiGraphFlow
+
+    /**
+     * The projected insulin activity and BGI after the calculated data, on to now + DIA. Worked out
+     * here and not in the calculation, so the loop never waits for it (see [InsulinTailCalculator]):
+     * on a low priority thread, only while a graph is shown, and a newer calculation cancels an older one.
+     * Not in the whole-day view of a past day.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val insulinTail: StateFlow<InsulinTail?> by lazy {
+        cache.bgiGraphFlow
+            // The calculation writes activity just before BGI, so both are new here
+            .mapLatest { bgi -> if (fullWindow) null else insulinTailCalculator.calculate(cache.activityGraphFlow.value, bgi) }
+            .flowOn(aapsBackgroundDispatcher)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    }
+
+    /** Insulin activity, with the projected tail once it is ready. */
+    val activityGraphFlow: StateFlow<ActivityGraphData> by lazy {
+        combine(cache.activityGraphFlow, insulinTail) { data, tail -> data.withTail(tail) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), cache.activityGraphFlow.value)
+    }
+
+    /** BGI, with the projected tail once it is ready. */
+    val bgiGraphFlow: StateFlow<BgiGraphData> by lazy {
+        combine(cache.bgiGraphFlow, insulinTail) { data, tail -> data.withTail(tail) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), cache.bgiGraphFlow.value)
+    }
+
     val deviationsGraphFlow = cache.deviationsGraphFlow
     val ratioGraphFlow = cache.ratioGraphFlow
     val devSlopeGraphFlow = cache.devSlopeGraphFlow
@@ -233,14 +266,16 @@ class GraphViewModel(
 
     // The axis every graph shares: [homeTimeRange] widened to the end of the insulin tail (now + DIA),
     // so the projected activity and BGI can be scrolled to. Not in the whole-day view of a past day.
-    val derivedTimeRange: StateFlow<Pair<Long, Long>?> = combine(homeTimeRange, cache.timeRangeFlow) { home, cacheTimeRange ->
-        val tail = cacheTimeRange?.insulinTailEnd
-        if (home == null || fullWindow || tail == null || tail <= home.second) home else home.first to tail
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = null
-    )
+    val derivedTimeRange: StateFlow<Pair<Long, Long>?> by lazy {
+        combine(homeTimeRange, insulinTail) { home, tailData ->
+            val tail = tailData?.end
+            if (home == null || fullWindow || tail == null || tail <= home.second) home else home.first to tail
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = null
+        )
+    }
 
     /**
      * Progress (0-100) of the calculation that feeds the graphs (autosens, IOB, COB, deviations,

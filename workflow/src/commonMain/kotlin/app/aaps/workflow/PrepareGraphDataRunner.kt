@@ -815,25 +815,6 @@ class PrepareGraphDataRunner(
             time += 5 * 60 * 1000L
         }
 
-        // Insulin tail: projected activity and BGI on to the end of insulin action (DIA), past the
-        // graph's normal right edge. Only for the live view - a past day has no future to project.
-        var insulinTailEnd: Long? = null
-        val nowMs = now.toLong()
-        if (endTime >= nowMs - 5 * 60 * 1000L) {
-            val tailEnd = nowMs + (profileFunction.getProfile()?.iCfg?.insulinEndTime ?: DEFAULT_INSULIN_TAIL_MS)
-            while (time <= tailEnd) {
-                if (isStopped()) return
-                val profile = profileFunction.getProfile(time) ?: break
-                val iob = data.iobCobCalculator.calculateFromTreatmentsAndTemps(time, profile)
-                val activityPer5Min = iob.activity * ACTIVITY_DISPLAY_MINUTES
-                activityPredictionListCompose.add(GraphDataPoint(time, activityPer5Min))
-                if (abs(activityPer5Min) > maxActivity) maxActivity = abs(activityPer5Min)
-                lastSens?.let { bgiPredictionListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(iob.activity * it * 5.0))) }
-                insulinTailEnd = time
-                time += 5 * 60 * 1000L
-            }
-        }
-
         // The projected activity is a separate line. Start it at the last past point, so the two
         // lines meet at now instead of leaving a 5 minute gap.
         if (activityListCompose.isNotEmpty() && activityPredictionListCompose.isNotEmpty())
@@ -868,9 +849,9 @@ class PrepareGraphDataRunner(
                 maxActivity = maxActivity
             )
         )
-        data.cache.updateBgiGraph(BgiGraphData(bgi = bgiListCompose, bgiPrediction = bgiPredictionListCompose))
-        // Let the shared axis reach the end of the insulin tail; the overview still opens at its usual right edge
-        data.cache.timeRangeFlow.value?.let { current -> data.cache.updateTimeRange(current.copy(insulinTailEnd = insulinTailEnd)) }
+        // The insulin tail after endTime (on to now + DIA) is not worked out here but by the graph, while
+        // it is shown: the loop waits for this pass to finish, so it must not do display-only work
+        data.cache.updateBgiGraph(BgiGraphData(bgi = bgiListCompose, bgiPrediction = bgiPredictionListCompose, lastIsfMgdl = lastSens))
         data.cache.updateDeviationsGraph(DeviationsGraphData(deviations = deviationsListCompose))
         data.cache.updateRatioGraph(RatioGraphData(ratio = ratioListCompose))
         data.cache.updateDevSlopeGraph(DevSlopeGraphData(dsMax = dsMaxListCompose, dsMin = dsMinListCompose))
@@ -884,9 +865,6 @@ class PrepareGraphDataRunner(
 
         /** The graphs show insulin activity per this many minutes. */
         const val ACTIVITY_DISPLAY_MINUTES = 5.0
-
-        /** How far the insulin tail is drawn when the profile has no insulin set (the minimum DIA). */
-        const val DEFAULT_INSULIN_TAIL_MS = 5L * 60 * 60 * 1000
     }
 
 }
