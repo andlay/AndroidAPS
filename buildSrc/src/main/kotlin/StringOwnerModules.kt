@@ -55,6 +55,7 @@ object StringOwnerModules {
         StringOwnerModule("implementation", "app.aaps.implementation", "ImplementationStrings", "ImplementationStringIds"),
         StringOwnerModule("ui", "app.aaps.ui", "UiStrings", "UiStringIds"),
         StringOwnerModule("aps", "app.aaps.plugins.aps", "ApsStrings", "ApsStringIds"),
+        StringOwnerModule("assistant", "app.aaps.plugins.assistant", "AssistantStrings", "AssistantStringIds"),
         StringOwnerModule("automation", "app.aaps.plugins.automation", "AutomationStrings", "AutomationStringIds"),
         StringOwnerModule("calibration", "app.aaps.plugins.calibration", "CalibrationStrings", "CalibrationStringIds"),
         StringOwnerModule("configuration", "app.aaps.plugins.configuration", "ConfigurationStrings", "ConfigurationStringIds"),

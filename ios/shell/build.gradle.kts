@@ -33,6 +33,7 @@ val migratedModules = listOf(
     ":database:persistence",
     ":implementation",
     ":plugins:aps",
+    ":plugins:assistant",
     ":plugins:automation",
     ":plugins:calibration",
     ":plugins:configuration",

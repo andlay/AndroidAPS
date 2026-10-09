@@ -211,6 +211,7 @@ dependencies {
     implementation(project(":core:nssdk"))
     implementation(project(":core:utils"))
     implementation(project(":plugins:aps"))
+    implementation(project(":plugins:assistant"))
     implementation(project(":plugins:automation"))
     implementation(project(":plugins:calibration"))
     implementation(project(":plugins:configuration"))

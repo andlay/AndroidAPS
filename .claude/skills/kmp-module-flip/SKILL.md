@@ -206,9 +206,11 @@ module's `strings.xml` into a `XxxStrings` object of `TextRef.Named` (commonMain
 
 1. Add `kotlin.srcDir(...)` for the common output to `commonMain` and the android output to
    `androidMain`, and `implementation(project(":core:keys"))` to commonMain for `TextRef`.
-2. Register the owner in **both** `MainApp.registerStringOwners()` and `BaseTestApp` - they must
-   match, or instrumented tests render blank text and fail as "not displayed", a long way from the
-   cause.
+2. Add one line for the module to `StringOwnerModules.ALL` in `buildSrc`. Each shell (`:app`, iOS,
+   desktop) generates its string registry from that list, so a module missing there compiles fine
+   and then shows raw names such as `assistant_name` on screen. The iOS and desktop shells list their
+   modules by hand, so add the module to `migratedModules` in `ios/shell/build.gradle.kts` and as a
+   dependency in `desktop/shell/build.gradle.kts` too, or their registry does not compile.
 3. Swap `R.string.foo` for `XxxStrings.foo`. The substitution is name-preserving, so a wrong mapping
    cannot happen silently - it fails to compile.
 4. In Composables import `app.aaps.core.ui.compose.stringResource` alongside the androidx one. Both
