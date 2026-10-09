@@ -350,6 +350,8 @@
     <string name="graph_cursor_carbs_shortname" comment="Short label for a carbs entry in the graph touch card">CARBS</string>
     <string name="graph_cursor_profile_shortname" comment="Short label for a profile switch in the graph touch card">PROF</string>
 
+    <string name="edit_carbs">Edit carbs</string>
+    <string name="edit_carbs_range" comment="%1$d=the max carbs safety setting in grams. Example: Enter 1 to 48 g">Enter 1 to %1$d g</string>
     <string name="ai_explain">Explain with AI</string>
     <string name="ai_ask_title">Ask AI</string>
     <string name="ai_explain_title" comment="Title of the AI explanation sheet. %1$s=time on the graph, example: 19:56">AI explanation at %1$s</string>

@@ -79,6 +79,7 @@ fun BolusCarbsScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var deleteDialogMessage by remember { mutableStateOf("") }
     var showInfoBcr by remember { mutableStateOf<BCR?>(null) }
+    var editCarbs by remember { mutableStateOf<CA?>(null) }
 
     val profile by produceState<Profile?>(null, uiState.mealLinks) { value = viewModel.getProfile() }
 
@@ -103,6 +104,19 @@ fun BolusCarbsScreen(
             bcr = bcr,
             decimalFormatter = viewModel.decimalFormatter,
             onDismiss = { showInfoBcr = null }
+        )
+    }
+
+    // Carbs edit (tap on a carb entry)
+    editCarbs?.let { carbs ->
+        EditCarbsDialog(
+            carbs = carbs,
+            maxCarbs = viewModel.maxCarbs(),
+            onSave = { grams, timestamp, durationMs, note ->
+                viewModel.editCarbs(carbs, grams, timestamp, durationMs, note)
+                editCarbs = null
+            },
+            onDismiss = { editCarbs = null }
         )
     }
 
@@ -143,6 +157,9 @@ fun BolusCarbsScreen(
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     // Toggle selection
                                     viewModel.toggleSelection(ml)
+                                } else if (!uiState.isRemovingMode && ml.bolus == null) {
+                                    // A tap on a carb entry edits it; boluses come from the pump and stay as they are
+                                    ml.carbs?.takeIf { it.isValid }?.let { editCarbs = it }
                                 }
                             },
                             onLongPress = {

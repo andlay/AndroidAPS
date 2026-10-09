@@ -53,7 +53,9 @@ class BolusCarbsViewModel(
     val dateUtil: DateUtil,
     val decimalFormatter: DecimalFormatter,
     private val aapsLogger: AAPSLogger,
-    private val rxBus: RxBus
+    private val rxBus: RxBus,
+    /** The user's max carbs safety limit (grams), so an edit cannot go past it. */
+    val maxCarbs: () -> Int
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BolusCarbsUiState())
@@ -259,6 +261,41 @@ class BolusCarbsViewModel(
             } catch (e: Exception) {
                 aapsLogger.error(LTag.UI, "Failed to delete treatments", e)
                 rxBus.send(EventShowSnackbar(e.message ?: "Unknown error deleting treatments", EventShowSnackbar.Type.Error))
+            }
+        }
+    }
+
+    /**
+     * Replace a carb entry with corrected values. AAPS has no in-place edit: the old entry is
+     * removed and a new one is saved, the same as doing it by hand, and both show in the user
+     * actions log.
+     *
+     * The old entry is removed first. If saving the new one then fails, the carbs are missing
+     * (the loop gives less insulin), never counted twice (the loop would give more).
+     */
+    fun editCarbs(old: CA, grams: Int, timestamp: Long, durationMs: Long, note: String?) {
+        if (grams < 1 || grams > maxCarbs()) return
+        viewModelScope.launch(aapsIoDispatcher) {
+            try {
+                persistenceLayer.invalidateCarbs(
+                    old.id,
+                    action = Action.CARBS_REMOVED,
+                    source = Sources.Treatments,
+                    listValues = listOf(
+                        ValueWithUnit.Timestamp(old.timestamp),
+                        ValueWithUnit.Gram(old.amount.toInt())
+                    )
+                )
+                persistenceLayer.insertOrUpdateCarbs(
+                    CA(timestamp = timestamp, amount = grams.toDouble(), duration = durationMs, notes = note),
+                    action = if (durationMs > 0) Action.EXTENDED_CARBS else Action.CARBS,
+                    source = Sources.Treatments,
+                    note = note
+                )
+                loadData()
+            } catch (e: Exception) {
+                aapsLogger.error(LTag.UI, "Failed to edit carbs", e)
+                rxBus.send(EventShowSnackbar(e.message ?: "Unknown error editing carbs", EventShowSnackbar.Type.Error))
             }
         }
     }

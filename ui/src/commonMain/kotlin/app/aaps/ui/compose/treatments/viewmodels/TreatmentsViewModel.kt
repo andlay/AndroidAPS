@@ -2,6 +2,7 @@ package app.aaps.ui.compose.treatments.viewmodels
 
 import androidx.compose.runtime.Stable
 import androidx.lifecycle.ViewModel
+import app.aaps.core.interfaces.constraints.ConstraintsChecker
 import app.aaps.core.interfaces.db.PersistenceLayer
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.UserEntryLogger
@@ -48,7 +49,8 @@ class TreatmentsViewModel(
     val importExportPrefs: ImportExportPrefs,
     val uel: UserEntryLogger,
     val aapsLogger: AAPSLogger,
-    val rxBus: RxBus
+    val rxBus: RxBus,
+    val constraintChecker: ConstraintsChecker
 ) : ViewModel() {
 
     /**
@@ -68,7 +70,8 @@ class TreatmentsViewModel(
             dateUtil = dateUtil,
             decimalFormatter = decimalFormatter,
             aapsLogger = aapsLogger,
-            rxBus = rxBus
+            rxBus = rxBus,
+            maxCarbs = { constraintChecker.getMaxCarbsAllowed().value() }
         )
     }
 

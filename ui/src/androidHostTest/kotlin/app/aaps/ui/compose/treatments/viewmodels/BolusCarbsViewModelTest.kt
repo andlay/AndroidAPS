@@ -51,7 +51,7 @@ internal class BolusCarbsViewModelTest {
         whenever(persistenceLayer.observeChanges(BS::class)).thenReturn(emptyFlow())
         whenever(persistenceLayer.observeChanges(CA::class)).thenReturn(emptyFlow())
         whenever(persistenceLayer.observeChanges(BCR::class)).thenReturn(emptyFlow())
-        sut = BolusCarbsViewModel(persistenceLayer, profileFunction, generatedTextResolver(), dateUtil, decimalFormatter, aapsLogger, rxBus)
+        sut = BolusCarbsViewModel(persistenceLayer, profileFunction, generatedTextResolver(), dateUtil, decimalFormatter, aapsLogger, rxBus, maxCarbs = { 100 })
     }
 
     @AfterEach
