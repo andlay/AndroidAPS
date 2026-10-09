@@ -90,6 +90,16 @@ class AssistantPlugin(
 
     private fun firstQuestion(topic: AiTopic, t: Long): String {
         val at = dateUtil.timeString(t)
+        val minutesAhead = (t - dateUtil.now()) / 60_000
+        // A tap on the future part of a graph asks about a forecast, not about a loop decision
+        if (minutesAhead > 0) return when (topic) {
+            AiTopic.BG_PREDICTIONS -> "Explain the predicted BG at $at ($minutesAhead min from now): why each prediction line (IOB, COB, UAM, ZT) is where it is at that time."
+            AiTopic.INSULIN        -> "Explain the projected insulin at $at ($minutesAhead min from now): what insulin is still acting then and what the newest loop run expects."
+            AiTopic.COB            -> "Explain the expected COB at $at ($minutesAhead min from now): how the carbs are expected to be absorbed by then."
+            AiTopic.DEVIATIONS     -> "Explain the projected BGI at $at ($minutesAhead min from now): how much the insulin still acting is expected to lower BG then."
+            AiTopic.SENSITIVITY    -> "Explain the sensitivity the newest loop run uses for its predictions up to $at ($minutesAhead min from now)."
+            AiTopic.GENERAL        -> "Summarise what the newest loop run expects up to $at ($minutesAhead min from now) and why."
+        }
         return when (topic) {
             AiTopic.BG_PREDICTIONS -> "Explain the BG graph at $at: why the prediction lines (IOB, COB, UAM, ZT) and eventual BG are what they are."
             AiTopic.INSULIN        -> "Explain the dosing decision at $at: why the loop gave this SMB or temp basal (or zero temp, or nothing)."

@@ -57,25 +57,65 @@ class AiContextBuilder(
 
     suspend fun build(topic: AiTopic, timestamp: Long): String {
         val now = dateUtil.now()
-        val run = persistenceLayer.getApsResultCloseTo(timestamp)
+        // A time in the future (a tap on the prediction or projected lines) has no loop run and no
+        // history of its own. It is explained from the newest loop run, which drew those lines, and
+        // the history is read around now.
+        val future = timestamp > now
+        val history = if (future) now else timestamp
+        val run = if (future) persistenceLayer.getApsResults(now - 30 * 60_000L, now + 60_000L).maxByOrNull { it.date }
+        else persistenceLayer.getApsResultCloseTo(timestamp)
         val root = buildJsonObject {
             putJsonObject("request") {
                 put("topic", topic.name)
                 put("time", dateUtil.dateAndTimeString(timestamp))
                 put("minutesBeforeNow", (now - timestamp) / 60_000)
                 put("userUnits", profileUtil.units.asText)
+                if (future) {
+                    put("isFuture", true)
+                    put(
+                        "note",
+                        "This time is in the future, so no loop run or reading exists for it. It lies on the prediction " +
+                            "and projected lines of the newest loop run (loopRun). Explain what that run predicts for this " +
+                            "time and why (see predictionAtRequestedTime), not a loop decision at this time."
+                    )
+                }
             }
             put("settings", settings())
             put("profile", profile(timestamp))
-            put("loopRun", run?.let { loopRun(it) } ?: JsonPrimitive("no loop run within 5 minutes before this time"))
-            put("recentLoopRuns", recentRuns(timestamp))
-            put("bgReadings", bgReadings(timestamp))
-            put("treatments", treatments(timestamp))
-            put("autosens", autosens(timestamp, topic))
+            put("loopRun", run?.let { loopRun(it) } ?: JsonPrimitive(if (future) "no loop run in the last 30 minutes" else "no loop run within 5 minutes before this time"))
+            if (future) run?.let { predictionAt(it, timestamp)?.let { at -> put("predictionAtRequestedTime", at) } }
+            put("recentLoopRuns", recentRuns(history))
+            put("bgReadings", bgReadings(history))
+            put("treatments", treatments(history))
+            put("autosens", autosens(history, topic))
             // A free question can be about any time today: one compact line per loop run and treatment
-            if (topic == AiTopic.GENERAL) put("last24h", last24h(timestamp))
+            if (topic == AiTopic.GENERAL) put("last24h", last24h(history))
         }
         return json.encodeToString(JsonObject.serializer(), root)
+    }
+
+    /**
+     * Each prediction line of [run] at time [t]: the point (t - run time) / 5 min along the line, in
+     * mg/dL and in the user's units. Null when the run has no lines.
+     */
+    private fun predictionAt(run: APSResult, t: Long): JsonObject? {
+        val pred = (run.rawData() as? RT)?.predBGs ?: return null
+        val minutes = ((t - run.date) / 60_000).toInt()
+        val index = (minutes + 2) / 5
+        return buildJsonObject {
+            put("loopRunTime", dateUtil.timeString(run.date))
+            put("minutesAfterLoopRun", minutes)
+            listOf("IOB" to pred.IOB, "COB" to pred.COB, "aCOB" to pred.aCOB, "UAM" to pred.UAM, "ZT" to pred.ZT).forEach { (name, line) ->
+                if (line.isNullOrEmpty()) return@forEach
+                val value = line.getOrNull(index)
+                putJsonObject(name) {
+                    if (value != null) {
+                        put("mgdl", value)
+                        put("userUnits", u(value.toDouble()))
+                    } else put("note", "this line ends ${(line.size - 1) * 5} minutes after the run, before this time")
+                }
+            }
+        }
     }
 
     // ---------------------------------------------------------------- settings
