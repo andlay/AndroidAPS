@@ -83,7 +83,7 @@ class AiContextBuilder(
 
     /** Every loop setting by its code name, so the guide's names match. */
     private fun settings(): JsonObject = buildJsonObject {
-        put("activeAlgorithm", activePlugin.activeAPS::class.simpleName ?: "unknown")
+        put("activeAlgorithm", activePlugin.activeAPS?.let { it::class.simpleName } ?: "none")
         val prefixes = listOf("Aps", "Autosens", "Absorption", "Safety")
         putJsonObject("boolean") { BooleanKey.entries.filter { k -> prefixes.any { k.name.startsWith(it) } }.forEach { put(it.name, preferences.get(it)) } }
         putJsonObject("int") { IntKey.entries.filter { k -> prefixes.any { k.name.startsWith(it) } }.forEach { put(it.name, preferences.get(it)) } }
