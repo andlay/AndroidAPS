@@ -1,5 +1,6 @@
 package app.aaps.ui.compose.ai
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -135,12 +136,13 @@ fun AiExplainSheet(
                 }
                 for (turn in turns) {
                     SelectionContainer {
-                        Text(
+                        if (turn.fromUser) Text(
                             text = turn.text,
                             style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (turn.fromUser) FontWeight.SemiBold else FontWeight.Normal,
-                            color = if (turn.fromUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
                         )
+                        else AiAnswerText(turn.text)
                     }
                 }
                 if (busy) {
@@ -149,7 +151,7 @@ fun AiExplainSheet(
                             CircularProgressIndicator(modifier = Modifier.size(AapsSpacing.extraLarge), strokeWidth = AapsSpacing.extraSmall)
                             Text(stringResource(UiStrings.ai_thinking), modifier = Modifier.padding(start = AapsSpacing.medium))
                         }
-                    } else Text(text = streaming, style = MaterialTheme.typography.bodyMedium)
+                    } else AiAnswerText(streaming)
                 }
                 error?.let {
                     Text(text = stringResource(UiStrings.ai_error, it), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
@@ -168,6 +170,38 @@ fun AiExplainSheet(
                     onClick = { val q = input.trim(); input = ""; run(q) }
                 ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(UiStrings.ai_send)) }
             }
+        }
+    }
+}
+
+/**
+ * An answer, with the loop's log lines that the model quotes ("> " lines) drawn as log text: monospace,
+ * on their own background, so they read as the app's own output and not as the model's words.
+ */
+@Composable
+private fun AiAnswerText(text: String) {
+    // Consecutive lines of the same kind stay together, so normal text keeps its line breaks
+    val blocks = mutableListOf<Pair<Boolean, MutableList<String>>>()
+    for (line in text.lines()) {
+        val isLog = line.startsWith(">")
+        val content = if (isLog) line.removePrefix(">").trimStart() else line
+        if (blocks.lastOrNull()?.first == isLog) blocks.last().second.add(content)
+        else blocks.add(isLog to mutableListOf(content))
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(AapsSpacing.small)) {
+        for ((isLog, lines) in blocks) {
+            val joined = lines.joinToString("\n").trim('\n')
+            if (joined.isEmpty()) continue
+            if (isLog) Text(
+                text = joined,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.shapes.small)
+                    .padding(horizontal = AapsSpacing.medium, vertical = AapsSpacing.small)
+            )
+            else Text(text = joined, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

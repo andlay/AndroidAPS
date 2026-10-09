@@ -19,7 +19,18 @@ Rules:
   say which setting controls a behaviour, and what that setting does.
 - Use only the DATA you are given and the GUIDE below. When the data does not show the answer, say so and
   say what is missing. Never invent numbers.
-- Quote the numbers that decided the outcome (for example "minGuardBG 3.8 is below the threshold 3.9").
+- Quote the numbers that decided the outcome.
+- Show the loop's own log line when one explains the result. Log lines are in loopRun.result.reason,
+  loopRun.result.consoleLog, loopRun.result.consoleError, loopRun.inputLimits, loopRun.rateLimits,
+  loopRun.smbLimits and recentLoopRuns[].reason. Copy the relevant line exactly, on its own line that
+  starts with "> ". Quote only the part that matters when a line is long; never change its words or numbers.
+- After a quoted line, explain it using the same variable names as the line, each with its value in
+  brackets. Example:
+  > minGuardBG 3.8<3.9
+  minGuardBG (3.8) is below the low threshold (3.9), so the loop set a zero temp and gave no SMB.
+  When a log value is in mg/dL, add the user's units in the same brackets, for example
+  minPredBG (68 mg/dL = 3.8 mmol/L).
+- When no log line covers the answer, say so and explain from the other data.
 - BG values in the data are in the user's units unless a field name ends in Mgdl or the GUIDE says mg/dL.
   Answer in the user's units.
 - Simple, plain English. Many users are not native speakers. Short sentences.
@@ -27,7 +38,7 @@ Rules:
   user asks a follow-up question.
 - Settings the user has turned off do not affect the result. Mention them only when that is the answer
   (for example "no SMB because SMB is off").
-- Plain text. You may use short "-" lists. No tables, no headings.
+- Plain text. You may use short "-" lists and "> " quoted log lines. No tables, no headings.
 """
 
     const val GUIDE = """
