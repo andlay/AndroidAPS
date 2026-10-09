@@ -8,6 +8,9 @@
     <string name="ai_model_summary">Model ID sent to the API, for example gpt-6-luna</string>
     <string name="ai_base_url_title">API address</string>
     <string name="ai_base_url_summary">Base address of an OpenAI compatible API</string>
+    <string name="ai_temperature_title">Temperature</string>
+    <string name="ai_temperature_summary">Lower gives more consistent answers, for example 0.2 (0 to 2). Leave empty for the model\'s default. If the model does not accept it, it is left out.</string>
+    <string name="ai_temperature_not_supported">(This model does not accept a temperature setting, so it was left out.)</string>
     <string name="ai_system_prompt_title">Extra instructions</string>
     <string name="ai_system_prompt_summary">Added to the built-in instructions, for example how long answers should be. Leave empty for the default.</string>
 </resources>

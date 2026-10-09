@@ -85,6 +85,7 @@ ai_api_key|AssistantStringKey|false
 ai_base_url|AssistantStringKey|true
 ai_extra_instructions|AssistantStringKey|true
 ai_model|AssistantStringKey|true
+ai_temperature|AssistantStringKey|true
 alarm_setting|MedtrumStringKey|true
 alert_override_dnd|BooleanKey|true
 allow_hardware_pump|BooleanNonKey|true

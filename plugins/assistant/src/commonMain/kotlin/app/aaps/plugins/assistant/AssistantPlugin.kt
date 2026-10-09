@@ -22,6 +22,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.IntKey
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -84,9 +85,28 @@ class AssistantPlugin(
             if (conversation.firstOrNull()?.fromUser != true) add(ChatMessage("user", firstQuestion(topic, timestamp)))
             conversation.forEach { add(ChatMessage(if (it.fromUser) "user" else "assistant", it.text)) }
         }
-        client.stream(preferences.get(AssistantStringKey.BaseUrl), apiKey, preferences.get(AssistantStringKey.Model), messages)
-            .collect { emit(it) }
+        val baseUrl = preferences.get(AssistantStringKey.BaseUrl)
+        val model = preferences.get(AssistantStringKey.Model)
+        val temperature = temperatureFor(model)
+        try {
+            client.stream(baseUrl, apiKey, model, temperature, messages).collect { emit(it) }
+        } catch (e: TemperatureNotSupportedException) {
+            // Remembered, so the next questions to this model do not try again
+            temperatureRefusedBy = model
+            emit(rh.gs(AssistantStrings.ai_temperature_not_supported) + "\n\n")
+            client.stream(baseUrl, apiKey, model, null, messages).collect { emit(it) }
+        }
     }.flowOn(aiDispatcher)
+
+    /** The model that refused the temperature in this app session, if any. */
+    @Volatile private var temperatureRefusedBy: String? = null
+
+    /** The temperature setting (0 to 2), or null for the model's default or when this model refused it. */
+    private fun temperatureFor(model: String): Double? {
+        if (model == temperatureRefusedBy) return null
+        // A number typed with a decimal comma is still a number
+        return preferences.get(AssistantStringKey.Temperature).trim().replace(',', '.').toDoubleOrNull()?.coerceIn(0.0, 2.0)
+    }
 
     private fun firstQuestion(topic: AiTopic, t: Long): String {
         val at = dateUtil.timeString(t)
@@ -116,6 +136,7 @@ class AssistantPlugin(
         items = listOf(
             AssistantStringKey.ApiKey,
             AssistantStringKey.Model,
+            AssistantStringKey.Temperature,
             AssistantStringKey.BaseUrl,
             AssistantStringKey.ExtraInstructions
         ),

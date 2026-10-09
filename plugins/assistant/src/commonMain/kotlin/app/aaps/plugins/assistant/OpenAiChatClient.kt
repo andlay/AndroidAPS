@@ -27,7 +27,10 @@ import kotlinx.serialization.json.put
 internal data class ChatMessage(val role: String, val content: String)
 
 /** A failure the user can read: the API's own error text, or what went wrong on the way. */
-internal class AiException(message: String) : Exception(message)
+internal open class AiException(message: String) : Exception(message)
+
+/** The model refused the temperature parameter (many reasoning models accept only their default). */
+internal class TemperatureNotSupportedException(message: String) : AiException(message)
 
 /**
  * Streams a reply from an OpenAI compatible Chat Completions endpoint (`POST {base}/chat/completions`
@@ -46,10 +49,12 @@ internal class OpenAiChatClient {
         }
     }
 
-    fun stream(baseUrl: String, apiKey: String, model: String, messages: List<ChatMessage>): Flow<String> = flow {
+    /** @param temperature sent only when not null; the model's default is used otherwise */
+    fun stream(baseUrl: String, apiKey: String, model: String, temperature: Double?, messages: List<ChatMessage>): Flow<String> = flow {
         val body = buildJsonObject {
             put("model", model)
             put("stream", true)
+            temperature?.let { put("temperature", it) }
             put("messages", buildJsonArray {
                 messages.forEach { m -> add(buildJsonObject { put("role", m.role); put("content", m.content) }) }
             })
@@ -59,7 +64,14 @@ internal class OpenAiChatClient {
             contentType(ContentType.Application.Json)
             setBody(json.encodeToString(JsonObject.serializer(), body))
         }.execute { response ->
-            if (!response.status.isSuccess()) throw AiException(errorText(response.status.value, response.bodyAsText()))
+            if (!response.status.isSuccess()) {
+                val error = response.bodyAsText()
+                val text = errorText(response.status.value, error)
+                // Refused before any text is sent, so the caller can safely ask again without it
+                if (temperature != null && response.status.value == 400 && error.contains("temperature", ignoreCase = true))
+                    throw TemperatureNotSupportedException(text)
+                throw AiException(text)
+            }
             val channel = response.bodyAsChannel()
             while (true) {
                 val line = channel.readUTF8Line() ?: break
