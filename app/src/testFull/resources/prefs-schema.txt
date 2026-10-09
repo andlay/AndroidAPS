@@ -24,6 +24,9 @@ AAPS.Omnipod.suspend_delivery_button_enabled|ErosBooleanPreferenceKey|true
 AAPS.Omnipod.tbr_beeps_enabled|OmnipodBooleanPreferenceKey|true
 AAPS.Omnipod.tbrs_set|ErosLongNonPreferenceKey|true
 AAPS.Omnipod.time_change_enabled|ErosBooleanPreferenceKey|true
+AAPS.Omnipod5.out_of_range_alert_pod_id|O5LongNonPreferenceKey|false
+AAPS.Omnipod5.out_of_range_beep_enabled|O5BooleanPreferenceKey|true
+AAPS.Omnipod5.out_of_range_beep_minutes|O5IntPreferenceKey|true
 AAPS.Omnipod5.pod_state|O5StringNonPreferenceKey|true
 AAPS.Omnipod5.registration_data_encrypted|O5StringNonPreferenceKey|false
 AAPS.OmnipodDash.pod_state|DashStringNonPreferenceKey|true

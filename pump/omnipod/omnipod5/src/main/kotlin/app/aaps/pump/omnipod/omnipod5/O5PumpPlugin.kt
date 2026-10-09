@@ -100,7 +100,10 @@ import app.aaps.pump.omnipod.common.queue.command.CommandResumeDelivery
 import app.aaps.pump.omnipod.common.queue.command.CommandSilenceAlerts
 import app.aaps.pump.omnipod.common.queue.command.CommandSuspendDelivery
 import app.aaps.pump.omnipod.common.queue.command.CommandUpdateAlertConfiguration
+import app.aaps.pump.omnipod.omnipod5.keys.O5BooleanPreferenceKey
+import app.aaps.pump.omnipod.omnipod5.keys.O5IntPreferenceKey
 import app.aaps.pump.omnipod.omnipod5.keys.O5IntentKey
+import app.aaps.pump.omnipod.omnipod5.keys.O5LongNonPreferenceKey
 import app.aaps.pump.omnipod.omnipod5.ui.O5CertificateStoreScreen
 import app.aaps.pump.omnipod.omnipod5.ui.compose.OmnipodO5ComposeContent
 import app.aaps.pump.omnipod.common.util.mapProfileToBasalProgram
@@ -121,6 +124,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.rx3.rxCompletable
 import java.util.Date
+import java.util.EnumSet
 import java.util.concurrent.CountDownLatch
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesIntoMap
@@ -193,7 +197,7 @@ class O5PumpPlugin @Inject constructor(
         .pluginName(TextRef.AndroidRes(R.string.omnipod_5_name))
         .description(TextRef.AndroidRes(R.string.omnipod_5_pump_description)),
     ownPreferences = OmnipodBooleanPreferenceKey.entries + OmnipodIntPreferenceKey.entries +
-        DashBooleanPreferenceKey.entries + O5IntentKey.entries,
+        DashBooleanPreferenceKey.entries + O5IntentKey.entries + O5BooleanPreferenceKey.entries + O5IntPreferenceKey.entries,
     aapsLogger, rh, preferences, commandQueue, notificationManager
 ), Pump {
 
@@ -214,6 +218,10 @@ class O5PumpPlugin @Inject constructor(
         private const val BOLUS_RETRIES = 5
         private const val STATUS_CHECK_INTERVAL_MS = 60L * 1000
         private const val POD_WARNING_INTERVAL_MS = 15L * 60 * 1000
+
+        /** How often the out-of-range alert is moved forward while the pod can be reached. The alert
+         *  is set at least 20 minutes ahead, so a missed move never sets it off by itself. */
+        private const val OUT_OF_RANGE_REARM_MS = 10L * 60 * 1000
         private const val RESERVOIR_OVER_50_UNITS_DEFAULT = 75.0
 
         /** Serial reported before any pod is paired, and used for the zero "no delivery" temp
@@ -473,6 +481,7 @@ class O5PumpPlugin @Inject constructor(
             checkPodKaput()
             checkPodFault()
             updateAlertConfiguration()
+            updateOutOfRangeAlert()
         } catch (e: Exception) {
             aapsLogger.error(LTag.PUMP, "Error in O5 getPumpStatus", e)
         }
@@ -1177,6 +1186,7 @@ class O5PumpPlugin @Inject constructor(
             podStateManager.pendingDoseCommand = null
             history.markSent(historyId).andThen(history.markSuccess(historyId)).blockingAwait()
             if (needsBasalCorrection()) deliverBasalCorrection()
+            updateOutOfRangeAlert()
             pumpEnactResultProvider.get().success(true).enacted(true).isPercent(false).absolute(absoluteRate).duration(durationInMinutes)
         } catch (e: Exception) {
             historyId?.let { history.markSendingFailure(it).andThen(history.markFailure(it)).blockingAwait() }
@@ -1438,6 +1448,87 @@ class O5PumpPlugin @Inject constructor(
         }
     }
 
+    /** When the out-of-range alert was last moved forward, and for how many minutes ahead. In memory
+     *  only: after an app restart it is simply set again at the first contact. */
+    @Volatile private var outOfRangeArmedAt: Long = 0L
+    @Volatile private var outOfRangeArmedMinutes: Int = 0
+
+    /**
+     * Experimental "phone out of reach" beep ([O5BooleanPreferenceKey.OutOfRangeBeep]).
+     *
+     * The pod cannot tell when the phone is gone, so AAPS keeps a spare timer alert set to go off
+     * N minutes from now and moves it forward while it can reach the pod. When the phone is gone,
+     * nothing moves it, and the pod beeps. It uses the MULTI_COMMAND slot, which O5 does not use
+     * (OmniBLE calls it "not used"). Never the AUTO_OFF slot: that one ends in a pod shutdown.
+     *
+     * When the alert has gone off, it is silenced, the user is told, and it is set again. Turning
+     * the feature off clears it on the pod. Errors are only logged: this must never stop a status
+     * read or a temp basal. Called after a status read and after a temp basal; it only sends a
+     * command when the alert is due to be moved (every [OUT_OF_RANGE_REARM_MS]) or has changed.
+     */
+    internal fun updateOutOfRangeAlert() {
+        if (podStateManager.activationProgress != ActivationProgress.COMPLETED || !podStateManager.isPodRunning) return
+        val podId = podStateManager.podId ?: return
+        val enabled = preferences.get(O5BooleanPreferenceKey.OutOfRangeBeep)
+        val armedPodId = preferences.get(O5LongNonPreferenceKey.OutOfRangeAlertPodId)
+        val fired = podStateManager.activeAlerts?.contains(AlertType.MULTI_COMMAND) == true
+        try {
+            if (fired) {
+                sendSilenceAlert(AlertType.MULTI_COMMAND)
+                notificationManager.post(NotificationId.OMNIPOD_POD_ALERTS, rh.gs(R.string.omnipod_5_out_of_range_beeped))
+                aapsLogger.info(LTag.PUMP, "O5 out-of-range alert had gone off; silenced")
+            }
+            if (!enabled) {
+                if (armedPodId == podId || fired) {
+                    sendOutOfRangeAlert(enabled = false, minutes = 0)
+                    preferences.put(O5LongNonPreferenceKey.OutOfRangeAlertPodId, 0L)
+                    outOfRangeArmedAt = 0L
+                }
+                return
+            }
+            val minutes = preferences.get(O5IntPreferenceKey.OutOfRangeBeepMinutes).coerceIn(20, 120)
+            val now = System.currentTimeMillis()
+            val due = fired || armedPodId != podId || minutes != outOfRangeArmedMinutes || now - outOfRangeArmedAt >= OUT_OF_RANGE_REARM_MS
+            if (!due) return
+            sendOutOfRangeAlert(enabled = true, minutes = minutes)
+            preferences.put(O5LongNonPreferenceKey.OutOfRangeAlertPodId, podId)
+            outOfRangeArmedAt = now
+            outOfRangeArmedMinutes = minutes
+        } catch (e: Exception) {
+            aapsLogger.error(LTag.PUMP, "O5 could not update the out-of-range alert", e)
+        }
+    }
+
+    private fun sendOutOfRangeAlert(enabled: Boolean, minutes: Int) {
+        val cmd = ProgramAlertsCommand.Builder()
+            .setUniqueId(requirePodId())
+            .setSequenceNumber(podStateManager.msgSequenceNumber.toShort())
+            .setNonce(FIXED_NONCE)
+            .setAlertConfigurations(
+                listOf(
+                    AlertConfiguration(
+                        AlertType.MULTI_COMMAND, enabled = enabled, durationInMinutes = 0, autoOff = false,
+                        AlertTrigger.TimerTrigger(minutes.toShort()), BeepType.FOUR_TIMES_BIP_BEEP,
+                        BeepRepetitionType.EVERY_MINUTE_AND_EVERY_15_MIN
+                    )
+                )
+            )
+            .build()
+        bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+        history.recordSuccess(OmnipodCommandType.CONFIGURE_ALERTS)
+    }
+
+    private fun sendSilenceAlert(type: AlertType) {
+        val cmd = SilenceAlertsCommand.Builder()
+            .setUniqueId(requirePodId())
+            .setSequenceNumber(podStateManager.msgSequenceNumber.toShort())
+            .setNonce(FIXED_NONCE)
+            .setAlertTypes(EnumSet.of(type))
+            .build()
+        bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+        history.recordSuccess(OmnipodCommandType.ACKNOWLEDGE_ALERTS)
+    }
+
     /** Silences the pod's SUSPEND_ENDED alert once delivery has resumed - see
      *  [podStateManager]'s suspendAlertsEnabled doc comment. */
     private fun disableSuspendAlerts(): PumpEnactResult {
@@ -1617,7 +1708,9 @@ class O5PumpPlugin @Inject constructor(
                     OmnipodBooleanPreferenceKey.ExpirationAlarm,
                     OmnipodIntPreferenceKey.ExpirationAlarmHours,
                     OmnipodBooleanPreferenceKey.LowReservoirAlert,
-                    OmnipodIntPreferenceKey.LowReservoirAlertUnits
+                    OmnipodIntPreferenceKey.LowReservoirAlertUnits,
+                    O5BooleanPreferenceKey.OutOfRangeBeep,
+                    O5IntPreferenceKey.OutOfRangeBeepMinutes
                 )
             ),
             PreferenceSubScreenDef(

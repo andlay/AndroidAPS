@@ -573,6 +573,53 @@ class O5PumpPluginTest : TestBaseWithProfile() {
         verify(podStateManager).pendingDoseCommand = null
     }
 
+    private fun stubOutOfRange(enabled: Boolean, armedPodId: Long, alerts: java.util.EnumSet<AlertType>? = null) {
+        whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.COMPLETED)
+        whenever(podStateManager.isPodRunning).thenReturn(true)
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.activeAlerts).thenReturn(alerts)
+        whenever(preferences.get(O5BooleanPreferenceKey.OutOfRangeBeep)).thenReturn(enabled)
+        whenever(preferences.get(O5IntPreferenceKey.OutOfRangeBeepMinutes)).thenReturn(30)
+        whenever(preferences.get(O5LongNonPreferenceKey.OutOfRangeAlertPodId)).thenReturn(armedPodId)
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+        whenever(rh.gs(R.string.omnipod_5_out_of_range_beeped)).thenReturn("beeped")
+    }
+
+    @Test
+    fun `out-of-range alert off and never set - no pod command`() {
+        stubOutOfRange(enabled = false, armedPodId = 0L)
+
+        plugin.updateOutOfRangeAlert()
+
+        verify(bleManager, never()).sendCommand(any(), any())
+    }
+
+    @Test
+    fun `out-of-range alert on - set once, not sent again before it is due`() {
+        stubOutOfRange(enabled = true, armedPodId = 0L)
+
+        plugin.updateOutOfRangeAlert()
+        whenever(preferences.get(O5LongNonPreferenceKey.OutOfRangeAlertPodId)).thenReturn(12345L)
+        plugin.updateOutOfRangeAlert()
+
+        verify(bleManager, times(1)).sendCommand(any(), any())
+        verify(preferences).put(O5LongNonPreferenceKey.OutOfRangeAlertPodId, 12345L)
+    }
+
+    @Test
+    fun `out-of-range alert that went off is silenced, reported and set again`() {
+        stubOutOfRange(enabled = true, armedPodId = 12345L, alerts = java.util.EnumSet.of(AlertType.MULTI_COMMAND))
+
+        plugin.updateOutOfRangeAlert()
+
+        // One silence command and one new alert
+        verify(bleManager, times(2)).sendCommand(any(), any())
+        verify(notificationManager).post(
+            eq(NotificationId.OMNIPOD_POD_ALERTS), eq("beeped"), level = any(), validMinutes = any(),
+            sound = anyOrNull(), actions = any(), validityCheck = anyOrNull()
+        )
+    }
+
     @Test
     fun `a faulted pod is reported even when the fault code was never read`() {
         whenever(podStateManager.alarmSynced).thenReturn(false)
