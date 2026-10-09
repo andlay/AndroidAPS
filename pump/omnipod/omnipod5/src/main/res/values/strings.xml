@@ -8,5 +8,6 @@
     <string name="omnipod_o5_connection_lost">Connection lost</string>
     <string name="omnipod_o5_history_tbr_value">%1$.2f U/h, %2$d minutes</string>
     <string name="omnipod_o5_history_bolus_value">%1$.2f U</string>
+    <string name="omnipod_o5_history_smb_value" comment="%1$.2f=insulin amount. Example: SMB: 0.40 U">SMB: %1$.2f U</string>
     <string name="omnipod_o5_history_basal_drift_compensation_bolus_value">Basal drift compensation bolus: %1$.2f U</string>
 </resources>

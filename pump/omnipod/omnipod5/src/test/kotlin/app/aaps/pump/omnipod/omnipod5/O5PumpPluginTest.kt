@@ -536,6 +536,43 @@ class O5PumpPluginTest : TestBaseWithProfile() {
 
 
 
+    private fun stubUnreceivedBolus(isBasalCorrection: Boolean) {
+        // Sent with sequence 3, but the pod's last accepted programming command was 5: never received
+        whenever(podStateManager.pendingDoseCommand).thenReturn(
+            O5PodStateManager.PendingDoseCommand(
+                type = O5PodStateManager.PendingDoseType.BOLUS,
+                requestedUnits = 0.05,
+                bolusType = BS.Type.NORMAL,
+                startedAt = 1_000L,
+                sequenceNumber = 3,
+                isBasalCorrection = isBasalCorrection,
+                bolusRecordExpected = true,
+                historyId = 7L
+            )
+        )
+        whenever(podStateManager.sequenceNumberOfLastProgrammingCommand).thenReturn(5)
+    }
+
+    @Test
+    fun `a basal correction the pod never received is not reported to AAPS as a bolus`() {
+        stubUnreceivedBolus(isBasalCorrection = true)
+
+        runBlocking { plugin.reconcilePendingDose() }
+
+        runBlocking { verify(pumpSync, never()).syncBolusWithPumpId(any(), any(), anyOrNull(), any(), any(), any()) }
+        verify(podStateManager).pendingDoseCommand = null
+    }
+
+    @Test
+    fun `a bolus the pod never received is reported to AAPS as 0 U`() {
+        stubUnreceivedBolus(isBasalCorrection = false)
+
+        runBlocking { plugin.reconcilePendingDose() }
+
+        runBlocking { verify(pumpSync).syncBolusWithPumpId(eq(1_000L), any(), eq(BS.Type.NORMAL), eq(7L), any(), any()) }
+        verify(podStateManager).pendingDoseCommand = null
+    }
+
     @Test
     fun `a faulted pod is reported even when the fault code was never read`() {
         whenever(podStateManager.alarmSynced).thenReturn(false)

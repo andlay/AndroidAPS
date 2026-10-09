@@ -178,7 +178,8 @@ private fun formatValue(record: HistoryRecord, rh: ResourceHelper, profileUtil: 
         is BolusRecord -> when (value.bolusType) {
             BolusType.BASAL_DRIFT_COMPENSATION ->
                 rh.gs(R.string.omnipod_o5_history_basal_drift_compensation_bolus_value, value.amount)
-            else -> rh.gs(R.string.omnipod_o5_history_bolus_value, value.amount)
+            BolusType.SMB                      -> rh.gs(R.string.omnipod_o5_history_smb_value, value.amount)
+            BolusType.DEFAULT                  -> rh.gs(R.string.omnipod_o5_history_bolus_value, value.amount)
         }
         is BasalValuesRecord -> profileUtil.getBasalProfilesDisplayable(value.segments.toTypedArray(), PumpType.OMNIPOD_5)
         null -> null

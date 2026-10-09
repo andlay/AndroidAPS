@@ -628,7 +628,9 @@ class O5PumpPlugin @Inject constructor(
                     "O5 pending ${pending.type} was not received by the pod " +
                         "(sent sequence $sentSequence, pod's last programming sequence $podSequence) - recording no delivery"
                 )
-                if (pending.type == O5PodStateManager.PendingDoseType.BOLUS && pending.bolusRecordExpected) {
+                // A basal correction is never announced to AAPS as a bolus, so its failure is not
+                // reported as one either (it would add a 0 U bolus AAPS never knew about)
+                if (pending.type == O5PodStateManager.PendingDoseType.BOLUS && pending.bolusRecordExpected && !pending.isBasalCorrection) {
                     pumpSync.syncBolusWithPumpId(
                         timestamp = pending.startedAt,
                         amount = PumpInsulin(0.0),
