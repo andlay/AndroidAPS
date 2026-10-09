@@ -31,7 +31,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import kotlin.math.round
 
@@ -176,24 +175,24 @@ class AiContextBuilder(
     private suspend fun last24h(t: Long): JsonObject = buildJsonObject {
         val from = t - 24 * 3_600_000L
         put("note", "loop run lines: time | BG | eventual BG (user units) | temp rate U/h / minutes | SMB U")
-        putJsonArray("loopRuns") {
+        put("loopRuns", buildJsonArray {
             persistenceLayer.getApsResults(from, t + 60_000L).sortedBy { it.date }.forEach { r ->
                 val rt = r.rawData() as? RT
                 val bg = rt?.bg?.let { u(it).toString() } ?: "-"
                 val eventual = rt?.eventualBG?.let { u(it).toString() } ?: "-"
                 add(JsonPrimitive("${dateUtil.timeString(r.date)} | $bg | $eventual | ${r.rate}/${r.duration} | ${r.smb}"))
             }
-        }
-        putJsonArray("boluses") {
+        })
+        put("boluses", buildJsonArray {
             persistenceLayer.getBolusesFromTimeToTime(from, t, true).forEach {
                 add(JsonPrimitive("${dateUtil.timeString(it.timestamp)} ${it.amount} U ${if (it.type == BS.Type.SMB) "SMB" else it.type.name}"))
             }
-        }
-        putJsonArray("carbs") {
+        })
+        put("carbs", buildJsonArray {
             persistenceLayer.getCarbsFromTimeToTimeExpanded(from, t, true).forEach {
                 add(JsonPrimitive("${dateUtil.timeString(it.timestamp)} ${it.amount} g"))
             }
-        }
+        })
     }
 
     // ---------------------------------------------------------------- BG, treatments, autosens
@@ -205,7 +204,7 @@ class AiContextBuilder(
     }
 
     private suspend fun treatments(t: Long): JsonObject = buildJsonObject {
-        putJsonArray("boluses") {
+        put("boluses", buildJsonArray {
             persistenceLayer.getBolusesFromTimeToTime(t - 4 * 3_600_000L, t + 30 * 60_000L, true).forEach {
                 add(buildJsonObject {
                     put("time", dateUtil.timeString(it.timestamp))
@@ -213,12 +212,12 @@ class AiContextBuilder(
                     put("type", if (it.type == BS.Type.SMB) "SMB (loop)" else it.type.name)
                 })
             }
-        }
-        putJsonArray("carbs") {
+        })
+        put("carbs", buildJsonArray {
             persistenceLayer.getCarbsFromTimeToTimeExpanded(t - 6 * 3_600_000L, t + 30 * 60_000L, true).forEach {
                 add(buildJsonObject { put("time", dateUtil.timeString(it.timestamp)); put("grams", it.amount) })
             }
-        }
+        })
     }
 
     /** The 5-minute autosens records around the time: deviation, BGI, type, COB. */
