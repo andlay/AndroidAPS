@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
+import app.aaps.core.interfaces.ai.AiAssistant
 import app.aaps.core.interfaces.clientcontrol.ActionProgress
 import app.aaps.core.interfaces.clientcontrol.ClientControlActionDispatcher
 import app.aaps.core.interfaces.configuration.Config
@@ -50,6 +51,7 @@ import app.aaps.core.keys.interfaces.VisibilityContext
 import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.compose.AapsTheme
 import app.aaps.core.ui.compose.LocalAppIcon
+import app.aaps.core.ui.compose.LocalAiAssistant
 import app.aaps.core.ui.compose.LocalConfig
 import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.LocalDecimalFormatter
@@ -114,6 +116,7 @@ fun AapsAppRoot(
     splashLogo: @Composable (Modifier) -> Unit,
     onNavControllerReady: (NavHostController) -> Unit,
     onClose: () -> Unit,
+    aiAssistant: () -> AiAssistant? = { null },
     content: @Composable (NavHostController) -> Unit
 ) {
     val navController = rememberNavController().also(onNavControllerReady)
@@ -148,7 +151,8 @@ fun AapsAppRoot(
         LocalCheckPassword provides passwordHasher::checkPassword,
         LocalHashPassword provides passwordHasher::hashPassword,
         LocalClearExportPasswordStore provides { exportPasswordDataStore.clearPasswordDataStore() },
-        LocalVisibilityContext provides visibilityContext
+        LocalVisibilityContext provides visibilityContext,
+        LocalAiAssistant provides aiAssistant
     ) {
         AapsTheme {
             val rootSnackbarHostState = remember { SnackbarHostState() }

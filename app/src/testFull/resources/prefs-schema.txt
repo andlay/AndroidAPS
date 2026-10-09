@@ -81,6 +81,10 @@ active_pump_type|StringNonKey|false
 active_scene|StringNonKey|false
 actual_basal_profile|MedtrumStringNonKey|true
 age|StringKey|true
+ai_api_key|AssistantStringKey|false
+ai_base_url|AssistantStringKey|true
+ai_extra_instructions|AssistantStringKey|true
+ai_model|AssistantStringKey|true
 alarm_setting|MedtrumStringKey|true
 alert_override_dnd|BooleanKey|true
 allow_hardware_pump|BooleanNonKey|true
@@ -412,7 +416,6 @@ resistance_lowers_target|BooleanKey|true
 rs_last_clear_key_request|DanaLongKey|true
 rs_logcanulachange|DanaBooleanKey|true
 rs_loginsulinchange|DanaBooleanKey|true
-safety_shower_mode_minutes|IntKey|true
 safety_smb_min_bg|UnitDoubleKey|true
 safety_smb_min_percent_of_target|IntKey|true
 scan_on_connection_error|MedtrumBooleanKey|true
@@ -429,10 +432,6 @@ show_insulin_button|BooleanKey|true
 show_notes_entry_dialogs|BooleanKey|true
 show_treatment_button|BooleanKey|true
 show_wizard_button|BooleanKey|true
-shower_mode_cap_mgdl|DoubleNonKey|false
-shower_mode_ends_at|LongNonKey|false
-shower_mode_episodes|StringNonKey|false
-shower_mode_started_at|LongNonKey|false
 simple_mode|BooleanKey|true
 site_rotation_manage_cgm|BooleanKey|true
 site_rotation_manage_pump|BooleanKey|true

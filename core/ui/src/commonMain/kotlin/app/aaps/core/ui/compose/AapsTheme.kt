@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.style.LineHeightStyle
+import app.aaps.core.interfaces.ai.AiAssistant
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.utils.DateUtil
@@ -61,6 +62,12 @@ val LocalDateUtil = compositionLocalOf<DateUtil> { error("No DateUtil provided")
  * Avoids threading config through multiple composable layers.
  */
 val LocalConfig = compositionLocalOf<Config> { error("No Config provided") }
+
+/**
+ * Finds the AI assistant, or null when this build has none or it is off. A function rather than a
+ * value, so turning the plugin on or setting the key takes effect at the next tap without a restart.
+ */
+val LocalAiAssistant = compositionLocalOf<() -> AiAssistant?> { { null } }
 
 /**
  * CompositionLocal providing number formatting.

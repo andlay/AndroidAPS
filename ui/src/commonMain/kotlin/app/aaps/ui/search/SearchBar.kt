@@ -49,6 +49,7 @@ import app.aaps.ui.UiStrings
  * @param onClearClick Called when clear button is clicked
  * @param onActiveChange Called when active state changes
  * @param modifier Modifier for the component
+ * @param idleTrailing shown at the end of the bar while it is not active (the AI button)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,7 +59,8 @@ fun M3SearchBar(
     onQueryChange: (String) -> Unit,
     onClearClick: () -> Unit,
     onActiveChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    idleTrailing: (@Composable () -> Unit)? = null
 ) {
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -148,7 +150,7 @@ fun M3SearchBar(
                                 )
                             }
                         }
-                    } else null,
+                    } else idleTrailing,
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,

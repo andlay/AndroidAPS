@@ -350,4 +350,14 @@
     <string name="graph_cursor_carbs_shortname" comment="Short label for a carbs entry in the graph touch card">CARBS</string>
     <string name="graph_cursor_profile_shortname" comment="Short label for a profile switch in the graph touch card">PROF</string>
 
+    <string name="ai_explain">Explain with AI</string>
+    <string name="ai_ask_title">Ask AI</string>
+    <string name="ai_explain_title" comment="Title of the AI explanation sheet. %1$s=time on the graph, example: 19:56">AI explanation at %1$s</string>
+    <string name="ai_disclaimer">AI explanation from your data. It can be wrong, and it does not give dosing advice.</string>
+    <string name="ai_thinking">Thinking…</string>
+    <string name="ai_error" comment="%1$s=the error message from the AI provider or the network">AI error: %1$s</string>
+    <string name="ai_ask_hint">Ask a question</string>
+    <string name="ai_send">Send</string>
+    <string name="ai_show_data">Show data</string>
+    <string name="ai_hide_data">Hide data</string>
 </resources>

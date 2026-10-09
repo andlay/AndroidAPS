@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="assistant_name">AI assistant</string>
+    <string name="assistant_short">AI</string>
+    <string name="assistant_description">Explains loop decisions and graphs with an AI model. It only reads data: it never doses and never changes settings. Your data is sent to the AI provider each time you ask.</string>
+    <string name="ai_api_key_title">API key</string>
+    <string name="ai_api_key_summary">Your OpenAI API key. Kept on this phone only: it is never exported or synced.</string>
+    <string name="ai_model_title">Model</string>
+    <string name="ai_model_summary">Model ID sent to the API, for example gpt-6-luna</string>
+    <string name="ai_base_url_title">API address</string>
+    <string name="ai_base_url_summary">Base address of an OpenAI compatible API</string>
+    <string name="ai_system_prompt_title">Extra instructions</string>
+    <string name="ai_system_prompt_summary">Added to the built-in instructions, for example how long answers should be. Leave empty for the default.</string>
+</resources>

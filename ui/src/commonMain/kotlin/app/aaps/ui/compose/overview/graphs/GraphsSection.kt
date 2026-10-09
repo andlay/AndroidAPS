@@ -56,17 +56,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.GlucoseUnit
 import app.aaps.core.interfaces.InterfacesStrings
+import app.aaps.core.interfaces.ai.AiTopic
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.SecondaryGraph
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.keys.interfaces.TextRef
 import app.aaps.core.ui.CoreUiStrings
+import app.aaps.core.ui.compose.LocalAiAssistant
 import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.LocalDecimalFormatter
 import app.aaps.core.ui.compose.LocalProfileUtil
 import app.aaps.core.ui.compose.NumberInputRow
 import app.aaps.core.ui.compose.stringResource
 import app.aaps.ui.UiStrings
+import app.aaps.ui.compose.ai.AiExplainSheet
 import com.patrykandpatrick.vico.compose.cartesian.Scroll
 import com.patrykandpatrick.vico.compose.cartesian.Zoom
 import com.patrykandpatrick.vico.compose.cartesian.rememberVicoScrollState
@@ -222,6 +225,10 @@ fun GraphsSection(
     val cursorState = remember { mutableStateOf<GraphCursor?>(null) }
     val cursorGraphId by remember { derivedStateOf { cursorState.value?.graphId } }
     val cursorShown by remember { derivedStateOf { cursorState.value != null } }
+    // AI explanation of the touched moment (wand in the touch card). Only offered when set up.
+    val aiAssistant = LocalAiAssistant.current
+    val aiAvailable = aiAssistant() != null
+    var aiRequest by remember { mutableStateOf<Pair<AiTopic, Long>?>(null) }
     val onCursorChange: (GraphCursor?) -> Unit = remember { { cursorState.value = it } }
 
     // BG's own visible window, sourced from the fixed IOB graph's already-computed visible range
@@ -486,7 +493,10 @@ fun GraphsSection(
                 busy = calculationRunning && (SeriesType.ACTIVITY in graphConfig.bgOverlays || SeriesType.PREDICTIONS in graphConfig.bgOverlays),
                 modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp)
             )
-            GraphCursorFor(CURSOR_GRAPH_BG, cursorState, graphViewModel, graphConfig.bgOverlays, derivedTimeRange?.first, cursorGeometry)
+            GraphCursorFor(
+                CURSOR_GRAPH_BG, cursorState, graphViewModel, graphConfig.bgOverlays, derivedTimeRange?.first, cursorGeometry,
+                onExplain = if (aiAvailable) { t -> aiRequest = AiTopic.BG_PREDICTIONS to t } else null
+            )
         }
         if (editingBgOverlays) {
             GraphSeriesBottomSheet(
@@ -540,7 +550,10 @@ fun GraphsSection(
                 )
             }
             GraphBusyRing(busy = calculationRunning, modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp))
-            GraphCursorFor(CURSOR_GRAPH_IOB, cursorState, graphViewModel, graphConfig.iobOverlays, derivedTimeRange?.first, cursorGeometry)
+            GraphCursorFor(
+                CURSOR_GRAPH_IOB, cursorState, graphViewModel, graphConfig.iobOverlays, derivedTimeRange?.first, cursorGeometry,
+                onExplain = if (aiAvailable) { t -> aiRequest = AiTopic.INSULIN to t } else null
+            )
         }
         if (editingIobOverlays) {
             GraphSeriesBottomSheet(
@@ -598,7 +611,10 @@ fun GraphsSection(
                     busy = calculationRunning && secondary.series.any { it !in NOT_CALCULATED_SERIES },
                     modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp)
                 )
-                GraphCursorFor(cursorGraphId, cursorState, graphViewModel, secondary.series, derivedTimeRange?.first, cursorGeometry)
+                GraphCursorFor(
+                    cursorGraphId, cursorState, graphViewModel, secondary.series, derivedTimeRange?.first, cursorGeometry,
+                    onExplain = if (aiAvailable) { t -> aiRequest = aiTopicFor(secondary.series) to t } else null
+                )
             }
         }
         if (editingGraphIndex >= 0 && editingGraphIndex < activeCount) {
@@ -686,6 +702,27 @@ fun GraphsSection(
         // Spacer so the last graph / Add button isn't covered by QuickLaunch toolbar
         Spacer(Modifier.height(48.dp))
     }
+    aiRequest?.let { (topic, time) ->
+        aiAssistant()?.let { assistant ->
+            AiExplainSheet(
+                assistant = assistant,
+                topic = topic,
+                timestamp = time,
+                title = stringResource(UiStrings.ai_explain_title, dateUtil.timeString(time)),
+                autoExplain = true,
+                onDismiss = { aiRequest = null }
+            )
+        }
+    }
+}
+
+/** What an explanation on a secondary graph is about, from the series it shows. */
+private fun aiTopicFor(series: List<SeriesType>): AiTopic = when {
+    SeriesType.COB in series                                                     -> AiTopic.COB
+    SeriesType.DEVIATIONS in series || SeriesType.BGI in series                  -> AiTopic.DEVIATIONS
+    SeriesType.SENSITIVITY in series || SeriesType.VAR_SENSITIVITY in series      -> AiTopic.SENSITIVITY
+    SeriesType.IOB in series || SeriesType.ABS_IOB in series || SeriesType.ACTIVITY in series -> AiTopic.INSULIN
+    else                                                                         -> AiTopic.GENERAL
 }
 
 /** The fixed IOB graph's series, as one constant so the graph sees the same list on every pass. */
@@ -699,7 +736,8 @@ private fun BoxScope.GraphCursorFor(
     viewModel: GraphViewModel,
     seriesTypes: List<SeriesType>,
     minTimestamp: Long?,
-    geometry: GraphGeometryHolder
+    geometry: GraphGeometryHolder,
+    onExplain: ((Long) -> Unit)? = null
 ) {
     // Read here, in the overlay's own scope, so a cursor move redraws only the overlay.
     val cursor = cursorState.value
@@ -711,7 +749,8 @@ private fun BoxScope.GraphCursorFor(
         cursorTimestamp = cursor.timestamp,
         minTimestamp = minTimestamp,
         geometry = geometry,
-        modifier = Modifier.matchParentSize()
+        modifier = Modifier.matchParentSize(),
+        onExplain = onExplain
     )
 }
 

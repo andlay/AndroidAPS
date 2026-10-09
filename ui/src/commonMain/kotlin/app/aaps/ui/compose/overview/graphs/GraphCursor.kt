@@ -4,6 +4,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -21,7 +22,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -31,6 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -649,7 +654,8 @@ internal fun GraphCursorOverlay(
     cursorTimestamp: Long,
     minTimestamp: Long,
     geometry: GraphGeometryHolder,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onExplain: ((Long) -> Unit)? = null
 ) {
     val visibleWindow = if (geometry.isReady)
         (minTimestamp + (geometry.xValueAt(geometry.left) * 60_000).toLong()) to (minTimestamp + (geometry.xValueAt(geometry.right) * 60_000).toLong())
@@ -698,7 +704,7 @@ internal fun GraphCursorOverlay(
             drawLine(lineColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.dp.toPx())
         }
         CursorCardPlacement(anchorX = x, modifier = Modifier.matchParentSize()) {
-            CursorCard(timeText, deltaText, rows, events)
+            CursorCard(timeText, deltaText, rows, events, onExplain?.let { { it(snapped) } })
         }
     }
 }
@@ -735,7 +741,7 @@ private fun CursorCardPlacement(anchorX: Float, modifier: Modifier, content: @Co
 }
 
 @Composable
-private fun CursorCard(timeText: String, deltaText: String, rows: List<CursorRow>, events: List<CursorEvent>) {
+private fun CursorCard(timeText: String, deltaText: String, rows: List<CursorRow>, events: List<CursorEvent>, onExplain: (() -> Unit)?) {
     val shape = MaterialTheme.shapes.small
     val textStyle = MaterialTheme.typography.labelSmall
     val numberStyle = textStyle.copy(fontFeatureSettings = "tnum")
@@ -751,6 +757,20 @@ private fun CursorCard(timeText: String, deltaText: String, rows: List<CursorRow
             Spacer(Modifier.width(AapsSpacing.large))
             Spacer(Modifier.weight(1f))
             Text(text = deltaText, style = numberStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (onExplain != null) {
+                // AI explanation of this moment; only shown when the assistant is set up
+                Icon(
+                    imageVector = Icons.Filled.AutoFixHigh,
+                    contentDescription = stringResource(UiStrings.ai_explain),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(start = AapsSpacing.small)
+                        .clip(CircleShape)
+                        .clickable(onClick = onExplain)
+                        .padding(AapsSpacing.extraSmall)
+                        .size(AapsSpacing.extraLarge + AapsSpacing.extraSmall)
+                )
+            }
         }
         for (row in rows) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

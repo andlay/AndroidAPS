@@ -45,6 +45,7 @@ import app.aaps.appshell.navigation.appNavGraph
 import app.aaps.appshell.navigation.handleNotificationAction
 import app.aaps.appshell.navigation.handleQuickLaunchAction
 import app.aaps.appshell.navigation.handleSearchResultClick
+import app.aaps.core.interfaces.ai.AiAssistant
 import app.aaps.core.interfaces.bgQualityCheck.BgQualityCheck
 import app.aaps.core.interfaces.clientcontrol.ClientControlActionDispatcher
 import app.aaps.core.interfaces.configuration.Config
@@ -323,6 +324,13 @@ class ComposeMainActivity : MetroAppCompatActivity() {
             // The Activity keeps a reference so an incoming intent can route without the composition.
             onNavControllerReady = { navController = it },
             onClose = { finish() },
+            // Looked up at each use: the plugin can be turned on, or its key set, while the app runs
+            aiAssistant = {
+                activePlugin.getSpecificPluginsListByInterface(AiAssistant::class)
+                    .firstOrNull { it.isEnabled() }
+                    ?.let { it as? AiAssistant }
+                    ?.takeIf { it.isConfigured() }
+            },
             content = { navController -> AppContent(navController) }
         )
     }
