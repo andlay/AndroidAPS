@@ -27,6 +27,34 @@
     <string name="old_data">OLD DATA</string>
     <string name="notification_iob_short">%1$.1fU</string>
     <string name="meal_tray_name">NFC meal cards</string>
+    <string name="meal_card_make_title">Make a meal card</string>
+    <string name="meal_card_intro">Scan the barcode of a food, check the carbs for the portion you eat, then write it to a blank NFC card. Tap the card later to add the food to a meal.</string>
+    <string name="meal_card_scan">Scan barcode</string>
+    <string name="meal_card_manual">Enter by hand</string>
+    <string name="meal_card_looking_up">Looking up the product…</string>
+    <string name="meal_card_not_found">Product not found. Enter the name and carbs from the package.</string>
+    <string name="meal_card_lookup_failed" comment="%1$s=error text">Could not look up the product (%1$s). Enter the name and carbs from the package.</string>
+    <string name="meal_card_scan_failed" comment="%1$s=error text">The barcode scanner could not start (%1$s).</string>
+    <string name="meal_card_per_100g" comment="%1$.1f=grams of carbs. Example: 67.0 g carbs per 100 g">%1$.1f g carbs per 100 g</string>
+    <string name="meal_card_serving" comment="%1$s=serving size as written on the package. Example: Serving: 30 g (2 biscuits)">Serving: %1$s</string>
+    <string name="meal_card_portion_serving" comment="%1$.0f=serving size in grams. Example: Per serving (30 g)">Per serving (%1$.0f g)</string>
+    <string name="meal_card_portion_grams">Grams</string>
+    <string name="meal_card_grams">Grams eaten</string>
+    <string name="meal_card_name">Name</string>
+    <string name="meal_card_carbs">Carbs (g)</string>
+    <string name="meal_card_protein_fat" comment="%1$.1f=protein grams, %2$.1f=fat grams. Example: Protein 4.0 g, fat 2.0 g">Protein %1$.1f g, fat %2$.1f g</string>
+    <string name="meal_card_check_package">These values come from Open Food Facts, a database filled in by volunteers. Check them against the package before you write the card.</string>
+    <string name="meal_card_write">Write to card</string>
+    <string name="meal_card_add_now">Add to meal now</string>
+    <string name="meal_card_hold">Hold a blank NFC card to the back of the phone.</string>
+    <string name="meal_card_written" comment="%1$s=food name, %2$d=carbs in grams. Example: Card written: Toast, 15 g carbs">Card written: %1$s, %2$d g carbs</string>
+    <string name="meal_card_done">Done</string>
+    <string name="meal_card_error_no_nfc">This phone has no NFC.</string>
+    <string name="meal_card_error_nfc_off">NFC is turned off. Turn it on in the phone settings and try again.</string>
+    <string name="meal_card_error_read_only">This card is locked and cannot be written.</string>
+    <string name="meal_card_error_too_small">This card is too small. Use a shorter name or a bigger card.</string>
+    <string name="meal_card_error_not_supported">This card type is not supported. Use an NTAG213 or similar card.</string>
+    <string name="meal_card_error_failed">Writing failed. Hold the card still and try again.</string>
     <string name="meal_tray_description">Tap NFC cards with food on them to collect a meal, then open the bolus wizard with the total carbs. It never doses: you check and confirm in the wizard as usual. Card link: aaps://food?name=Toast&amp;carbs=15&amp;protein=4&amp;fat=2</string>
 
 </resources>

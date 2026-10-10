@@ -18,6 +18,7 @@ import app.aaps.core.interfaces.utils.DecimalFormatter
 import app.aaps.core.interfaces.workflow.CalculationSignalsEmitter
 import app.aaps.core.interfaces.workflow.CalculationWorkflow
 import app.aaps.core.keys.interfaces.Preferences
+import app.aaps.mealcards.AndroidMealCardTools
 import app.aaps.plugins.constraints.objectives.ObjectivesPlugin
 import app.aaps.plugins.main.iob.iobCobCalculator.IobCobCalculatorPlugin
 import app.aaps.plugins.main.mealTray.MealTrayPlugin
@@ -91,8 +92,9 @@ object MainPluginsBindings {
         aapsLogger: AAPSLogger,
         rh: TextResolver,
         notificationManager: NotificationManager,
-        dateUtil: DateUtil
-    ): MealTrayPlugin = MealTrayPlugin(aapsLogger, rh, notificationManager, dateUtil)
+        dateUtil: DateUtil,
+        cardTools: AndroidMealCardTools
+    ): MealTrayPlugin = MealTrayPlugin(aapsLogger, rh, notificationManager, dateUtil, cardTools)
 
     @Provides
     @IntoMap

@@ -34,6 +34,15 @@ internal class MealTrayPluginTest {
     }
 
     @Test
+    fun `a built card link reads back the same food`() {
+        val item = MealTrayItem(name = "Weet-Bix & milk, 2 biscuits é", carbs = 27, protein = 6.4, fat = 3.0)
+        val link = FoodLink.build(item)
+        assertThat(link).startsWith("aaps://food?name=")
+        assertThat(link).doesNotContain(" ")
+        assertThat(FoodLink.parse(link)).isEqualTo(item)
+    }
+
+    @Test
     fun `cards add up, and an old list is cleared before the next card`() {
         var now = 1_000_000L
         val dateUtil = mock<DateUtil>()

@@ -263,6 +263,8 @@ dependencies {
 
     implementation(libs.androidx.core)
     implementation(libs.androidx.lifecycle.process)
+    // NFC meal cards: barcode scanner
+    implementation(libs.com.google.android.gms.playservices.code.scanner)
 
     testImplementation(project(":shared:tests"))
     androidTestImplementation(project(":shared:tests"))

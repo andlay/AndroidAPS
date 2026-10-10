@@ -62,6 +62,8 @@ com-google-firebase-crashlytics = { group = "com.google.firebase", name = "fireb
 com-google-firebase-config = { group = "com.google.firebase", name = "firebase-config" }
 com-google-android-gms-playservices-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version = "20.0.1" }
 com-google-android-gms-playservices-location = { group = "com.google.android.gms", name = "play-services-location", version = "21.4.0" }
+# NFC meal cards: Google's barcode scanner screen (no camera permission needed)
+com-google-android-gms-playservices-code-scanner = { group = "com.google.android.gms", name = "play-services-code-scanner", version = "16.1.0" }
 com-google-watchface-validator-push-cli = { group = "com.google.android.wearable.watchface.validator", name = "validator-push-cli", version = "1.1.0-alpha01" }
 
 # Check for bugfix in MaterialDataPicker and remove workaround in DateUtil::mergeUtcDateToTimestamp

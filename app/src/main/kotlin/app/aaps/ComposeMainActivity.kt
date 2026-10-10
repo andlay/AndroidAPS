@@ -101,6 +101,7 @@ import app.aaps.core.ui.locale.LocaleHelper
 import app.aaps.core.utils.isRunningRealPumpTest
 import app.aaps.implementation.plugin.PluginPermissionsImpl
 import app.aaps.implementation.protection.BiometricCheck
+import app.aaps.mealcards.AndroidMealCardTools
 import app.aaps.plugins.automation.AutomationRuntime
 import app.aaps.plugins.configuration.setupwizard.SWDefinition
 import app.aaps.plugins.source.DexcomPlugin
@@ -148,6 +149,7 @@ class ComposeMainActivity : MetroAppCompatActivity() {
     @Inject lateinit var rxBus: RxBus
     @Inject lateinit var snackbarHostPresence: SnackbarHostPresence
     @Inject lateinit var rh: ResourceHelper
+    @Inject lateinit var mealCardTools: AndroidMealCardTools
     @Inject lateinit var aapsLogger: AAPSLogger
     @Inject lateinit var preferences: Preferences
     @Inject lateinit var uiRestart: UiRestart
@@ -681,8 +683,15 @@ class ComposeMainActivity : MetroAppCompatActivity() {
         }
     }
 
+    override fun onPause() {
+        // The barcode scanner and the NFC card writer only work on the visible activity
+        mealCardTools.detach(this)
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        mealCardTools.attach(this)
         if (!config.appInitialized) return
         refreshOnResume()
     }

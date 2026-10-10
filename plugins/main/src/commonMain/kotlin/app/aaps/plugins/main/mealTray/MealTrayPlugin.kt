@@ -30,10 +30,13 @@ class MealTrayPlugin(
     aapsLogger: AAPSLogger,
     rh: TextResolver,
     notificationManager: NotificationManager,
-    private val dateUtil: DateUtil
+    private val dateUtil: DateUtil,
+    /** Scanner, lookup and card writer from the app; null where the platform has none (no "Make a card" screen). */
+    cardTools: MealCardTools? = null
 ) : PluginBase(
     PluginDescription()
         .mainType(PluginType.GENERAL)
+        .apply { cardTools?.let { tools -> composeContent { plugin -> MakeMealCardContent(tools, plugin as MealTray) } } }
         .icon(IcCarbs)
         .pluginName(MainStrings.meal_tray_name)
         .description(MainStrings.meal_tray_description),

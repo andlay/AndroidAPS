@@ -33,6 +33,24 @@ internal object FoodLink {
         )
     }
 
+    /** The card link for [item], the format [parse] reads. */
+    fun build(item: MealTrayItem): String = buildString {
+        append(PREFIX).append("?name=").append(encode(item.name.take(MAX_NAME_LENGTH))).append("&carbs=").append(item.carbs)
+        item.protein?.let { append("&protein=").append(format1(it)) }
+        item.fat?.let { append("&fat=").append(format1(it)) }
+    }
+
+    private fun format1(value: Double): String = (round(value * 10) / 10).toString().removeSuffix(".0")
+
+    /** Percent encoding for a URL query value: letters, digits and "-._~" stay, everything else is %XX (UTF-8). */
+    private fun encode(value: String): String = buildString {
+        for (byte in value.encodeToByteArray()) {
+            val c = byte.toInt() and 0xff
+            if (c.toChar().isLetterOrDigit() && c < 0x80 || c.toChar() in "-._~") append(c.toChar())
+            else append('%').append(c.toString(16).uppercase().padStart(2, '0'))
+        }
+    }
+
     /** Percent decoding as in a URL query ("%20" and "+" are a space). Invalid escapes stay as they are. */
     private fun decode(value: String): String {
         val bytes = ArrayList<Byte>()
