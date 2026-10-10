@@ -219,8 +219,8 @@ class O5PumpPlugin @Inject constructor(
         private const val STATUS_CHECK_INTERVAL_MS = 60L * 1000
         private const val POD_WARNING_INTERVAL_MS = 15L * 60 * 1000
 
-        /** How often the out-of-range alert is moved forward while the pod can be reached. The alert
-         *  is set at least 20 minutes ahead, so a missed move never sets it off by itself. */
+        /** How often, at most, the out-of-range alert is moved forward while the pod can be reached.
+         *  With the default 30 minutes a missed move never sets it off by itself. */
         private const val OUT_OF_RANGE_REARM_MS = 10L * 60 * 1000
         private const val RESERVOIR_OVER_50_UNITS_DEFAULT = 75.0
 
@@ -1486,9 +1486,11 @@ class O5PumpPlugin @Inject constructor(
                 }
                 return
             }
-            val minutes = preferences.get(O5IntPreferenceKey.OutOfRangeBeepMinutes).coerceIn(20, 120)
+            val minutes = preferences.get(O5IntPreferenceKey.OutOfRangeBeepMinutes).coerceIn(1, 120)
             val now = System.currentTimeMillis()
-            val due = fired || armedPodId != podId || minutes != outOfRangeArmedMinutes || now - outOfRangeArmedAt >= OUT_OF_RANGE_REARM_MS
+            // Moved forward at half the time at the latest, so a short test setting is moved more often
+            val rearmMs = minOf(OUT_OF_RANGE_REARM_MS, minutes * 60_000L / 2)
+            val due = fired || armedPodId != podId || minutes != outOfRangeArmedMinutes || now - outOfRangeArmedAt >= rearmMs
             if (!due) return
             sendOutOfRangeAlert(enabled = true, minutes = minutes)
             preferences.put(O5LongNonPreferenceKey.OutOfRangeAlertPodId, podId)

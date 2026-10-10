@@ -239,7 +239,7 @@
     <string name="omnipod_5_error_no_active_alerts">No active alerts</string>
     <string name="omnipod_5_preferences_out_of_range_beep">Pod beeps when the phone is out of reach (experimental)</string>
     <string name="omnipod_5_preferences_out_of_range_beep_summary">The pod beeps if the phone has not reached it for the time below, for example when you leave the phone behind. AAPS keeps moving this pod alert forward while it is connected, which costs one extra pod command about every 10 minutes. When the phone is back, AAPS stops the beeping and tells you.</string>
-    <string name="omnipod_5_preferences_out_of_range_beep_minutes">Minutes without contact before the pod beeps</string>
+    <string name="omnipod_5_preferences_out_of_range_beep_minutes">Minutes without contact before the pod beeps (below 10 it can beep while the phone is near, for testing only)</string>
     <string name="omnipod_5_out_of_range_beeped">The pod beeped because the phone could not reach it for some time. The beeping is stopped now.</string>
     <string name="omnipod_5_error_no_active_profile">No profile active</string>
     <string name="omnipod_5_pod_activation_wizard_start_pod_activation_text">Fill a new Pod

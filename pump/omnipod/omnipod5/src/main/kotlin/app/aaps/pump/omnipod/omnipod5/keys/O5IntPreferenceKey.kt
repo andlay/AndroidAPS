@@ -16,9 +16,12 @@ enum class O5IntPreferenceKey(
     override val dependency: BooleanPreferenceKey? = null,
 ) : IntPreferenceKey {
 
-    /** Minutes without contact before the pod beeps. 20 at least, so a normal gap between loop runs never sets it off. */
+    /**
+     * Minutes without contact before the pod beeps. Down to 1 for testing: AAPS reaches the pod
+     * about every 5 minutes, so below about 10 the pod can beep while the phone is near.
+     */
     OutOfRangeBeepMinutes(
-        "AAPS.Omnipod5.out_of_range_beep_minutes", min = 20, max = 120, defaultValue = 30,
+        "AAPS.Omnipod5.out_of_range_beep_minutes", min = 1, max = 120, defaultValue = 30,
         titleResId = R.string.omnipod_5_preferences_out_of_range_beep_minutes,
         dependency = O5BooleanPreferenceKey.OutOfRangeBeep
     );
