@@ -3,6 +3,9 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- NFC meal cards (aaps://food?...). Optional: phones without NFC still install the app -->
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-feature android:name="android.hardware.nfc" android:required="false" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
@@ -75,6 +78,14 @@
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- NFC meal card tapped: adds the food to the meal list (MealTrayPlugin) -->
+            <intent-filter>
+                <action android:name="android.nfc.action.NDEF_DISCOVERED" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+
+                <data android:scheme="aaps" android:host="food" />
             </intent-filter>
         </activity>
 

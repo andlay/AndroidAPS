@@ -6,9 +6,11 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.nfc.NfcAdapter
 import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -55,6 +57,7 @@ import app.aaps.core.interfaces.db.PersistenceLayer
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.maintenance.FileListProvider
+import app.aaps.core.interfaces.meal.MealTray
 import app.aaps.core.interfaces.navigation.ElementType
 import app.aaps.core.interfaces.notifications.AlarmSound
 import app.aaps.core.interfaces.notifications.NotificationId
@@ -102,6 +105,7 @@ import app.aaps.plugins.automation.AutomationRuntime
 import app.aaps.plugins.configuration.setupwizard.SWDefinition
 import app.aaps.plugins.source.DexcomPlugin
 import app.aaps.plugins.source.activities.RequestDexcomPermissionActivity
+import app.aaps.ui.UiStrings
 import app.aaps.ui.compose.configuration.ConfigurationViewModel
 import app.aaps.ui.compose.insulinManagement.InsulinManagementViewModel
 import app.aaps.ui.compose.loopSheet.LoopActionViewModel
@@ -110,6 +114,7 @@ import app.aaps.ui.compose.main.OverviewScreen
 import app.aaps.ui.compose.maintenance.ImportViewModel
 import app.aaps.ui.compose.maintenance.MaintenanceViewModel
 import app.aaps.ui.compose.manageSheet.ManageViewModel
+import app.aaps.ui.compose.mealTray.MealTraySheet
 import app.aaps.ui.compose.overview.chips.ChipsViewModel
 import app.aaps.ui.compose.overview.graphs.GraphViewModel
 import app.aaps.ui.compose.overview.statusLights.StatusViewModel
@@ -231,6 +236,9 @@ class ComposeMainActivity : MetroAppCompatActivity() {
     private val _autoShowNotifications = mutableStateOf(false)
     /** Treatment asked for by a launcher shortcut, opened once the app content (and its lock) is shown. */
     private val pendingShortcut = mutableStateOf<ElementType?>(null)
+    /** A tapped NFC meal card (`aaps://food?...`), added to the meal list once the app content is shown. */
+    private val pendingMealCard = mutableStateOf<String?>(null)
+    private val showMealTray = mutableStateOf(false)
     private val disposable = CompositeDisposable()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -241,6 +249,7 @@ class ComposeMainActivity : MetroAppCompatActivity() {
         super.onCreate(savedInstanceState)
         // Opened from a launcher shortcut. Not again after a rotation: the request was already handled.
         if (savedInstanceState == null) pendingShortcut.value = appShortcutElement(intent)
+        if (savedInstanceState == null) pendingMealCard.value = mealCardLink(intent)
 
         // Activity result launchers (from base class)
         accessTree = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -356,6 +365,35 @@ class ComposeMainActivity : MetroAppCompatActivity() {
             val type = shortcut ?: return@LaunchedEffect
             pendingShortcut.value = null
             handleNavigationRequest(NavigationRequest.Element(type), navController)
+        }
+
+        // NFC meal cards: add the food and show the list. Nothing is dosed until the wizard is confirmed.
+        val mealCard by pendingMealCard
+        LaunchedEffect(mealCard) {
+            val link = mealCard ?: return@LaunchedEffect
+            pendingMealCard.value = null
+            val tray = mealTray()
+            when {
+                tray == null                    -> Toast.makeText(this@ComposeMainActivity, rh.gs(UiStrings.meal_tray_plugin_off), Toast.LENGTH_LONG).show()
+                tray.addFromLink(link) == null  -> Toast.makeText(this@ComposeMainActivity, rh.gs(UiStrings.meal_tray_not_read), Toast.LENGTH_LONG).show()
+                else                            -> showMealTray.value = true
+            }
+        }
+        if (showMealTray.value) {
+            mealTray()?.let { tray ->
+                MealTraySheet(
+                    tray = tray,
+                    onOpenWizard = { carbs, notes ->
+                        showMealTray.value = false
+                        navigator(navController).guarded(ElementType.BOLUS_WIZARD.protection) {
+                            // Cleared when the wizard opens, so a later card never adds to a meal already dosed
+                            tray.clear()
+                            navController.navigate(AppRoute.WizardDialog.createRoute(carbs = carbs, notes = Uri.encode(notes)))
+                        }
+                    },
+                    onDismiss = { showMealTray.value = false }
+                )
+            } ?: run { showMealTray.value = false }
         }
 
         // Track last navigated route as a Crashlytics custom key for crash reports
@@ -696,7 +734,18 @@ class ComposeMainActivity : MetroAppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         appShortcutElement(intent)?.let { pendingShortcut.value = it }
+        mealCardLink(intent)?.let { pendingMealCard.value = it }
     }
+
+    /** The link of an NFC meal card (or the same link opened another way), else null. */
+    private fun mealCardLink(intent: Intent?): String? {
+        if (intent?.action != NfcAdapter.ACTION_NDEF_DISCOVERED && intent?.action != Intent.ACTION_VIEW) return null
+        val data = intent.data ?: return null
+        return if (data.scheme.equals("aaps", ignoreCase = true) && data.host.equals("food", ignoreCase = true)) data.toString() else null
+    }
+
+    private fun mealTray(): MealTray? =
+        activePlugin.getSpecificPluginsListByInterface(MealTray::class).firstOrNull { it.isEnabled() } as? MealTray
 
     /**
      * The shared navigator, built with the four actions only Android can perform.

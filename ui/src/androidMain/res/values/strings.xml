@@ -351,6 +351,15 @@
     <string name="graph_cursor_profile_shortname" comment="Short label for a profile switch in the graph touch card">PROF</string>
 
     <string name="edit_carbs">Edit carbs</string>
+    <string name="meal_tray_title">Meal from NFC cards</string>
+    <string name="meal_tray_empty">No food yet. Tap an NFC meal card.</string>
+    <string name="meal_tray_total">Total carbs</string>
+    <string name="meal_tray_hint">Tap more cards to add food. A card tapped twice counts twice. The list is cleared after 15 minutes without a change.</string>
+    <string name="meal_tray_clear">Clear</string>
+    <string name="meal_tray_remove">Remove</string>
+    <string name="meal_tray_protein_fat" comment="%1$.1f=protein grams, %2$.1f=fat grams. Example: Protein 4.0 g, fat 2.0 g">Protein %1$.1f g, fat %2$.1f g</string>
+    <string name="meal_tray_not_read">This card is not an AAPS meal card, or its carbs are missing.</string>
+    <string name="meal_tray_plugin_off">Turn on NFC meal cards in Config Builder (General) to use meal cards.</string>
     <string name="edit_carbs_range" comment="%1$d=the max carbs safety setting in grams. Example: Enter 1 to 48 g">Enter 1 to %1$d g</string>
     <string name="ai_explain">Explain with AI</string>
     <string name="ai_ask_title">Ask AI</string>

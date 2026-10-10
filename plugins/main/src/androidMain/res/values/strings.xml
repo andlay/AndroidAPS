@@ -26,5 +26,7 @@
     <string name="description_persistent_notification">Shows an ongoing notification with a short overview of what your loop is doing</string>
     <string name="old_data">OLD DATA</string>
     <string name="notification_iob_short">%1$.1fU</string>
+    <string name="meal_tray_name">NFC meal cards</string>
+    <string name="meal_tray_description">Tap NFC cards with food on them to collect a meal, then open the bolus wizard with the total carbs. It never doses: you check and confirm in the wizard as usual. Card link: aaps://food?name=Toast&amp;carbs=15&amp;protein=4&amp;fat=2</string>
 
 </resources>
