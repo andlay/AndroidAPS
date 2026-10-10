@@ -12,12 +12,6 @@ import app.aaps.core.interfaces.resources.TextResolver
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.ui.compose.icons.IcCarbs
 import app.aaps.plugins.main.MainStrings
-import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesIntoMap
-import dev.zacsweers.metro.Inject
-import dev.zacsweers.metro.IntKey
-import dev.zacsweers.metro.SingleIn
-import dev.zacsweers.metro.binding
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,11 +23,9 @@ import kotlinx.coroutines.flow.update
  *
  * The list forgets itself [EXPIRY_MS] after the last change, so an old, half finished meal is never
  * added to the next one. Nothing here doses.
+ *
+ * Registered in the app's `MainPluginsBindings`: this module has no Metro compiler plugin.
  */
-@ContributesIntoMap(AppScope::class, binding = binding<PluginBase>())
-@IntKey(880)
-@SingleIn(AppScope::class)
-@Inject
 class MealTrayPlugin(
     aapsLogger: AAPSLogger,
     rh: TextResolver,

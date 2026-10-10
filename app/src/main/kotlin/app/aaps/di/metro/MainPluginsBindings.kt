@@ -20,6 +20,7 @@ import app.aaps.core.interfaces.workflow.CalculationWorkflow
 import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.plugins.constraints.objectives.ObjectivesPlugin
 import app.aaps.plugins.main.iob.iobCobCalculator.IobCobCalculatorPlugin
+import app.aaps.plugins.main.mealTray.MealTrayPlugin
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.BindingContainer
 import dev.zacsweers.metro.ContributesTo
@@ -79,6 +80,24 @@ object MainPluginsBindings {
     @IntoMap
     @IntKey(10)
     fun iobCobCalculatorEntry(plugin: IobCobCalculatorPlugin): PluginBase = plugin
+
+    /**
+     * NFC meal cards. Built here because `:plugins:main` has no Metro compiler plugin, so annotations
+     * on the class itself would be ignored.
+     */
+    @Provides
+    @SingleIn(AppScope::class)
+    fun mealTrayPlugin(
+        aapsLogger: AAPSLogger,
+        rh: TextResolver,
+        notificationManager: NotificationManager,
+        dateUtil: DateUtil
+    ): MealTrayPlugin = MealTrayPlugin(aapsLogger, rh, notificationManager, dateUtil)
+
+    @Provides
+    @IntoMap
+    @IntKey(880)
+    fun mealTrayEntry(plugin: MealTrayPlugin): PluginBase = plugin
 
     /**
      * The `Objectives` interface, unqualified.
