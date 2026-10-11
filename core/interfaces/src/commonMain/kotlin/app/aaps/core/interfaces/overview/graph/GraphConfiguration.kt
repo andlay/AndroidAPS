@@ -28,14 +28,89 @@ enum class SeriesType {
     PREDICTIONS
 }
 
+/** How a trace is drawn. */
+enum class PlotStyle {
+
+    /** A line between the points. It breaks where the data has a gap. */
+    LINE,
+
+    /** A dot at each point, no line. */
+    POINTS,
+
+    /** A bar from zero up to each point, as wide as the time the point covers. */
+    BARS,
+
+    /** A line with a soft fill below it. */
+    AREA
+}
+
+/** A calculation over the points of a series, drawn as its own trace. Display only. */
+enum class TraceTransform {
+
+    /** The series itself. */
+    NONE,
+
+    /** Exponentially weighted moving average. The window is the time constant. */
+    EWMA,
+
+    /** Average of the points in the last window. */
+    ROLLING_MEAN,
+
+    /** Sum of the points in the last window (for example steps per hour). */
+    ROLLING_SUM;
+
+    /** True when the result has the same unit and scale as the series, so both can share one axis. */
+    val keepsScale: Boolean get() = this != ROLLING_SUM
+}
+
 /**
- * Secondary graph entry: series list + per-graph height (dp).
- * Max 2 series per graph. Height is per-graph user-adjustable.
+ * One trace on a secondary graph: a series, an optional calculation over it, and how it looks.
+ *
+ * @param windowMinutes window of [transform]. Not used for [TraceTransform.NONE].
+ * @param style how it is drawn, or null for the series' own default look
+ * @param color colour as ARGB, or null for the series' own colour
+ */
+data class GraphTrace(
+    val type: SeriesType,
+    val transform: TraceTransform = TraceTransform.NONE,
+    val windowMinutes: Int = DEFAULT_WINDOW_MINUTES,
+    val style: PlotStyle? = null,
+    val color: Long? = null
+) {
+
+    val isDerived: Boolean get() = transform != TraceTransform.NONE
+
+    /** True when [other] is the same data, so the two would draw the same trace twice. */
+    fun sameDataAs(other: GraphTrace): Boolean =
+        type == other.type && transform == other.transform && (!isDerived || windowMinutes == other.windowMinutes)
+
+    companion object {
+
+        const val DEFAULT_WINDOW_MINUTES = 30
+        const val MIN_WINDOW_MINUTES = 5
+        const val MAX_WINDOW_MINUTES = 480
+    }
+}
+
+/**
+ * Secondary graph entry: trace list + per-graph height (dp).
+ * Max 2 traces per graph (one per axis). Height is per-graph user-adjustable.
  */
 data class SecondaryGraph(
-    val series: List<SeriesType>,
+    val traces: List<GraphTrace>,
     val height: Int = GraphConfig.DEFAULT_GRAPH_HEIGHT_DP
-)
+) {
+
+    /** The series the traces are made from, in trace order. */
+    val series: List<SeriesType> get() = traces.map { it.type }
+
+    companion object {
+
+        /** A graph that shows [series] as they are, with their default look. */
+        fun of(series: List<SeriesType>, height: Int = GraphConfig.DEFAULT_GRAPH_HEIGHT_DP) =
+            SecondaryGraph(series.map { GraphTrace(it) }, height)
+    }
+}
 
 /**
  * Configuration for the overview graphs.
@@ -59,7 +134,7 @@ data class GraphConfig(
     val bgHeight: Int = DEFAULT_GRAPH_HEIGHT_DP,
     val iobHeight: Int = DEFAULT_GRAPH_HEIGHT_DP,
     val secondaryGraphs: List<SecondaryGraph> = listOf(
-        SecondaryGraph(listOf(SeriesType.COB))
+        SecondaryGraph.of(listOf(SeriesType.COB))
     )
 ) {
 

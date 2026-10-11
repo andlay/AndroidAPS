@@ -30,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -56,6 +57,8 @@ import app.aaps.core.interfaces.overview.graph.BgRange
 import app.aaps.core.interfaces.overview.graph.BgType
 import app.aaps.core.interfaces.overview.graph.BolusType
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
+import app.aaps.core.interfaces.overview.graph.GraphTrace
+import app.aaps.core.interfaces.overview.graph.PlotStyle
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.compose.AapsSpacing
@@ -499,13 +502,36 @@ private fun rememberIobCursorSeries(viewModel: GraphViewModel, overlays: List<Se
     }
 }
 
+/** The card mark for a plot style. */
+private fun markerFor(style: PlotStyle): CursorMarker = when (style) {
+    PlotStyle.POINTS                 -> CursorMarker.DOT
+    PlotStyle.BARS                   -> CursorMarker.BAR
+    PlotStyle.LINE, PlotStyle.AREA   -> CursorMarker.LINE
+}
+
+/** Number format for the values of a series, and of a calculation over it. */
+private fun formatFor(type: SeriesType, formats: CursorFormats): (Double) -> String = when (type) {
+    SeriesType.IOB, SeriesType.ABS_IOB                                 -> formats.insulin
+    SeriesType.BGI, SeriesType.DEVIATIONS, SeriesType.DEV_SLOPE        -> formats.glucoseChange
+    SeriesType.VAR_SENSITIVITY                                         -> formats.glucose
+    SeriesType.ACTIVITY                                                -> formats.activity
+    SeriesType.COB, SeriesType.SENSITIVITY, SeriesType.HEART_RATE,
+    SeriesType.STEPS, SeriesType.PREDICTIONS                           -> formats.whole
+}
+
 @Composable
-private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, types: List<SeriesType>): List<CursorSeries> {
+private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, traces: List<GraphTrace>): List<CursorSeries> {
     val formats = rememberCursorFormats()
     val colors = rememberSeriesColors()
-    val typed = types.flatMap { type ->
-        val label = stringResource(seriesShortNameId(type))
-        val color = colors.colorFor(type)
+    val typed = traces.withIndex().flatMap { (index, trace) ->
+        val type = trace.type
+        val look = lookOf(trace, colors)
+        val label = traceLabel(trace)
+        val color = look.color
+        if (trace.isDerived) {
+            val points = key(trace) { rememberTracePoints(viewModel, trace) }
+            return@flatMap listOf(index to CursorSeries(label, color, points, formatFor(type, formats), marker = markerFor(look.style)))
+        }
         when (type) {
             SeriesType.IOB             -> {
                 val data by viewModel.iobGraphFlow.collectAsStateWithLifecycle()
@@ -570,13 +596,18 @@ private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, types: List
             }
 
             SeriesType.PREDICTIONS     -> emptyList() // a BG graph overlay flag, never a secondary series
-        }.map { type to it }
+        }.map { series ->
+            // A styled series shows its own colour and mark in the card
+            index to if (trace.isStylable) series.copy(color = color, marker = markerFor(look.style)) else series
+        }
     }
 
-    // Two series on two axes (all pairs except BGI with DEV, which share one axis, see
-    // SecondaryGraphCompose): their raw values cannot be compared, so order them by where each sits
-    // within its own range instead. Close to the real drawing, not exact - the axes are zero-aligned.
-    val sharedAxis = types.size < 2 || types.toSet() == setOf(SeriesType.BGI, SeriesType.DEVIATIONS)
+    // Two traces on two axes (all pairs except BGI with DEV, and a series with its EWMA or mean, which
+    // share one axis, see SecondaryGraphCompose): their raw values cannot be compared, so order them by
+    // where each sits within its own range instead. Close to the real drawing, not exact - the axes are zero-aligned.
+    val sharedAxis = traces.size < 2 ||
+        (traces.none { it.isDerived } && traces.map { it.type }.toSet() == setOf(SeriesType.BGI, SeriesType.DEVIATIONS)) ||
+        (traces[0].type == traces[1].type && traces.all { it.transform.keepsScale })
     if (sharedAxis) return typed.map { it.second }
     return typed.groupBy({ it.first }, { it.second }).values.flatMap { group ->
         val values = group.flatMap { s -> s.points.map { it.value } }
@@ -645,6 +676,7 @@ private fun rememberCursorEvents(viewModel: GraphViewModel, graphId: Int, series
  * readings and predictions) or an event - and the card shows that stop's time.
  *
  * @param seriesTypes the BG overlays, the IOB overlays, or the series of a secondary graph
+ * @param traces the traces of a secondary graph, with their calculations and looks
  */
 @Composable
 internal fun GraphCursorOverlay(
@@ -655,7 +687,8 @@ internal fun GraphCursorOverlay(
     minTimestamp: Long,
     geometry: GraphGeometryHolder,
     modifier: Modifier = Modifier,
-    onExplain: ((Long) -> Unit)? = null
+    onExplain: ((Long) -> Unit)? = null,
+    traces: List<GraphTrace>? = null
 ) {
     val visibleWindow = if (geometry.isReady)
         (minTimestamp + (geometry.xValueAt(geometry.left) * 60_000).toLong()) to (minTimestamp + (geometry.xValueAt(geometry.right) * 60_000).toLong())
@@ -663,10 +696,11 @@ internal fun GraphCursorOverlay(
     val series = when (graphId) {
         CURSOR_GRAPH_BG  -> rememberBgCursorSeries(viewModel, seriesTypes, visibleWindow)
         CURSOR_GRAPH_IOB -> rememberIobCursorSeries(viewModel, seriesTypes)
-        else             -> rememberSecondaryCursorSeries(viewModel, seriesTypes)
+        else             -> rememberSecondaryCursorSeries(viewModel, traces ?: seriesTypes.map { GraphTrace(it) })
     }
 
-    val allEvents = rememberCursorEvents(viewModel, graphId, seriesTypes)
+    // Markers come with a series drawn as it is, not with a calculation over it
+    val allEvents = rememberCursorEvents(viewModel, graphId, traces?.filter { !it.isDerived }?.map { it.type } ?: seriesTypes)
 
     val snapSeries = series.filter { it.snap }.ifEmpty { series.take(1) }
     val stops = cursorStops(snapSeries.flatMap { s -> s.points.map { it.timestamp } }, allEvents.map { it.timestamp })

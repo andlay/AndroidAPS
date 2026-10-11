@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -58,6 +56,7 @@ import app.aaps.core.data.model.GlucoseUnit
 import app.aaps.core.interfaces.InterfacesStrings
 import app.aaps.core.interfaces.ai.AiTopic
 import app.aaps.core.interfaces.overview.graph.GraphConfig
+import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.SecondaryGraph
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.keys.interfaces.TextRef
@@ -104,7 +103,7 @@ import kotlinx.coroutines.flow.drop
 private val SIMPLE_MODE_CONFIG = GraphConfig(
     bgOverlays = emptyList(),
     iobOverlays = emptyList(),
-    secondaryGraphs = listOf(SecondaryGraph(listOf(SeriesType.COB)))
+    secondaryGraphs = listOf(SecondaryGraph.of(listOf(SeriesType.COB)))
 )
 
 /**
@@ -520,7 +519,7 @@ fun GraphsSection(
         Box(modifier = Modifier.offset(y = (-8).dp).zIndex(if (cursorGraphId == CURSOR_GRAPH_IOB) 1f else 0f)) {
             SecondaryGraphCompose(
                 viewModel = graphViewModel,
-                seriesTypes = IOB_SERIES,
+                traces = IOB_TRACES,
                 scrollState = iobScrollState,
                 zoomState = iobZoomState,
                 derivedTimeRange = derivedTimeRange,
@@ -581,7 +580,7 @@ fun GraphsSection(
             Box(modifier = Modifier.offset(y = (-8).dp).zIndex(if (cursorGraphId == cursorGraphId) 1f else 0f)) {
                 SecondaryGraphCompose(
                     viewModel = graphViewModel,
-                    seriesTypes = secondary.series,
+                    traces = secondary.traces,
                     scrollState = secScrollStates[i],
                     zoomState = secZoomStates[i],
                     derivedTimeRange = derivedTimeRange,
@@ -592,7 +591,7 @@ fun GraphsSection(
                         .then(rememberGraphCursorInput(cursorGraphId, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange, panTarget = bgScrollState, zoomTarget = bgZoomState))
                 )
                 Text(
-                    text = seriesListLabel(secondary.series),
+                    text = traceListLabel(secondary.traces),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     modifier = Modifier
@@ -613,15 +612,16 @@ fun GraphsSection(
                 )
                 GraphCursorFor(
                     cursorGraphId, cursorState, graphViewModel, secondary.series, derivedTimeRange?.first, cursorGeometry,
-                    onExplain = if (aiAvailable) { t -> aiRequest = aiTopicFor(secondary.series) to t } else null
+                    onExplain = if (aiAvailable) { t -> aiRequest = aiTopicFor(secondary.series) to t } else null,
+                    traces = secondary.traces
                 )
             }
         }
         if (editingGraphIndex >= 0 && editingGraphIndex < activeCount) {
             val editing = graphConfig.secondaryGraphs[editingGraphIndex]
-            GraphSeriesBottomSheet(
+            GraphTracesBottomSheet(
                 title = stringResource(CoreUiStrings.graph_number, editingGraphIndex + 2),
-                selectedSeries = editing.series,
+                traces = editing.traces,
                 availableSeries = CONFIGURABLE_SERIES,
                 height = editing.height,
                 onHeightChange = { h ->
@@ -629,21 +629,14 @@ fun GraphsSection(
                     graphs[editingGraphIndex] = graphs[editingGraphIndex].copy(height = h)
                     graphViewModel.updateGraphConfig(graphConfig.copy(secondaryGraphs = graphs))
                 },
-                onToggle = { type ->
+                onTracesChange = { traces ->
                     val graphs = graphConfig.secondaryGraphs.toMutableList()
-                    val current = graphs[editingGraphIndex].series.toMutableList()
-                    if (type in current) {
-                        current.remove(type)
-                    } else {
-                        current.add(type)
-                        if (current.size > 2) current.removeAt(0) // FIFO: drop oldest
-                    }
-                    if (current.isEmpty()) {
-                        // Auto-remove graph when all series deselected
+                    if (traces.isEmpty()) {
+                        // Auto-remove graph when all traces are removed
                         graphs.removeAt(editingGraphIndex)
                         editingGraphIndex = -1
                     } else {
-                        graphs[editingGraphIndex] = graphs[editingGraphIndex].copy(series = current)
+                        graphs[editingGraphIndex] = graphs[editingGraphIndex].copy(traces = traces)
                     }
                     graphViewModel.updateGraphConfig(graphConfig.copy(secondaryGraphs = graphs))
                 },
@@ -668,31 +661,22 @@ fun GraphsSection(
                 Text(stringResource(CoreUiStrings.graph_add), style = MaterialTheme.typography.labelMedium)
             }
             if (showAddSheet) {
-                var newGraphSeries by remember { mutableStateOf(emptyList<SeriesType>()) }
+                var newGraphTraces by remember { mutableStateOf(emptyList<GraphTrace>()) }
                 var newGraphHeight by remember { mutableIntStateOf(GraphConfig.DEFAULT_GRAPH_HEIGHT_DP) }
-                GraphSeriesBottomSheet(
+                GraphTracesBottomSheet(
                     title = stringResource(CoreUiStrings.graph_new),
-                    selectedSeries = newGraphSeries,
+                    traces = newGraphTraces,
                     availableSeries = CONFIGURABLE_SERIES,
                     height = newGraphHeight,
                     onHeightChange = { newGraphHeight = it },
-                    onToggle = { type ->
-                        val current = newGraphSeries.toMutableList()
-                        if (type in current) {
-                            current.remove(type)
-                        } else {
-                            current.add(type)
-                            if (current.size > 2) current.removeAt(0)
-                        }
-                        newGraphSeries = current
-                    },
+                    onTracesChange = { newGraphTraces = it },
                     onDismiss = {
-                        if (newGraphSeries.isNotEmpty()) {
+                        if (newGraphTraces.isNotEmpty()) {
                             val graphs = graphConfig.secondaryGraphs.toMutableList()
-                            graphs.add(SecondaryGraph(newGraphSeries, newGraphHeight))
+                            graphs.add(SecondaryGraph(newGraphTraces, newGraphHeight))
                             graphViewModel.updateGraphConfig(graphConfig.copy(secondaryGraphs = graphs))
                         }
-                        newGraphSeries = emptyList()
+                        newGraphTraces = emptyList()
                         newGraphHeight = GraphConfig.DEFAULT_GRAPH_HEIGHT_DP
                         showAddSheet = false
                     }
@@ -725,8 +709,8 @@ private fun aiTopicFor(series: List<SeriesType>): AiTopic = when {
     else                                                                         -> AiTopic.GENERAL
 }
 
-/** The fixed IOB graph's series, as one constant so the graph sees the same list on every pass. */
-private val IOB_SERIES = listOf(SeriesType.IOB)
+/** The fixed IOB graph's trace, as one constant so the graph sees the same list on every pass. */
+private val IOB_TRACES = listOf(GraphTrace(SeriesType.IOB))
 
 /** Shows the touch cursor in this graph's Box when the cursor is on this graph. */
 @Composable
@@ -737,7 +721,8 @@ private fun BoxScope.GraphCursorFor(
     seriesTypes: List<SeriesType>,
     minTimestamp: Long?,
     geometry: GraphGeometryHolder,
-    onExplain: ((Long) -> Unit)? = null
+    onExplain: ((Long) -> Unit)? = null,
+    traces: List<GraphTrace>? = null
 ) {
     // Read here, in the overlay's own scope, so a cursor move redraws only the overlay.
     val cursor = cursorState.value
@@ -750,7 +735,8 @@ private fun BoxScope.GraphCursorFor(
         minTimestamp = minTimestamp,
         geometry = geometry,
         modifier = Modifier.matchParentSize(),
-        onExplain = onExplain
+        onExplain = onExplain,
+        traces = traces
     )
 }
 
@@ -758,10 +744,10 @@ private fun BoxScope.GraphCursorFor(
 // Graph label generation
 // =========================================================================
 
-/** Generate a short label from the series types in a graph (e.g., "IOB", "COB", "BGI / DEV") */
+/** Generate a short label from the traces in a graph (e.g., "COB", "BGI / DEV", "HR / HR EWMA 30m") */
 @Composable
-private fun seriesListLabel(seriesList: List<SeriesType>): String {
-    val names = seriesList.map { stringResource(seriesShortNameId(it)) }
+private fun traceListLabel(traces: List<GraphTrace>): String {
+    val names = traces.map { traceLabel(it) }
     return names.joinToString(" / ")
 }
 
@@ -832,7 +818,7 @@ private fun GraphEditButton(
     }
 }
 
-/** Bottom sheet with toggleable FilterChips for series selection + optional remove button */
+/** Bottom sheet with toggleable FilterChips for the overlays of the BG and IOB graphs */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun GraphSeriesBottomSheet(
@@ -842,8 +828,7 @@ private fun GraphSeriesBottomSheet(
     height: Int,
     onHeightChange: (Int) -> Unit,
     onToggle: (SeriesType) -> Unit,
-    onDismiss: () -> Unit,
-    onRemoveGraph: (() -> Unit)? = null
+    onDismiss: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(
@@ -855,23 +840,10 @@ private fun GraphSeriesBottomSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                if (onRemoveGraph != null) {
-                    TextButton(onClick = onRemoveGraph) {
-                        Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(stringResource(CoreUiStrings.remove))
-                    }
-                }
-            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium
+            )
             Spacer(Modifier.height(12.dp))
             NumberInputRow(
                 labelRef = CoreUiStrings.graph_height,

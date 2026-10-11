@@ -5,8 +5,11 @@ import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
+import app.aaps.core.interfaces.overview.graph.GraphTrace
+import app.aaps.core.interfaces.overview.graph.PlotStyle
 import app.aaps.core.interfaces.overview.graph.SecondaryGraph
 import app.aaps.core.interfaces.overview.graph.SeriesType
+import app.aaps.core.interfaces.overview.graph.TraceTransform
 import app.aaps.core.keys.StringNonKey
 import app.aaps.core.keys.interfaces.Preferences
 import dev.zacsweers.metro.AppScope
@@ -30,6 +33,7 @@ import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 
 @ContributesBinding(AppScope::class)
@@ -82,6 +86,12 @@ class GraphConfigRepositoryImpl(
         private const val KEY_IOB_HEIGHT = "iobHeight"
         private const val KEY_SERIES = "series"
         private const val KEY_HEIGHT = "height"
+        private const val KEY_TRACES = "traces"
+        private const val KEY_TYPE = "type"
+        private const val KEY_TRANSFORM = "transform"
+        private const val KEY_WINDOW = "window"
+        private const val KEY_STYLE = "style"
+        private const val KEY_COLOR = "color"
 
         private fun overlaysToJson(overlays: List<SeriesType>) = buildJsonArray {
             for (type in overlays) add(type.name)
@@ -112,13 +122,45 @@ class GraphConfigRepositoryImpl(
                     buildJsonArray {
                         for (graph in config.secondaryGraphs) {
                             addJsonObject {
-                                put(KEY_SERIES, buildJsonArray { for (series in graph.series) add(series.name) })
+                                // Kept for older versions, which only read the series names
+                                put(KEY_SERIES, buildJsonArray { for (series in graph.series.distinct()) add(series.name) })
                                 put(KEY_HEIGHT, graph.height)
+                                put(KEY_TRACES, buildJsonArray { for (trace in graph.traces) add(traceToJson(trace)) })
                             }
                         }
                     }
                 )
             }.toString()
+
+        private fun traceToJson(trace: GraphTrace): JsonObject = buildJsonObject {
+            put(KEY_TYPE, trace.type.name)
+            put(KEY_TRANSFORM, trace.transform.name)
+            put(KEY_WINDOW, trace.windowMinutes)
+            trace.style?.let { put(KEY_STYLE, it.name) }
+            trace.color?.let { put(KEY_COLOR, it) }
+        }
+
+        /** A stored trace, or null when its series is unknown to this version. Unknown options fall back to defaults. */
+        private fun traceFromJson(element: JsonElement): GraphTrace? {
+            val obj = element as? JsonObject ?: return null
+            val type = obj[KEY_TYPE]?.seriesTypeOrNull() ?: return null
+            val transform = obj.string(KEY_TRANSFORM)?.let { name -> TraceTransform.entries.firstOrNull { it.name == name } } ?: TraceTransform.NONE
+            val window = ((obj[KEY_WINDOW] as? JsonPrimitive)?.let { runCatching { it.int }.getOrNull() } ?: GraphTrace.DEFAULT_WINDOW_MINUTES)
+                .coerceIn(GraphTrace.MIN_WINDOW_MINUTES, GraphTrace.MAX_WINDOW_MINUTES)
+            val style = obj.string(KEY_STYLE)?.let { name -> PlotStyle.entries.firstOrNull { it.name == name } }
+            val color = (obj[KEY_COLOR] as? JsonPrimitive)?.let { runCatching { it.long }.getOrNull() }
+            return GraphTrace(type, transform, window, style, color)
+        }
+
+        /** Traces without IOB as it is (it has its own graph) and without repeats, at most 2. */
+        private fun cleanTraces(traces: List<GraphTrace>): List<GraphTrace> {
+            val out = mutableListOf<GraphTrace>()
+            for (trace in traces) {
+                if (trace.type == SeriesType.IOB && !trace.isDerived) continue
+                if (out.none { it.sameDataAs(trace) }) out.add(trace)
+            }
+            return out.take(2)
+        }
 
         private fun parseSeriesArray(seriesArray: JsonArray): List<SeriesType> {
             val series = mutableListOf<SeriesType>()
@@ -141,12 +183,17 @@ class GraphConfigRepositoryImpl(
             for (raw in obj.array(KEY_SECONDARY_GRAPHS).orEmpty()) {
                 // Legacy format: element is an array of series names.
                 // New format: element is an object { series: [...], height: Int }.
-                val (series, height) = when (raw) {
-                    is JsonArray  -> parseSeriesArray(raw) to GraphConfig.DEFAULT_GRAPH_HEIGHT_DP
-                    is JsonObject -> (raw.array(KEY_SERIES)?.let { parseSeriesArray(it) } ?: emptyList()) to raw.height(KEY_HEIGHT)
-                    else          -> emptyList<SeriesType>() to GraphConfig.DEFAULT_GRAPH_HEIGHT_DP
+                // Newest format: the object also has "traces" with options per trace.
+                val (traces, height) = when (raw) {
+                    is JsonArray  -> parseSeriesArray(raw).map { GraphTrace(it) } to GraphConfig.DEFAULT_GRAPH_HEIGHT_DP
+                    is JsonObject -> {
+                        val stored = raw.array(KEY_TRACES)?.mapNotNull { traceFromJson(it) }?.let { cleanTraces(it) }.orEmpty()
+                        stored.ifEmpty { raw.array(KEY_SERIES)?.let { parseSeriesArray(it) }.orEmpty().map { GraphTrace(it) } } to raw.height(KEY_HEIGHT)
+                    }
+
+                    else          -> emptyList<GraphTrace>() to GraphConfig.DEFAULT_GRAPH_HEIGHT_DP
                 }
-                if (series.isNotEmpty()) graphs.add(SecondaryGraph(series, height))
+                if (traces.isNotEmpty()) graphs.add(SecondaryGraph(traces, height))
             }
             return GraphConfig(
                 bgOverlays = bgOverlays,
@@ -156,6 +203,9 @@ class GraphConfigRepositoryImpl(
                 secondaryGraphs = graphs
             )
         }
+
+        /** The named string, or null when it is absent or is not a string. */
+        private fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
         /** The named array, or null when it is absent or is something other than an array. */
         private fun JsonObject.array(key: String): JsonArray? = this[key] as? JsonArray

@@ -6,6 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -27,6 +28,8 @@ import app.aaps.core.interfaces.utils.DecimalFormatter
 import app.aaps.core.interfaces.overview.graph.BolusType
 import app.aaps.core.interfaces.overview.graph.DeviationType
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
+import app.aaps.core.interfaces.overview.graph.GraphTrace
+import app.aaps.core.interfaces.overview.graph.PlotStyle
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.overview.graph.TreatmentGraphData
 import app.aaps.core.ui.compose.LocalDecimalFormatter
@@ -141,14 +144,18 @@ internal class ClampedVerticalAxisItemPlacer(
  * Each series type has its own color and rendering style:
  * - IOB: Blue line with area fill + bolus markers (SMBs, normal boluses, extended boluses)
  * - COB: Orange adaptive-step line with area fill + carbs markers + failover dots
- * - Simple series (AbsIOB, BGI, Sensitivity, VarSens, DevSlope, HR, Steps): coloured line, or dots only for BGI, HR and Steps
+ * - Simple series (AbsIOB, BGI, Sensitivity, VarSens, HR, Steps, Activity) and derived traces (EWMA,
+ *   rolling mean, rolling sum): drawn in the trace's plot style and colour (see GraphTraces.kt)
  * - Deviations: Per-type colored step lines with gradient fill (POSITIVE/NEGATIVE/EQUAL/UAM/CSF)
+ *
+ * The first trace uses the left axis, the second the right axis. Two traces share one axis when they
+ * have the same scale: BGI with DEV, or a series with its own EWMA or rolling mean.
  */
 @OptIn(FlowPreview::class)
 @Composable
 fun SecondaryGraphCompose(
     viewModel: GraphViewModel,
-    seriesTypes: List<SeriesType>,
+    traces: List<GraphTrace>,
     scrollState: VicoScrollState,
     zoomState: VicoZoomState,
     derivedTimeRange: Pair<Long, Long>?,
@@ -159,16 +166,9 @@ fun SecondaryGraphCompose(
     modifier: Modifier = Modifier
 ) {
     val dateUtil = LocalDateUtil.current
-    if (seriesTypes.isEmpty()) return
+    if (traces.isEmpty()) return
 
-    // Ensure DEV_SLOPE is always primary — it needs primary to render both dsMax and dsMin lines
-    val orderedTypes = remember(seriesTypes) {
-        val mustBePrimary = setOf(SeriesType.DEV_SLOPE, SeriesType.DEVIATIONS)
-        if (seriesTypes.size >= 2 && seriesTypes[0] !in mustBePrimary && seriesTypes[1] in mustBePrimary)
-            listOf(seriesTypes[1], seriesTypes[0])
-        else
-            seriesTypes
-    }
+    val orderedTraces = remember(traces) { orderTraces(traces) }
 
     val hasRealTimeRange = derivedTimeRange != null
     val (minTimestamp, maxTimestamp) = derivedTimeRange ?: run {
@@ -190,62 +190,71 @@ fun SecondaryGraphCompose(
     // Collect data flows — only for selected series types
     // =========================================================================
 
-    // Primary series = left axis (orderedTypes[0]), secondary series = right axis (orderedTypes[1])
-    val primaryType = orderedTypes[0]
-    val secondaryType = orderedTypes.getOrNull(1)
+    // Primary trace = left axis (orderedTraces[0]), secondary trace = right axis (orderedTraces[1])
+    val primaryTrace = orderedTraces[0]
+    val secondaryTrace = orderedTraces.getOrNull(1)
+    val primaryType = primaryTrace.type
+    val secondaryType = secondaryTrace?.type
+    // The series drawn as it is on the left axis, with its own special drawing. Null when the left
+    // trace is a calculation over a series (EWMA, mean, sum), which is drawn as a simple trace.
+    val rawPrimaryType = primaryType.takeIf { !primaryTrace.isDerived }
 
-    // Specific case: BGI and DEVIATIONS share the same unit (BG change per 5 min, in the user's units) and should share the vertical scale
-    val shareAxis = (primaryType == SeriesType.BGI && secondaryType == SeriesType.DEVIATIONS) ||
-        (primaryType == SeriesType.DEVIATIONS && secondaryType == SeriesType.BGI)
+    // BGI and DEVIATIONS share the same unit (BG change per 5 min, in the user's units) and should share the vertical scale
+    val bgiDevShare = rawPrimaryType != null && secondaryTrace?.isDerived == false &&
+        setOf(primaryType, secondaryType) == setOf(SeriesType.BGI, SeriesType.DEVIATIONS)
+    // A series and its EWMA or rolling mean have the same scale too
+    val sameScaleShare = secondaryTrace != null && primaryTrace.transform.keepsScale && secondaryTrace.keepsScaleOf(primaryType)
+    val shareAxis = bgiDevShare || sameScaleShare
 
-    val isDualAxis = secondaryType != null && !shareAxis
-    val primaryTypes = if (shareAxis) orderedTypes else listOf(primaryType)
+    val isDualAxis = secondaryTrace != null && !shareAxis
+    val primaryTypes = if (bgiDevShare) orderedTraces.map { it.type } else listOfNotNull(rawPrimaryType)
+    // Scale rules (zero floor, pivot...) follow the series, except for a rolling sum, which has its own scale
+    val primaryScaleType = primaryType.takeIf { primaryTrace.transform.keepsScale }
+    val secondaryScaleType = secondaryTrace?.takeIf { it.transform.keepsScale }?.type
 
-    val hasIob = primaryType == SeriesType.IOB
-    val hasCob = primaryType == SeriesType.COB
+    val hasIob = rawPrimaryType == SeriesType.IOB
+    val hasCob = rawPrimaryType == SeriesType.COB
+
+    val seriesColors = rememberSeriesColors()
+    // Look of each series drawn as it is (from its trace, or the defaults for a series that only
+    // comes with another one, like BGI's predictions)
+    fun rawLook(type: SeriesType): TraceLook =
+        lookOf(orderedTraces.firstOrNull { it.type == type && !it.isDerived } ?: GraphTrace(type), seriesColors)
 
     // Collect flows for primary series (includes share flow for DEV and BGI if together on the same graph with shareAxis true)
     val iobData = if (hasIob) viewModel.iobGraphFlow.collectAsStateWithLifecycle().value else null
     val cobData = if (hasCob) viewModel.cobGraphFlow.collectAsStateWithLifecycle().value else null
     val treatmentData = if (hasIob || hasCob) viewModel.treatmentGraphFlow.collectAsStateWithLifecycle().value else null
-    val absIobData = if (primaryType == SeriesType.ABS_IOB) viewModel.absIobGraphFlow.collectAsStateWithLifecycle().value else null
+    val absIobData = if (rawPrimaryType == SeriesType.ABS_IOB) viewModel.absIobGraphFlow.collectAsStateWithLifecycle().value else null
     val bgiData = if (SeriesType.BGI in primaryTypes) viewModel.bgiGraphFlow.collectAsStateWithLifecycle().value else null
     val deviationsData = if (SeriesType.DEVIATIONS in primaryTypes) viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value else null
-    val ratioData = if (primaryType == SeriesType.SENSITIVITY) viewModel.ratioGraphFlow.collectAsStateWithLifecycle().value else null
-    val varSensData = if (primaryType == SeriesType.VAR_SENSITIVITY) viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value else null
-    val devSlopeData = if (primaryType == SeriesType.DEV_SLOPE) viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value else null
-    val hrData = if (primaryType == SeriesType.HEART_RATE) viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value else null
-    val stepsData = if (primaryType == SeriesType.STEPS) viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value else null
+    val ratioData = if (rawPrimaryType == SeriesType.SENSITIVITY) viewModel.ratioGraphFlow.collectAsStateWithLifecycle().value else null
+    val varSensData = if (rawPrimaryType == SeriesType.VAR_SENSITIVITY) viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value else null
+    val devSlopeData = if (rawPrimaryType == SeriesType.DEV_SLOPE) viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value else null
+    val hrData = if (rawPrimaryType == SeriesType.HEART_RATE) viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value else null
+    val stepsData = if (rawPrimaryType == SeriesType.STEPS) viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value else null
     // Activity data: either as primary series OR as overlay (on IOB graph)
-    val needsActivity = primaryType == SeriesType.ACTIVITY || (activityOverlay && hasIob)
+    val needsActivity = rawPrimaryType == SeriesType.ACTIVITY || (activityOverlay && hasIob)
     val activityData = if (needsActivity) viewModel.activityGraphFlow.collectAsStateWithLifecycle().value else null
     // Basal overlay only when IOB is primary and single-axis (no room for basal with dual-axis)
     val basalData = if (hasIob && !isDualAxis) viewModel.basalGraphFlow.collectAsStateWithLifecycle().value else null
 
-    // Collect flow for secondary (right axis) series - (emptyList() if DEV and BGI together)
-    val secondaryLineData = if (!isDualAxis) emptyList() else when (secondaryType) {
-        SeriesType.IOB             -> viewModel.iobGraphFlow.collectAsStateWithLifecycle().value.let {
-            remember(it) { it.iob.map { p -> GraphDataPoint(p.timestamp, p.value) } }
+    // Derived traces drawn on the left axis: the left trace itself when it is one, and the right trace
+    // when it shares the left axis
+    val primaryDerivedTraces = remember(orderedTraces, sameScaleShare) {
+        buildList<GraphTrace> {
+            if (primaryTrace.isDerived) add(primaryTrace)
+            secondaryTrace?.takeIf { sameScaleShare && it.isDerived }?.let { add(it) }
         }
+    }
+    val primaryDerivedPoints = primaryDerivedTraces.map { trace -> key(trace) { rememberTracePoints(viewModel, trace) } }
 
-        SeriesType.ABS_IOB         -> viewModel.absIobGraphFlow.collectAsStateWithLifecycle().value.absIob
-        SeriesType.COB             -> viewModel.cobGraphFlow.collectAsStateWithLifecycle().value.cob
-        SeriesType.BGI             -> viewModel.bgiGraphFlow.collectAsStateWithLifecycle().value.bgi
-        SeriesType.DEVIATIONS      -> viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value.let { data ->
-            remember(data) { data.deviations.map { GraphDataPoint(it.timestamp, it.value) } }
-        }
-
-        SeriesType.SENSITIVITY     -> viewModel.ratioGraphFlow.collectAsStateWithLifecycle().value.let { data ->
-            // Stored as 100*(ratio-1), display shifted by +100 to show as percentage (90%, 110%) —
-            // must match the same shift applied when SENSITIVITY is primary (see processedSimpleSeries).
-            remember(data) { data.ratio.map { GraphDataPoint(it.timestamp, it.value + 100.0) } }
-        }
-        SeriesType.VAR_SENSITIVITY -> viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.varSens
-        SeriesType.DEV_SLOPE       -> viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value.dsMax
-        SeriesType.HEART_RATE      -> viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value.heartRates
-        SeriesType.STEPS           -> viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value.steps
-        SeriesType.ACTIVITY        -> viewModel.activityGraphFlow.collectAsStateWithLifecycle().value.activity
-        SeriesType.PREDICTIONS     -> emptyList() // UI-only overlay flag, not a secondary series
+    // Collect flow for secondary (right axis) series - (emptyList() if it shares the left axis)
+    val dualAxisTrace = secondaryTrace?.takeIf { isDualAxis }
+    val secondaryLineData = when {
+        dualAxisTrace == null   -> emptyList()
+        dualAxisTrace.isDerived -> rememberTracePoints(viewModel, dualAxisTrace)
+        else                    -> rememberSourcePoints(viewModel, dualAxisTrace.type)
     }
 
     // Cache last non-empty treatment data to survive reset() cycles
@@ -259,8 +268,9 @@ fun SecondaryGraphCompose(
     // =========================================================================
 
     // Simple line series processing (excludes BASAL — it's a fixed flipped overlay on IOB)
+    val bgiAsBars = rawLook(SeriesType.BGI).style == PlotStyle.BARS
     val processedSimpleSeries = remember(
-        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, activityData
+        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, activityData, bgiAsBars
     ) {
         if (!hasRealTimeRange) return@remember emptyList()
         buildList {
@@ -268,7 +278,7 @@ fun SecondaryGraphCompose(
                 add(SeriesType.ABS_IOB to processPoints(it, minTimestamp, minX, maxX))
             }
             bgiData?.let {
-                if (it.bgi.isNotEmpty()) add(SeriesType.BGI to centreOnBars(processPoints(it.bgi, minTimestamp, minX, maxX)))
+                if (it.bgi.isNotEmpty()) add(SeriesType.BGI to centreBgi(processPoints(it.bgi, minTimestamp, minX, maxX), bgiAsBars))
             }
             ratioData?.ratio?.takeIf { it.isNotEmpty() }?.let { pts ->
                 // Stored as 100*(ratio-1), display shifted by +100 to show as percentage (90%, 110%)
@@ -288,7 +298,7 @@ fun SecondaryGraphCompose(
             stepsData?.steps?.takeIf { it.isNotEmpty() }?.let {
                 add(SeriesType.STEPS to processPoints(it, minTimestamp, minX, maxX))
             }
-            if (primaryType == SeriesType.ACTIVITY) {
+            if (rawPrimaryType == SeriesType.ACTIVITY) {
                 activityData?.let {
                     if (it.activity.isNotEmpty()) add(SeriesType.ACTIVITY to processPoints(it.activity, minTimestamp, minX, maxX))
                 }
@@ -298,15 +308,34 @@ fun SecondaryGraphCompose(
 
     // The future part of BGI and activity, drawn like the past part. It runs on
     // to the end of insulin action, past the usual right edge of the overview.
-    val processedPredictionSeries = remember(stableTimeRange, bgiData, activityData) {
+    val processedPredictionSeries = remember(stableTimeRange, bgiData, activityData, bgiAsBars) {
         if (!hasRealTimeRange) return@remember emptyList()
         buildList {
             bgiData?.bgiPrediction?.takeIf { it.isNotEmpty() }?.let {
-                add(SeriesType.BGI to centreOnBars(processPoints(it, minTimestamp, minX, maxX)))
+                add(SeriesType.BGI to centreBgi(processPoints(it, minTimestamp, minX, maxX), bgiAsBars))
             }
-            if (primaryType == SeriesType.ACTIVITY) {
+            if (rawPrimaryType == SeriesType.ACTIVITY) {
                 activityData?.activityPrediction?.takeIf { it.isNotEmpty() }?.let {
                     add(SeriesType.ACTIVITY to processPoints(it, minTimestamp, minX, maxX))
+                }
+            }
+        }
+    }
+
+    // Simple series and derived traces of the left axis, shaped for their plot style (bars, a line
+    // broken at gaps, dots). The shape is part of the data, so the axis range sees the bars' zero line.
+    val shapedPrimary = remember(processedSimpleSeries, processedPredictionSeries, primaryDerivedTraces, primaryDerivedPoints, stableTimeRange, orderedTraces, seriesColors) {
+        buildList {
+            for ((type, pts) in processedSimpleSeries + processedPredictionSeries) {
+                val trace = orderedTraces.firstOrNull { it.type == type && !it.isDerived } ?: GraphTrace(type)
+                val look = lookOf(trace, seriesColors)
+                add(ShapedTrace(type, look, shapeForStyle(pts, look.style, trace.barsStartAligned())))
+            }
+            if (hasRealTimeRange) {
+                for ((trace, points) in primaryDerivedTraces.zip(primaryDerivedPoints)) {
+                    val look = lookOf(trace, seriesColors)
+                    val pts = processPoints(points, minTimestamp, minX, maxX)
+                    add(ShapedTrace(trace.type, look, shapeForStyle(pts, look.style, trace.barsStartAligned())))
                 }
             }
         }
@@ -413,6 +442,13 @@ fun SecondaryGraphCompose(
         if (!hasRealTimeRange || secondaryLineData.isEmpty()) return@remember emptyList()
         processPoints(secondaryLineData, minTimestamp, minX, maxX)
     }
+    val secondaryLook = remember(secondaryTrace, seriesColors) { secondaryTrace?.let { lookOf(it, seriesColors) } }
+    // Shaped for the plot style like the left axis traces. The flat list is what the axis range uses.
+    val shapedSecondary = remember(processedSecondary, secondaryLook, secondaryTrace) {
+        if (secondaryLook == null || secondaryTrace == null) emptyList()
+        else shapeForStyle(processedSecondary, secondaryLook.style, secondaryTrace.barsStartAligned())
+    }
+    val secondaryPoints = remember(shapedSecondary) { shapedSecondary.flatten() }
 
     // Visible-window bounds (same x-unit as processed* points — minutes from minTimestamp) for
     // windowing the Y-axis scale to only the currently scrolled/zoomed portion of this graph's
@@ -475,7 +511,7 @@ fun SecondaryGraphCompose(
     // stale 0..1 axis until the next recomposition ("renders wrong, then fixes itself").
     val primarySeries = remember(
         processedDeviationLines, processedIob, processedIobTreatments, processedCob,
-        processedCarbs, processedSimpleSeries, processedPredictionSeries, processedDevSlopeMin, processedActivityOverlay
+        processedCarbs, shapedPrimary, processedDevSlopeMin, processedActivityOverlay
     ) {
         buildList {
             // Deviation lines (per-type step lines) — first so other series draw on top
@@ -505,14 +541,12 @@ fun SecondaryGraphCompose(
                 add(PrimarySeriesSpec(failoverFiltered.map { it.first }, failoverFiltered.map { it.second }, SeriesSlot.FailoverDots))
             if (processedCarbs.isNotEmpty())
                 add(PrimarySeriesSpec(processedCarbs.map { it.first }, processedCarbs.map { it.second }, SeriesSlot.CarbsMarker))
-            // Simple line series
-            processedSimpleSeries.forEach { (type, pts) ->
-                if (pts.isNotEmpty())
-                    add(PrimarySeriesSpec(pts.map { it.first }, pts.map { it.second }, SeriesSlot.SimpleLine(type)))
-            }
-            processedPredictionSeries.forEach { (type, pts) ->
-                if (pts.isNotEmpty())
-                    add(PrimarySeriesSpec(pts.map { it.first }, pts.map { it.second }, SeriesSlot.SimpleLine(type)))
+            // Simple series and derived traces, one series per run (a line broken at gaps has several)
+            for (trace in shapedPrimary) {
+                for (run in trace.runs) {
+                    if (run.isNotEmpty())
+                        add(PrimarySeriesSpec(run.map { it.first }, run.map { it.second }, SeriesSlot.Trace(trace.look)))
+                }
             }
             // DevSlope min (separate slot for magenta color)
             if (processedDevSlopeMin.isNotEmpty())
@@ -531,7 +565,6 @@ fun SecondaryGraphCompose(
     // Line styles
     // =========================================================================
 
-    val seriesColors = rememberSeriesColors()
     val iobLineStyle = rememberIobLineStyles()
     val cobLineStyle = rememberCobLineStyles()
     val normalizerLine = remember { createNormalizerLine() }
@@ -553,7 +586,7 @@ fun SecondaryGraphCompose(
                         SeriesSlot.CarbsMarker      -> cobLineStyle.carbsLine
                         SeriesSlot.DevSlopeMin      -> createDevSlopeMinLine()
                         SeriesSlot.ActivityOverlay  -> createSeriesLine(SeriesType.ACTIVITY, seriesColors)
-                        is SeriesSlot.SimpleLine    -> createSeriesLine(slot.type, seriesColors)
+                        is SeriesSlot.Trace         -> createTraceLine(slot.look)
                     }
                 )
             }
@@ -613,9 +646,9 @@ fun SecondaryGraphCompose(
     // `primaryY=[null..null] n=0` against `modelY=[0.0..43.0] slots=[CarbsMarker]`, giving an axis of
     // 0..44 that a COB curve reaching 148 was drawn straight through.
     val primaryYValues = remember(
-        processedIob, processedCob, processedCarbs, processedSimpleSeries, processedPredictionSeries, processedDevSlopeMin, processedDeviationLines, visibleMinX, visibleMaxX
+        processedIob, processedCob, processedCarbs, shapedPrimary, processedDevSlopeMin, processedDeviationLines, visibleMinX, visibleMaxX
     ) {
-        windowedPrimaryY(visibleMinX, visibleMaxX, processedIob, processedCob.first, processedCarbs, processedSimpleSeries + processedPredictionSeries, processedDevSlopeMin, processedDeviationLines)
+        windowedPrimaryY(visibleMinX, visibleMaxX, processedIob, processedCob.first, processedCarbs, shapedPrimary.map { it.type to it.runs.flatten() }, processedDevSlopeMin, processedDeviationLines)
     }
 
     // IOB (with basal overlay active): zero-floor nice range — 0 if the visible window has no
@@ -650,17 +683,17 @@ fun SecondaryGraphCompose(
     // below a point that is "below zero" on the other. We compute a shared zero
     // fraction from both data extents and extend each side's range to match it.
     // Only applied to true dual-axis case (no basal overlay, secondary present).
-    val dualAxisRanges = remember(isDualAxis, hasBasalLayer, primaryYValues, processedSecondary, visibleMinX, visibleMaxX) {
+    val dualAxisRanges = remember(isDualAxis, hasBasalLayer, primaryYValues, secondaryPoints, visibleMinX, visibleMaxX) {
         if (!isDualAxis || hasBasalLayer) return@remember null
-        val secondaryY = windowedY(processedSecondary, visibleMinX, visibleMaxX)
+        val secondaryY = windowedY(secondaryPoints, visibleMinX, visibleMaxX)
         if (primaryYValues.isEmpty() || secondaryY.isEmpty()) return@remember null
 
-        val primaryIsPivot = primaryType == SeriesType.SENSITIVITY || primaryType == SeriesType.DEV_SLOPE
-        val secondaryIsPivot = secondaryType == SeriesType.SENSITIVITY || secondaryType == SeriesType.DEV_SLOPE
+        val primaryIsPivot = primaryScaleType == SeriesType.SENSITIVITY || primaryScaleType == SeriesType.DEV_SLOPE
+        val secondaryIsPivot = secondaryScaleType == SeriesType.SENSITIVITY || secondaryScaleType == SeriesType.DEV_SLOPE
         if (primaryIsPivot != secondaryIsPivot) {
             // Exactly one side is pivot-centered (SENS/DEV_SLOPE), the other zero-floor-style
             // (e.g. COB, BGI) — see [pivotZeroFloorPairing] for how each side's range is built.
-            val isSensPivot = primaryType == SeriesType.SENSITIVITY || secondaryType == SeriesType.SENSITIVITY
+            val isSensPivot = primaryScaleType == SeriesType.SENSITIVITY || secondaryScaleType == SeriesType.SENSITIVITY
             val pivot = if (isSensPivot) 100.0 else 0.0
             val pivotMinDeviation = if (isSensPivot) SENS_MIN_DEVIATION else 0.0
             val pivotTickCount = if (isSensPivot) SENS_PIVOT_TICK_COUNT else SECONDARY_GRAPH_TICK_COUNT
@@ -682,8 +715,8 @@ fun SecondaryGraphCompose(
             // Both sides pivot-centered (SENS + DEV_SLOPE together — unusual but possible): keep
             // the existing pivot-aware zero alignment, both are symmetric around their own pivot
             // anyway so the old mechanism is adequate here.
-            val primaryPivot = if (primaryType == SeriesType.SENSITIVITY) 100.0 else 0.0
-            val secondaryPivot = if (secondaryType == SeriesType.SENSITIVITY) 100.0 else 0.0
+            val primaryPivot = if (primaryScaleType == SeriesType.SENSITIVITY) 100.0 else 0.0
+            val secondaryPivot = if (secondaryScaleType == SeriesType.SENSITIVITY) 100.0 else 0.0
             return@remember alignZeros(primaryYValues.min(), primaryYValues.max(), secondaryY.min(), secondaryY.max(), primaryPivot, secondaryPivot)
         }
 
@@ -745,9 +778,9 @@ fun SecondaryGraphCompose(
     // excursion, same rule as IOB); VAR_SENSITIVITY/HEART_RATE are free-range (no zero anchor);
     // SENSITIVITY/DEV_SLOPE are pivot-centered (pivot always lands exactly at mid-axis). Takes
     // precedence over primaryConstantRange/primaryAutoRange for these specific series types.
-    val primarySingleAxisScale = remember(primaryType, dualAxisRanges, hasBasalLayer, primaryYValues) {
+    val primarySingleAxisScale = remember(primaryScaleType, dualAxisRanges, hasBasalLayer, primaryYValues) {
         if (dualAxisRanges != null || hasBasalLayer || primaryYValues.isEmpty()) return@remember null
-        when (primaryType) {
+        when (primaryScaleType) {
             SeriesType.COB                                    -> niceScale(0.0, primaryYValues.max().coerceAtLeast(0.0), SECONDARY_GRAPH_TICK_COUNT)
             in ZERO_FLOOR_SERIES_TYPES                         -> zeroFloorNiceRange(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
             SeriesType.VAR_SENSITIVITY, SeriesType.HEART_RATE  -> niceScale(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
@@ -806,17 +839,13 @@ fun SecondaryGraphCompose(
         CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = -basalMaxY, maxY = 0.0)
     }
 
-    // Secondary axis line style (colored by series type)
-    val secondaryAxisColor = secondaryType?.let { seriesColors.colorFor(it) } ?: Color.Gray
-    val secondaryAxisLine = remember(secondaryAxisColor) {
-        LineCartesianLayer.Line(
-            fill = LineCartesianLayer.LineFill.single(Fill(secondaryAxisColor)),
-            areaFill = LineCartesianLayer.AreaFill.single(
-                fill = Fill(Color.Transparent)
-            )
-        )
+    // Secondary axis lines: one per run of the right axis trace, in its look. With no data a single
+    // invisible line keeps the layer valid.
+    val secondaryAxisLines = remember(shapedSecondary, secondaryLook, normalizerLine) {
+        val traceLines = if (secondaryLook != null && shapedSecondary.isNotEmpty()) shapedSecondary.map { createTraceLine(secondaryLook) }
+        else listOf(LineCartesianLayer.Line(fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)), areaFill = null))
+        traceLines + normalizerLine
     }
-    val secondaryAxisLines = remember(secondaryAxisLine, normalizerLine) { listOf(secondaryAxisLine, normalizerLine) }
     // Secondary range: zero-aligned counterpart to primary when available, otherwise auto-range.
     val secondaryRangeProvider = remember(maxX, dualAxisRanges) {
         if (dualAxisRanges != null)
@@ -826,8 +855,7 @@ fun SecondaryGraphCompose(
     }
 
     LaunchedEffect(
-        processedSimpleSeries,
-        processedPredictionSeries,
+        primarySeries,
         processedDevSlopeMin,
         processedDeviationLines,
         processedIob,
@@ -836,7 +864,7 @@ fun SecondaryGraphCompose(
         processedCarbs,
         processedBasalProfile,
         processedBasalActual,
-        processedSecondary,
+        shapedSecondary,
         processedActivityOverlay,
         maxX,
         // The axis ranges, not the visible window: the window moves on every scroll, the rounded
@@ -874,8 +902,8 @@ fun SecondaryGraphCompose(
                 }
             } else if (isDualAxis) {
                 lineModel {
-                    if (processedSecondary.isNotEmpty()) {
-                        series(x = processedSecondary.map { it.first }, y = processedSecondary.map { it.second })
+                    if (shapedSecondary.isNotEmpty()) {
+                        shapedSecondary.forEach { run -> series(x = run.map { it.first }, y = run.map { it.second }) }
                     } else {
                         series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
                     }
@@ -977,6 +1005,9 @@ fun SecondaryGraphCompose(
 // Series slot identifiers (for matching line styles to data series)
 // =========================================================================
 
+/** A simple series or derived trace, shaped into runs for its plot style. */
+private class ShapedTrace(val type: SeriesType, val look: TraceLook, val runs: List<List<Pair<Double, Double>>>)
+
 /** One primary-layer series: its x/y data plus the slot that selects its line style. */
 private class PrimarySeriesSpec(val x: List<Double>, val y: List<Double>, val slot: SeriesSlot)
 
@@ -991,7 +1022,7 @@ private sealed class SeriesSlot {
     data object CobLine : SeriesSlot()
     data object FailoverDots : SeriesSlot()
     data object CarbsMarker : SeriesSlot()
-    data class SimpleLine(val type: SeriesType) : SeriesSlot()
+    data class Trace(val look: TraceLook) : SeriesSlot()
 
     data object DevSlopeMin : SeriesSlot()
     data object ActivityOverlay : SeriesSlot()
@@ -1088,6 +1119,59 @@ private fun centreOnBars(points: List<Pair<Double, Double>>): List<Pair<Double, 
         val nextX = points.getOrNull(index + 1)?.first ?: (x + 5.0)
         (x + (nextX - x) / 2.0) to y
     }
+
+/** BGI dots sit in the middle of the DEV bars. As bars it keeps its own times, like DEV. */
+private fun centreBgi(points: List<Pair<Double, Double>>, asBars: Boolean): List<Pair<Double, Double>> =
+    if (asBars) points else centreOnBars(points)
+
+/**
+ * The traces in drawing order: the first gets the left axis. DEV slope and DEV drawn as they are must
+ * be first (DEV slope needs the left axis for both of its lines), and a series comes before a
+ * calculation over it, so the two can share the series' axis.
+ */
+internal fun orderTraces(traces: List<GraphTrace>): List<GraphTrace> {
+    if (traces.size < 2) return traces
+    val first = traces[0]
+    val second = traces[1]
+    fun mustBePrimary(trace: GraphTrace) = !trace.isDerived && (trace.type == SeriesType.DEV_SLOPE || trace.type == SeriesType.DEVIATIONS)
+    val swap = (mustBePrimary(second) && !mustBePrimary(first)) || (second.type == first.type && !second.isDerived && first.isDerived)
+    return if (swap) listOf(second, first) + traces.drop(2) else traces
+}
+
+/** The points of a series as a single value list (DEV without its types, DEV slope's upper line, sensitivity in %). */
+@Composable
+internal fun rememberSourcePoints(viewModel: GraphViewModel, type: SeriesType): List<GraphDataPoint> = when (type) {
+    SeriesType.IOB             -> viewModel.iobGraphFlow.collectAsStateWithLifecycle().value.let {
+        remember(it) { it.iob.map { p -> GraphDataPoint(p.timestamp, p.value) } }
+    }
+
+    SeriesType.ABS_IOB         -> viewModel.absIobGraphFlow.collectAsStateWithLifecycle().value.absIob
+    SeriesType.COB             -> viewModel.cobGraphFlow.collectAsStateWithLifecycle().value.cob
+    SeriesType.BGI             -> viewModel.bgiGraphFlow.collectAsStateWithLifecycle().value.bgi
+    SeriesType.DEVIATIONS      -> viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value.let { data ->
+        remember(data) { data.deviations.map { GraphDataPoint(it.timestamp, it.value) } }
+    }
+
+    SeriesType.SENSITIVITY     -> viewModel.ratioGraphFlow.collectAsStateWithLifecycle().value.let { data ->
+        // Stored as 100*(ratio-1), display shifted by +100 to show as percentage (90%, 110%) —
+        // must match the same shift applied when SENSITIVITY is primary (see processedSimpleSeries).
+        remember(data) { data.ratio.map { GraphDataPoint(it.timestamp, it.value + 100.0) } }
+    }
+
+    SeriesType.VAR_SENSITIVITY -> viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.varSens
+    SeriesType.DEV_SLOPE       -> viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value.dsMax
+    SeriesType.HEART_RATE      -> viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value.heartRates
+    SeriesType.STEPS           -> viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value.steps
+    SeriesType.ACTIVITY        -> viewModel.activityGraphFlow.collectAsStateWithLifecycle().value.activity
+    SeriesType.PREDICTIONS     -> emptyList() // UI-only overlay flag, not a secondary series
+}
+
+/** The points of [trace]: its series, with the trace's calculation applied. */
+@Composable
+internal fun rememberTracePoints(viewModel: GraphViewModel, trace: GraphTrace): List<GraphDataPoint> {
+    val source = rememberSourcePoints(viewModel, trace.type)
+    return remember(source, trace.transform, trace.windowMinutes) { source.transformed(trace.transform, trace.windowMinutes) }
+}
 
 /**
  * [processPoints] for a step series that has to reach the right edge of the axis.
@@ -1258,44 +1342,8 @@ private fun createDevSlopeMinLine(): LineCartesianLayer.Line {
     )
 }
 
-/** A dot at each point and no connecting line (heart rate, steps, BGI). */
-private fun dotsOnly(dot: ShapeComponent): LineCartesianLayer.Line =
-    LineCartesianLayer.Line(
-        fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
-        areaFill = null,
-        pointProvider = LineCartesianLayer.PointProvider.single(LineCartesianLayer.Point(component = dot, size = 4.dp))
-    )
-
-/** Create a line style for a given series type, matching legacy rendering */
-fun createSeriesLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer.Line {
-    val color = colors.colorFor(type)
-    return when (type) {
-        // Step function with area fill (like IOB)
-        SeriesType.ABS_IOB                                                       -> LineCartesianLayer.Line(
-            fill = LineCartesianLayer.LineFill.single(Fill(color)),
-            areaFill = LineCartesianLayer.AreaFill.single(
-                Fill(Brush.verticalGradient(listOf(color.copy(alpha = 0.3f), Color.Transparent)))
-            ),
-            interpolator = Square
-        )
-        // Line only, no fill
-        SeriesType.DEV_SLOPE, SeriesType.SENSITIVITY, SeriesType.VAR_SENSITIVITY -> LineCartesianLayer.Line(
-            fill = LineCartesianLayer.LineFill.single(Fill(color)),
-            areaFill = null
-        )
-        // Points/dots only — no connecting line. BGI is a change per 5 minutes, one dot per
-        // 5 minutes (centred on the DEV bars, see centreOnBars).
-        SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.BGI                  ->
-            dotsOnly(ShapeComponent(fill = Fill(color), shape = CircleShape))
-        // Default: smooth line with gradient area fill
-        else                                                                     -> LineCartesianLayer.Line(
-            fill = LineCartesianLayer.LineFill.single(Fill(color)),
-            areaFill = LineCartesianLayer.AreaFill.single(
-                Fill(Brush.verticalGradient(listOf(color.copy(alpha = 0.3f), Color.Transparent)))
-            )
-        )
-    }
-}
+/** The default line for a series drawn as it is (see [defaultStyle]). */
+fun createSeriesLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer.Line = createTraceLine(lookOf(GraphTrace(type), colors))
 
 // =========================================================================
 // IOB line styles (bolus markers)

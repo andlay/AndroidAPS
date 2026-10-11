@@ -1,8 +1,11 @@
 package app.aaps.ui.compose.overview.graphs
 
 import app.aaps.core.interfaces.overview.graph.GraphConfig
+import app.aaps.core.interfaces.overview.graph.GraphTrace
+import app.aaps.core.interfaces.overview.graph.PlotStyle
 import app.aaps.core.interfaces.overview.graph.SecondaryGraph
 import app.aaps.core.interfaces.overview.graph.SeriesType
+import app.aaps.core.interfaces.overview.graph.TraceTransform
 import com.google.common.truth.Truth.assertThat
 import org.junit.jupiter.api.Test
 
@@ -23,7 +26,7 @@ class GraphConfigRepositoryImplTest {
             iobOverlays = listOf(SeriesType.ACTIVITY),
             bgHeight = 200,
             iobHeight = 150,
-            secondaryGraphs = listOf(SecondaryGraph(listOf(SeriesType.COB), 180))
+            secondaryGraphs = listOf(SecondaryGraph.of(listOf(SeriesType.COB), 180))
         )
 
         val restored = GraphConfigRepositoryImpl.fromJson(GraphConfigRepositoryImpl.toJson(config))
@@ -97,5 +100,56 @@ class GraphConfigRepositoryImplTest {
         val restored = GraphConfigRepositoryImpl.fromJson("""{"bgOverlays":[]}""")
 
         assertThat(restored.bgOverlays).isEmpty()
+    }
+
+    @Test
+    fun `traces with calculations and looks survive a round trip`() {
+        val config = GraphConfig(
+            secondaryGraphs = listOf(
+                SecondaryGraph(
+                    listOf(
+                        GraphTrace(SeriesType.HEART_RATE, style = PlotStyle.POINTS, color = 0xFFFF5252),
+                        GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA, 45)
+                    ),
+                    120
+                )
+            )
+        )
+
+        val restored = GraphConfigRepositoryImpl.fromJson(GraphConfigRepositoryImpl.toJson(config))
+
+        assertThat(restored).isEqualTo(config)
+    }
+
+    @Test
+    fun `the series names are still written for older versions`() {
+        val config = GraphConfig(
+            secondaryGraphs = listOf(SecondaryGraph(listOf(GraphTrace(SeriesType.STEPS), GraphTrace(SeriesType.STEPS, TraceTransform.ROLLING_SUM, 60))))
+        )
+
+        // An older version reads only "series": it must still find the series once
+        val olderView = GraphConfigRepositoryImpl.fromJson(
+            GraphConfigRepositoryImpl.toJson(config).replace("\"traces\"", "\"ignored\"")
+        )
+
+        assertThat(olderView.secondaryGraphs.first().series).containsExactly(SeriesType.STEPS)
+    }
+
+    @Test
+    fun `repeated and unknown traces are dropped and options are checked`() {
+        val restored = GraphConfigRepositoryImpl.fromJson(
+            """{"secondaryGraphs":[{"series":["STEPS"],"traces":[
+                {"type":"NOT_A_SERIES"},
+                {"type":"STEPS","transform":"ROLLING_SUM","window":100000,"style":"NOT_A_STYLE"},
+                {"type":"STEPS","transform":"ROLLING_SUM","window":100000},
+                {"type":"COB"}
+            ]}]}"""
+        )
+
+        val traces = restored.secondaryGraphs.first().traces
+        assertThat(traces).containsExactly(
+            GraphTrace(SeriesType.STEPS, TraceTransform.ROLLING_SUM, GraphTrace.MAX_WINDOW_MINUTES),
+            GraphTrace(SeriesType.COB)
+        ).inOrder()
     }
 }

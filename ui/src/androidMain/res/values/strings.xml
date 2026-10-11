@@ -371,4 +371,23 @@
     <string name="ai_send">Send</string>
     <string name="ai_show_data">Show data</string>
     <string name="ai_hide_data">Hide data</string>
+    <string name="graph_traces">Traces</string>
+    <string name="graph_trace_add">Add calculated trace</string>
+    <string name="graph_trace_series">Series</string>
+    <string name="graph_trace_calculation">Calculation</string>
+    <string name="graph_trace_window">Window</string>
+    <string name="graph_trace_style">Style</string>
+    <string name="graph_trace_colour">Colour</string>
+    <string name="graph_trace_reset">Reset</string>
+    <string name="graph_transform_none" comment="Graph trace calculation: show the series as it is">None</string>
+    <string name="graph_transform_ewma" comment="Graph trace calculation: exponentially weighted moving average. Keep the short form EWMA if there is no common local term">EWMA</string>
+    <string name="graph_transform_mean" comment="Graph trace calculation: average over a moving time window">Rolling mean</string>
+    <string name="graph_transform_sum" comment="Graph trace calculation: sum over a moving time window, for example steps per hour">Rolling sum</string>
+    <string name="graph_style_line" comment="Graph plot style">Line</string>
+    <string name="graph_style_points" comment="Graph plot style: a dot at each value">Points</string>
+    <string name="graph_style_bars" comment="Graph plot style">Bars</string>
+    <string name="graph_style_area" comment="Graph plot style: a line with a filled area below it">Area</string>
+    <string name="graph_trace_ewma_label" comment="Short graph label. %1$s=series short name, %2$d=window in minutes. Example: HR EWMA 30m">%1$s EWMA %2$dm</string>
+    <string name="graph_trace_mean_label" comment="Short graph label for a rolling mean. %1$s=series short name, %2$d=window in minutes. Example: HR mean 60m">%1$s mean %2$dm</string>
+    <string name="graph_trace_sum_label" comment="Short graph label for a rolling sum. %1$s=series short name, %2$d=window in minutes. Example: STEPS sum 60m">%1$s sum %2$dm</string>
 </resources>
