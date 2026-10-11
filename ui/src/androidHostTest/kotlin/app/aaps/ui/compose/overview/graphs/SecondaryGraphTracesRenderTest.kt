@@ -2,6 +2,9 @@ package app.aaps.ui.compose.overview.graphs
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -108,4 +111,36 @@ class SecondaryGraphTracesRenderTest {
     @Test fun `heart rate as bars`() = render(listOf(GraphTrace(SeriesType.HEART_RATE, style = PlotStyle.BARS)))
 
     @Test fun `ewma over deviations`() = render(listOf(GraphTrace(SeriesType.DEVIATIONS), GraphTrace(SeriesType.DEVIATIONS, TraceTransform.EWMA)))
+
+    @Test
+    fun `changing the traces while the graph is shown`() {
+        val graph = viewModels.graphViewModel
+        var traces by mutableStateOf(listOf(GraphTrace(SeriesType.HEART_RATE), GraphTrace(SeriesType.STEPS)))
+        compose.setAapsContent(screen) {
+            SecondaryGraphCompose(
+                viewModel = graph,
+                traces = traces,
+                scrollState = rememberVicoScrollState(scrollEnabled = false, initialScroll = Scroll.Absolute.End),
+                zoomState = rememberVicoZoomState(zoomEnabled = false),
+                derivedTimeRange = start to end,
+                nowTimestamp = end,
+                modifier = Modifier.fillMaxWidth().height(150.dp)
+            )
+        }
+        compose.waitForIdle()
+        val steps = listOf(
+            listOf(GraphTrace(SeriesType.HEART_RATE), GraphTrace(SeriesType.STEPS, TraceTransform.EWMA)),
+            listOf(GraphTrace(SeriesType.HEART_RATE), GraphTrace(SeriesType.STEPS, TraceTransform.ROLLING_SUM)),
+            listOf(GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA), GraphTrace(SeriesType.STEPS, TraceTransform.ROLLING_SUM)),
+            listOf(GraphTrace(SeriesType.STEPS), GraphTrace(SeriesType.STEPS, TraceTransform.ROLLING_SUM)),
+            listOf(GraphTrace(SeriesType.STEPS), GraphTrace(SeriesType.STEPS, TraceTransform.EWMA)),
+            listOf(GraphTrace(SeriesType.HEART_RATE), GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA)),
+            listOf(GraphTrace(SeriesType.HEART_RATE))
+        )
+        for (next in steps) {
+            compose.runOnIdle { traces = next }
+            compose.mainClock.advanceTimeBy(2_000)
+            compose.waitForIdle()
+        }
+    }
 }
