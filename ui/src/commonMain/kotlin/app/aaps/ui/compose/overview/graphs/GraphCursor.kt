@@ -528,11 +528,11 @@ private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, traces: Lis
         val look = lookOf(trace, colors)
         val label = traceLabel(trace)
         val color = look.color
+        // No early return out of this lambda: it holds composable calls, so both ways go through one if/else
         if (trace.isDerived) {
             val points = key(trace) { rememberTracePoints(viewModel, trace) }
-            return@flatMap listOf(index to CursorSeries(label, color, points, formatFor(type, formats), marker = markerFor(look.style)))
-        }
-        when (type) {
+            listOf(index to CursorSeries(label, color, points, formatFor(type, formats), marker = markerFor(look.style)))
+        } else when (type) {
             SeriesType.IOB             -> {
                 val data by viewModel.iobGraphFlow.collectAsStateWithLifecycle()
                 listOf(CursorSeries(label, color, data.iob, formats.insulin))

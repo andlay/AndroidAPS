@@ -189,8 +189,8 @@ private const val BAR_GAP_FRACTION = 0.15
  * back to zero. Each bar is as wide as the time to the next (or previous) point, but never wider
  * than the usual gap, so a bar after a gap in the data is not stretched over the gap.
  *
- * @param startAligned true when a point is the start of the time it covers (heart rate, BGI), false
- *   when it is the end (a 5 minute step count, a rolling value over the time before it)
+ * @param startAligned true when a point is the start of the time it covers (heart rate, BGI, steps),
+ *   false when it is the end (a rolling value over the time before it)
  */
 internal fun barPoints(points: List<Pair<Double, Double>>, startAligned: Boolean): List<Pair<Double, Double>> {
     // x has to grow strictly, so a second point at the same time is dropped
@@ -216,8 +216,12 @@ internal fun barPoints(points: List<Pair<Double, Double>>, startAligned: Boolean
     return out
 }
 
-/** True when a point of this trace is the start of the time it covers. */
-internal fun GraphTrace.barsStartAligned(): Boolean = !isDerived && (type == SeriesType.HEART_RATE || type == SeriesType.BGI)
+/**
+ * True when a point of this trace is the start of the time it covers: heart rate and BGI, and steps,
+ * which the overview puts on the 5 minute grid at the start of each bucket (like the DEV bars).
+ */
+internal fun GraphTrace.barsStartAligned(): Boolean =
+    !isDerived && (type == SeriesType.HEART_RATE || type == SeriesType.BGI || type == SeriesType.STEPS)
 
 /**
  * The runs to draw for one trace in [style]: bars, runs broken at gaps for a line or area, or the

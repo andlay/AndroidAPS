@@ -1215,10 +1215,12 @@ class OverviewDataCacheImpl(
 
     private suspend fun rebuildStepsGraph() {
         val (fromTime, toTime) = graphTimeRange() ?: return
-        val steps = persistenceLayer.getStepsCountFromTimeToTime(fromTime, toTime)
+        val records = persistenceLayer.getStepsCountFromTimeToTime(fromTime, toTime)
             .filter { it.isValid }
-            .map { sc -> GraphDataPoint(timestamp = sc.timestamp, value = sc.steps5min.toDouble()) }
-        _stepsGraphFlow.value = StepsGraphData(steps)
+            .map { sc -> sc.timestamp to sc.steps5min }
+        // On the same 5 minute grid as the bucketed BG, so the bars line up with the DEV bars
+        val anchor = _bucketedDataFlow.value.lastOrNull()?.timestamp ?: _bgReadingsFlow.value.lastOrNull()?.timestamp ?: 0L
+        _stepsGraphFlow.value = StepsGraphData(stepsOnGrid(records, anchor))
     }
 
     override fun reset() {
