@@ -228,6 +228,15 @@ jobs:
             -Dorg.gradle.jvmargs="-Xmx8g -XX:+UseParallelGC -Xss4m" \
             -Dkotlin.daemon.jvm.options="-Xmx2g"
 
+      - name: Unit test summary
+        if: ${{ always() && inputs.unitTests != '' }}
+        run: |
+          # One line per test class: how many ran, failed and were skipped. Passing tests print
+          # nothing on CI, so without this a filter that matched nothing would look like a pass.
+          find . -path "*/build/test-results/*" -name "TEST-*.xml" | sort | while read -r f; do
+            sed -n 's/.*<testsuite name="\([^"]*\)" tests="\([0-9]*\)" skipped="\([0-9]*\)" failures="\([0-9]*\)" errors="\([0-9]*\)".*/\1: \2 run, \4 failed, \5 errors, \3 skipped/p' "$f"
+          done
+
       - name: Show failed unit tests
         if: ${{ failure() && inputs.unitTests != '' }}
         run: |
