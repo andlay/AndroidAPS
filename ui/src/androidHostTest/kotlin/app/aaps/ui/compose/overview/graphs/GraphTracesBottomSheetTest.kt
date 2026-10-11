@@ -11,7 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.geometry.Offset
 import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.overview.graph.TraceTransform
@@ -95,7 +95,7 @@ class GraphTracesBottomSheetTest {
     }
 
     @Test
-    fun `dragging the sheet down twice closes it`() {
+    fun `dragging the sheet down closes it without a crash`() {
         var dismissed = false
         compose.setAapsContent(screen) {
             var shown by remember { mutableStateOf(true) }
@@ -119,9 +119,11 @@ class GraphTracesBottomSheetTest {
         compose.onNodeWithText("HR mean 10m").performScrollTo().performClick()
         compose.waitForIdle()
 
+        // A long drag down from the title, as a finger pulls the sheet away. Twice, like on the phone,
+        // in case the first one only moved it.
         repeat(2) {
             if (!dismissed) {
-                compose.onNodeWithText("Graph 4").performTouchInput { swipeDown() }
+                compose.onNodeWithText("Graph 4").performTouchInput { swipe(start = center, end = center + Offset(0f, 3000f), durationMillis = 300) }
                 compose.mainClock.advanceTimeBy(1_000)
                 compose.waitForIdle()
             }
