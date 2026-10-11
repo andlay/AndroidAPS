@@ -10,6 +10,8 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.overview.graph.TraceTransform
@@ -90,5 +92,41 @@ class GraphTracesBottomSheetTest {
         compose.waitForIdle()
 
         assertThat(latest[1]).isEqualTo(GraphTrace(SeriesType.STEPS, TraceTransform.EWMA))
+    }
+
+    @Test
+    fun `dragging the sheet down twice closes it`() {
+        var dismissed = false
+        compose.setAapsContent(screen) {
+            var shown by remember { mutableStateOf(true) }
+            var traces by remember {
+                mutableStateOf(listOf(GraphTrace(SeriesType.STEPS, TraceTransform.ROLLING_MEAN, 30), GraphTrace(SeriesType.HEART_RATE, TraceTransform.ROLLING_MEAN, 10)))
+            }
+            if (shown) {
+                GraphTracesBottomSheet(
+                    title = "Graph 4",
+                    traces = traces,
+                    availableSeries = SeriesType.entries.filter { it != SeriesType.IOB && it != SeriesType.PREDICTIONS },
+                    height = 100,
+                    onHeightChange = {},
+                    onTracesChange = { traces = it },
+                    onDismiss = { shown = false; dismissed = true }
+                )
+            }
+        }
+        compose.waitForIdle()
+        // Open the options of the second trace, so the sheet is tall, like on the phone
+        compose.onNodeWithText("HR mean 10m").performScrollTo().performClick()
+        compose.waitForIdle()
+
+        repeat(2) {
+            if (!dismissed) {
+                compose.onNodeWithText("Graph 4").performTouchInput { swipeDown() }
+                compose.mainClock.advanceTimeBy(1_000)
+                compose.waitForIdle()
+            }
+        }
+
+        assertThat(dismissed).isTrue()
     }
 }
