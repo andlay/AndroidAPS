@@ -211,6 +211,7 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner, 
 
         // Here should be everything injected
         aapsLogger.debug("onCreate")
+        logCrashesToLogFile()
         ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleListener)
 
         // Background fallback for EventShowSnackbar: when no GlobalSnackbarHost is collecting,
@@ -555,6 +556,21 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner, 
                 return@setErrorHandler
             }
             aapsLogger.warn(LTag.CORE, "Undeliverable exception received, not sure what to do", e.localizedMessage)
+        }
+    }
+
+    /**
+     * Writes an app crash into AndroidAPS.log before the app closes, so "Send logs" in Maintenance
+     * carries the stack trace. Without it a crash only reaches logcat and Crashlytics, which a user
+     * with their own build cannot read. The file appender writes at once, so the line is on disk
+     * before the process ends. The handler that was there before (Crashlytics, then Android) still
+     * runs afterwards, so nothing else changes.
+     */
+    private fun logCrashesToLogFile() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching { aapsLogger.error(LTag.CORE, "App crash on thread ${thread.name}", throwable) }
+            previous?.uncaughtException(thread, throwable)
         }
     }
 

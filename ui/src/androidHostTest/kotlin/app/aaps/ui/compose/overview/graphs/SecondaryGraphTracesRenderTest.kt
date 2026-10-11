@@ -108,6 +108,20 @@ class SecondaryGraphTracesRenderTest {
         )
     )
 
+    @Test fun `a series with several calculations and a rolling sum on the right`() = render(
+        listOf(
+            GraphTrace(SeriesType.HEART_RATE),
+            GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA, 30),
+            GraphTrace(SeriesType.HEART_RATE, TraceTransform.ROLLING_MEAN, 60),
+            GraphTrace(SeriesType.STEPS, TraceTransform.ROLLING_SUM, 60),
+            GraphTrace(SeriesType.STEPS, TraceTransform.ROLLING_SUM, 60, style = PlotStyle.BARS)
+        )
+    )
+
+    @Test fun `only calculations, no series`() = render(
+        listOf(GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA, 30), GraphTrace(SeriesType.HEART_RATE, TraceTransform.ROLLING_MEAN, 30))
+    )
+
     @Test fun `heart rate as bars`() = render(listOf(GraphTrace(SeriesType.HEART_RATE, style = PlotStyle.BARS)))
 
     @Test fun `ewma over deviations`() = render(listOf(GraphTrace(SeriesType.DEVIATIONS), GraphTrace(SeriesType.DEVIATIONS, TraceTransform.EWMA)))

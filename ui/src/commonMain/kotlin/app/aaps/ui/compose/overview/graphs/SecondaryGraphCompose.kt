@@ -190,24 +190,23 @@ fun SecondaryGraphCompose(
     // Collect data flows — only for selected series types
     // =========================================================================
 
-    // Primary trace = left axis (orderedTraces[0]), secondary trace = right axis (orderedTraces[1])
+    // Traces with the same scale share an axis (see axisKey): the first group uses the left axis,
+    // the second the right one. The saved config never holds more than two groups.
     val primaryTrace = orderedTraces[0]
-    val secondaryTrace = orderedTraces.getOrNull(1)
+    val leftKey = primaryTrace.axisKey()
+    val leftTraces = orderedTraces.filter { it.axisKey() == leftKey }
+    val rightTraces = orderedTraces.filter { it.axisKey() != leftKey }.let { rest ->
+        rest.filter { it.axisKey() == rest.firstOrNull()?.axisKey() }
+    }
+    val secondaryTrace = rightTraces.firstOrNull()
     val primaryType = primaryTrace.type
-    val secondaryType = secondaryTrace?.type
     // The series drawn as it is on the left axis, with its own special drawing. Null when the left
-    // trace is a calculation over a series (EWMA, mean, sum), which is drawn as a simple trace.
+    // group starts with a calculation over a series (EWMA, mean, sum), which is drawn as a simple trace.
     val rawPrimaryType = primaryType.takeIf { !primaryTrace.isDerived }
 
-    // BGI and DEVIATIONS share the same unit (BG change per 5 min, in the user's units) and should share the vertical scale
-    val bgiDevShare = rawPrimaryType != null && secondaryTrace?.isDerived == false &&
-        setOf(primaryType, secondaryType) == setOf(SeriesType.BGI, SeriesType.DEVIATIONS)
-    // A series and its EWMA or rolling mean have the same scale too
-    val sameScaleShare = secondaryTrace != null && primaryTrace.transform.keepsScale && secondaryTrace.keepsScaleOf(primaryType)
-    val shareAxis = bgiDevShare || sameScaleShare
-
-    val isDualAxis = secondaryTrace != null && !shareAxis
-    val primaryTypes = if (bgiDevShare) orderedTraces.map { it.type } else listOfNotNull(rawPrimaryType)
+    val isDualAxis = rightTraces.isNotEmpty()
+    // The series drawn as they are on the left axis: one, or BGI with DEV (same unit, one axis)
+    val primaryTypes = leftTraces.filter { !it.isDerived }.map { it.type }.distinct()
     // Scale rules (zero floor, pivot...) follow the series, except for a rolling sum, which has its own scale
     val primaryScaleType = primaryType.takeIf { primaryTrace.transform.keepsScale }
     val secondaryScaleType = secondaryTrace?.takeIf { it.transform.keepsScale }?.type
@@ -239,22 +238,13 @@ fun SecondaryGraphCompose(
     // Basal overlay only when IOB is primary and single-axis (no room for basal with dual-axis)
     val basalData = if (hasIob && !isDualAxis) viewModel.basalGraphFlow.collectAsStateWithLifecycle().value else null
 
-    // Derived traces drawn on the left axis: the left trace itself when it is one, and the right trace
-    // when it shares the left axis
-    val primaryDerivedTraces = remember(orderedTraces, sameScaleShare) {
-        buildList<GraphTrace> {
-            if (primaryTrace.isDerived) add(primaryTrace)
-            secondaryTrace?.takeIf { sameScaleShare && it.isDerived }?.let { add(it) }
-        }
-    }
+    // Derived traces drawn on the left axis: every calculation in the left group
+    val primaryDerivedTraces = remember(leftTraces) { leftTraces.filter { it.isDerived } }
     val primaryDerivedPoints = primaryDerivedTraces.map { trace -> key(trace) { rememberTracePoints(viewModel, trace) } }
 
-    // Collect flow for secondary (right axis) series - (emptyList() if it shares the left axis)
-    val dualAxisTrace = secondaryTrace?.takeIf { isDualAxis }
-    val secondaryLineData = when {
-        dualAxisTrace == null   -> emptyList()
-        dualAxisTrace.isDerived -> rememberTracePoints(viewModel, dualAxisTrace)
-        else                    -> rememberSourcePoints(viewModel, dualAxisTrace.type)
+    // Points of the right axis traces, the series as they are or with their calculation
+    val rightPoints = rightTraces.map { trace ->
+        key(trace) { if (trace.isDerived) rememberTracePoints(viewModel, trace) else rememberSourcePoints(viewModel, trace.type) }
     }
 
     // Cache last non-empty treatment data to survive reset() cycles
@@ -437,18 +427,16 @@ fun SecondaryGraphCompose(
         hist to pred
     }
 
-    // Process secondary (right axis) series
-    val processedSecondary = remember(secondaryLineData, stableTimeRange) {
-        if (!hasRealTimeRange || secondaryLineData.isEmpty()) return@remember emptyList()
-        processPoints(secondaryLineData, minTimestamp, minX, maxX)
+    // Right axis traces, shaped for their plot style like the left axis ones. The flat list is what
+    // the axis range uses.
+    val shapedSecondary = remember(rightTraces, rightPoints, stableTimeRange, seriesColors) {
+        if (!hasRealTimeRange) return@remember emptyList()
+        rightTraces.zip(rightPoints).map { (trace, points) ->
+            val look = lookOf(trace, seriesColors)
+            ShapedTrace(trace.type, look, shapeForStyle(processPoints(points, minTimestamp, minX, maxX), look.style))
+        }
     }
-    val secondaryLook = remember(secondaryTrace, seriesColors) { secondaryTrace?.let { lookOf(it, seriesColors) } }
-    // Shaped for the plot style like the left axis traces. The flat list is what the axis range uses.
-    val shapedSecondary = remember(processedSecondary, secondaryLook, secondaryTrace) {
-        if (secondaryLook == null || secondaryTrace == null) emptyList()
-        else shapeForStyle(processedSecondary, secondaryLook.style)
-    }
-    val secondaryPoints = remember(shapedSecondary) { shapedSecondary.flatten() }
+    val secondaryPoints = remember(shapedSecondary) { shapedSecondary.flatMap { it.runs.flatten() } }
 
     // Visible-window bounds (same x-unit as processed* points — minutes from minTimestamp) for
     // windowing the Y-axis scale to only the currently scrolled/zoomed portion of this graph's
@@ -841,9 +829,9 @@ fun SecondaryGraphCompose(
 
     // Secondary axis lines: one per run of the right axis trace, in its look. With no data a single
     // invisible line keeps the layer valid.
-    val secondaryAxisLines = remember(shapedSecondary, secondaryLook, normalizerLine) {
-        val traceLines = if (secondaryLook != null && shapedSecondary.isNotEmpty()) shapedSecondary.map { createTraceLine(secondaryLook) }
-        else listOf(LineCartesianLayer.Line(fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)), areaFill = null))
+    val secondaryAxisLines = remember(shapedSecondary, normalizerLine) {
+        val traceLines = shapedSecondary.flatMap { trace -> trace.runs.map { createTraceLine(trace.look) } }
+            .ifEmpty { listOf(LineCartesianLayer.Line(fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)), areaFill = null)) }
         traceLines + normalizerLine
     }
     // Secondary range: zero-aligned counterpart to primary when available, otherwise auto-range.
@@ -902,8 +890,9 @@ fun SecondaryGraphCompose(
                 }
             } else if (isDualAxis) {
                 lineModel {
-                    if (shapedSecondary.isNotEmpty()) {
-                        shapedSecondary.forEach { run -> series(x = run.map { it.first }, y = run.map { it.second }) }
+                    val runs = shapedSecondary.flatMap { it.runs }
+                    if (runs.isNotEmpty()) {
+                        runs.forEach { run -> series(x = run.map { it.first }, y = run.map { it.second }) }
                     } else {
                         series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
                     }
@@ -1125,17 +1114,17 @@ private fun centreBgi(points: List<Pair<Double, Double>>, asBars: Boolean): List
     if (asBars) points else centreOnBars(points)
 
 /**
- * The traces in drawing order: the first gets the left axis. DEV slope and DEV drawn as they are must
- * be first (DEV slope needs the left axis for both of its lines), and a series comes before a
- * calculation over it, so the two can share the series' axis.
+ * The traces in drawing order. The first trace's axis group gets the left axis. A group with DEV slope
+ * or DEV drawn as they are comes first (DEV slope needs the left axis for both of its lines), and in
+ * each group the series comes before the calculations over it, so it keeps its own drawing.
  */
 internal fun orderTraces(traces: List<GraphTrace>): List<GraphTrace> {
     if (traces.size < 2) return traces
-    val first = traces[0]
-    val second = traces[1]
     fun mustBePrimary(trace: GraphTrace) = !trace.isDerived && (trace.type == SeriesType.DEV_SLOPE || trace.type == SeriesType.DEVIATIONS)
-    val swap = (mustBePrimary(second) && !mustBePrimary(first)) || (second.type == first.type && !second.isDerived && first.isDerived)
-    return if (swap) listOf(second, first) + traces.drop(2) else traces
+    val groups = traces.groupBy { it.axisKey() }.values.map { group -> group.sortedBy { it.isDerived } }
+    val first = groups.firstOrNull { group -> group.any { mustBePrimary(it) } } ?: groups.first()
+    val ordered = (listOf(first) + groups.filter { it !== first }).flatten()
+    return if (ordered == traces) traces else ordered
 }
 
 /** The points of a series as a single value list (DEV without its types, DEV slope's upper line, sensitivity in %). */

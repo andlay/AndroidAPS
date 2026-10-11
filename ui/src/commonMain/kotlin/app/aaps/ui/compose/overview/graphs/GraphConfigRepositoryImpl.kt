@@ -152,14 +152,14 @@ class GraphConfigRepositoryImpl(
             return GraphTrace(type, transform, window, style, color)
         }
 
-        /** Traces without IOB as it is (it has its own graph) and without repeats, at most 2. */
+        /** Traces without IOB as it is (it has its own graph) and without repeats, cut down to fit one graph. */
         private fun cleanTraces(traces: List<GraphTrace>): List<GraphTrace> {
             val out = mutableListOf<GraphTrace>()
             for (trace in traces) {
                 if (trace.type == SeriesType.IOB && !trace.isDerived) continue
                 if (out.none { it.sameDataAs(trace) }) out.add(trace)
             }
-            return out.take(2)
+            return out.fitToGraph(keep = out.firstOrNull())
         }
 
         private fun parseSeriesArray(seriesArray: JsonArray): List<SeriesType> {

@@ -94,7 +94,9 @@ data class GraphTrace(
 
 /**
  * Secondary graph entry: trace list + per-graph height (dp).
- * Max 2 traces per graph (one per axis). Height is per-graph user-adjustable.
+ * Traces with the same scale share an axis, so a series can be shown with any number of
+ * calculations over it, or only with those. At most two axes (left and right) per graph.
+ * Height is per-graph user-adjustable.
  */
 data class SecondaryGraph(
     val traces: List<GraphTrace>,
@@ -123,10 +125,9 @@ data class SecondaryGraph(
  * @param bgOverlays       Overlay toggles for the BG graph (currently only [SeriesType.ACTIVITY]).
  * @param iobOverlays      Overlay toggles for the fixed IOB graph (currently only [SeriesType.ACTIVITY]).
  * @param secondaryGraphs  Ordered list of user-configurable secondary graph configurations.
- *   IOB cannot appear here (it has a dedicated fixed slot). Each graph is a List (not Set) to
- *   preserve selection order:
- *   - list[0] = left axis (start), list[1] = right axis (end).
- *   Max 2 series per graph. FIFO: adding a 3rd deselects the oldest.
+ *   IOB as it is cannot appear here (it has a dedicated fixed slot). The traces of a graph keep
+ *   their selection order: the first trace's axis group is the left axis, the next group the
+ *   right axis (see [SecondaryGraph]).
  */
 data class GraphConfig(
     val bgOverlays: List<SeriesType> = listOf(SeriesType.ACTIVITY, SeriesType.PREDICTIONS),

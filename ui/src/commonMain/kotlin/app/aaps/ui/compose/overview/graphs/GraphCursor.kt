@@ -602,14 +602,12 @@ private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, traces: Lis
         }
     }
 
-    // Two traces on two axes (all pairs except BGI with DEV, and a series with its EWMA or mean, which
-    // share one axis, see SecondaryGraphCompose): their raw values cannot be compared, so order them by
-    // where each sits within its own range instead. Close to the real drawing, not exact - the axes are zero-aligned.
-    val sharedAxis = traces.size < 2 ||
-        (traces.none { it.isDerived } && traces.map { it.type }.toSet() == setOf(SeriesType.BGI, SeriesType.DEVIATIONS)) ||
-        (traces[0].type == traces[1].type && traces.all { it.transform.keepsScale })
-    if (sharedAxis) return typed.map { it.second }
-    return typed.groupBy({ it.first }, { it.second }).values.flatMap { group ->
+    // Traces on two axes (traces of the same scale share one axis, see axisKey and SecondaryGraphCompose):
+    // values on different axes cannot be compared, so order them by where each sits within its own
+    // axis group's range instead. Close to the real drawing, not exact - the axes are zero-aligned.
+    val axisOf = traces.map { it.axisKey() }
+    if (axisOf.distinct().size < 2) return typed.map { it.second }
+    return typed.groupBy({ axisOf[it.first] }, { it.second }).values.flatMap { group ->
         val values = group.flatMap { s -> s.points.map { it.value } }
         val min = values.minOrNull() ?: 0.0
         val span = ((values.maxOrNull() ?: 0.0) - min).takeIf { it > 0.0 } ?: 1.0

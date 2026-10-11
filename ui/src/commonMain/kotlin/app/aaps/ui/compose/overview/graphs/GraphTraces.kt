@@ -32,8 +32,14 @@ internal val STYLABLE_SERIES = setOf(
 /** True when the user can change how this trace looks. Every derived trace can. */
 internal val GraphTrace.isStylable: Boolean get() = isDerived || type in STYLABLE_SERIES
 
-/** A trace of this series that keeps its unit and scale (the series itself, EWMA or mean). */
-internal fun GraphTrace.keepsScaleOf(type: SeriesType): Boolean = this.type == type && transform.keepsScale
+/**
+ * Traces with the same key share one axis: a series with its EWMAs and rolling means (same unit and
+ * scale), and BGI with DEV (both a BG change per 5 minutes). Each rolling sum has its own scale.
+ */
+internal fun GraphTrace.axisKey(): String {
+    val unit = if (type == SeriesType.BGI || type == SeriesType.DEVIATIONS) "BGI_DEV" else type.name
+    return if (transform.keepsScale) unit else "$unit:sum:$windowMinutes"
+}
 
 /** Style used when the user has not picked one. */
 internal fun defaultStyle(trace: GraphTrace): PlotStyle =
@@ -222,33 +228,59 @@ internal fun shapeForStyle(points: List<Pair<Double, Double>>, style: PlotStyle)
 // Editing the trace list of a graph
 // =========================================================================
 
-/** Most traces on one graph: one per axis. */
-internal const val MAX_TRACES_PER_GRAPH = 2
+/** Most traces on one graph. They share at most two axes. */
+internal const val MAX_TRACES_PER_GRAPH = 6
 
-/** Adds or removes the trace that shows [type] as it is. A third trace pushes out the oldest one. */
+/** Most axes on one graph: left and right. */
+private const val MAX_AXES_PER_GRAPH = 2
+
+/**
+ * The traces cut down to fit one graph: at most [MAX_AXES_PER_GRAPH] axis groups and
+ * [MAX_TRACES_PER_GRAPH] traces. The group of [keep] always stays; the other groups are kept from
+ * the newest, so the oldest goes when a new one does not fit.
+ */
+internal fun List<GraphTrace>.fitToGraph(keep: GraphTrace? = lastOrNull()): List<GraphTrace> {
+    val keepKey = keep?.axisKey()
+    val keys = map { it.axisKey() }.distinct()
+    val kept = (listOfNotNull(keepKey) + keys.reversed().filter { it != keepKey }).take(MAX_AXES_PER_GRAPH).toSet()
+    val fitted = filter { it.axisKey() in kept }
+    return if (fitted.size > MAX_TRACES_PER_GRAPH) fitted.drop(fitted.size - MAX_TRACES_PER_GRAPH) else fitted
+}
+
+/** Adds or removes the trace that shows [type] as it is. A trace that does not fit pushes out the oldest axis group. */
 internal fun List<GraphTrace>.toggleRaw(type: SeriesType): List<GraphTrace> {
     val existing = indexOfFirst { it.type == type && !it.isDerived }
     if (existing >= 0) return filterIndexed { index, _ -> index != existing }
-    val added = this + GraphTrace(type)
-    return if (added.size > MAX_TRACES_PER_GRAPH) added.drop(added.size - MAX_TRACES_PER_GRAPH) else added
+    val added = GraphTrace(type)
+    return (this + added).fitToGraph(added)
 }
 
+/** Calculations offered, in order, for a new calculated trace. */
+private val NEW_DERIVED_CHOICES = listOf(
+    TraceTransform.EWMA to 30, TraceTransform.ROLLING_MEAN to 30, TraceTransform.EWMA to 60,
+    TraceTransform.ROLLING_MEAN to 60, TraceTransform.EWMA to 120, TraceTransform.ROLLING_MEAN to 120
+)
+
 /**
- * Adds a calculated trace over the series of the first trace: an EWMA, or a rolling mean when that
- * EWMA is already there. Null when the graph is full or empty.
+ * Adds a calculated trace over the series of the first trace: the first EWMA or rolling mean in
+ * [NEW_DERIVED_CHOICES] that is not there yet. It shares the series' axis. Null when the graph is
+ * empty or full.
  */
 internal fun List<GraphTrace>.withNewDerived(): List<GraphTrace>? {
     if (isEmpty() || size >= MAX_TRACES_PER_GRAPH) return null
     val type = first().type
-    val candidate = listOf(TraceTransform.EWMA, TraceTransform.ROLLING_MEAN, TraceTransform.ROLLING_SUM)
-        .map { GraphTrace(type, it) }
+    val candidate = NEW_DERIVED_CHOICES
+        .map { (transform, window) -> GraphTrace(type, transform, window) }
         .firstOrNull { new -> none { it.sameDataAs(new) } } ?: return null
     return this + candidate
 }
 
-/** [trace] in place of the one at [index], unless it would show the same data as another trace. */
+/**
+ * [trace] in place of the one at [index], unless it would show the same data as another trace. When
+ * the change makes a third axis group, the oldest other group goes.
+ */
 internal fun List<GraphTrace>.replaced(index: Int, trace: GraphTrace): List<GraphTrace> {
     if (index !in indices) return this
     if (withIndex().any { (i, other) -> i != index && other.sameDataAs(trace) }) return this
-    return mapIndexed { i, old -> if (i == index) trace else old }
+    return mapIndexed { i, old -> if (i == index) trace else old }.fitToGraph(trace)
 }

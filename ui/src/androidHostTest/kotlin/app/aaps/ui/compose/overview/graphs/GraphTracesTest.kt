@@ -96,20 +96,44 @@ class GraphTracesTest {
     }
 
     @Test
-    fun `toggling a series keeps at most two traces`() {
-        val traces = listOf(GraphTrace(SeriesType.HEART_RATE), GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA))
+    fun `a series can have any number of calculations, or none`() {
+        val hr = GraphTrace(SeriesType.HEART_RATE)
+        var traces = listOf(hr)
+        repeat(3) { traces = traces.withNewDerived()!! }
 
-        assertThat(traces.toggleRaw(SeriesType.STEPS))
-            .containsExactly(GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA), GraphTrace(SeriesType.STEPS)).inOrder()
-        assertThat(traces.toggleRaw(SeriesType.HEART_RATE)).containsExactly(GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA))
+        assertThat(traces).containsExactly(
+            hr,
+            GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA, 30),
+            GraphTrace(SeriesType.HEART_RATE, TraceTransform.ROLLING_MEAN, 30),
+            GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA, 60)
+        ).inOrder()
+        // All on one axis
+        assertThat(traces.map { it.axisKey() }.distinct()).hasSize(1)
+        // The series itself can go, the calculations stay
+        assertThat(traces.toggleRaw(SeriesType.HEART_RATE)).hasSize(3)
+        assertThat(emptyList<GraphTrace>().withNewDerived()).isNull()
     }
 
     @Test
-    fun `a new calculated trace uses the series of the first trace`() {
-        assertThat(listOf(GraphTrace(SeriesType.STEPS)).withNewDerived())
-            .containsExactly(GraphTrace(SeriesType.STEPS), GraphTrace(SeriesType.STEPS, TraceTransform.EWMA)).inOrder()
-        assertThat(listOf(GraphTrace(SeriesType.STEPS), GraphTrace(SeriesType.COB)).withNewDerived()).isNull()
-        assertThat(emptyList<GraphTrace>().withNewDerived()).isNull()
+    fun `a second axis is added and a third pushes out the oldest`() {
+        val traces = listOf(GraphTrace(SeriesType.HEART_RATE), GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA))
+
+        val withSteps = traces.toggleRaw(SeriesType.STEPS)
+        assertThat(withSteps).containsExactly(GraphTrace(SeriesType.HEART_RATE), GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA), GraphTrace(SeriesType.STEPS)).inOrder()
+
+        // COB needs a third axis: the oldest group (heart rate) goes
+        assertThat(withSteps.toggleRaw(SeriesType.COB)).containsExactly(GraphTrace(SeriesType.STEPS), GraphTrace(SeriesType.COB)).inOrder()
+
+        // A rolling sum has its own scale, so turning the EWMA into one also makes a new axis group
+        val summed = withSteps.replaced(1, GraphTrace(SeriesType.HEART_RATE, TraceTransform.ROLLING_SUM, 60))
+        assertThat(summed).containsExactly(GraphTrace(SeriesType.HEART_RATE, TraceTransform.ROLLING_SUM, 60), GraphTrace(SeriesType.STEPS)).inOrder()
+    }
+
+    @Test
+    fun `bgi and dev share an axis`() {
+        assertThat(GraphTrace(SeriesType.BGI).axisKey()).isEqualTo(GraphTrace(SeriesType.DEVIATIONS, TraceTransform.EWMA).axisKey())
+        assertThat(GraphTrace(SeriesType.STEPS, TraceTransform.ROLLING_SUM, 30).axisKey())
+            .isNotEqualTo(GraphTrace(SeriesType.STEPS, TraceTransform.ROLLING_SUM, 60).axisKey())
     }
 
     @Test
