@@ -17,6 +17,11 @@ on:
           - aapsclient2Debug
           - pumpcontrolRelease
           - pumpcontrolDebug
+      unitTests:
+        description: 'Optional: unit tests to run before the build, as "task:filter" pairs separated by spaces (e.g. ":ui:testAndroidHostTest:app.aaps.ui.compose.overview.*"). A failing test stops the build.'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   build:
@@ -205,6 +210,41 @@ jobs:
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
+      - name: Run selected unit tests
+        if: ${{ inputs.unitTests != '' }}
+        env:
+          UNIT_TESTS: ${{ inputs.unitTests }}
+        run: |
+          # Each entry is "<gradle test task>:<test filter>". The task is everything up to the
+          # last ":" that is followed by the filter, e.g. ":ui:testAndroidHostTest:app.aaps.*".
+          args=()
+          for entry in $UNIT_TESTS; do
+            task="${entry%:*}"
+            filter="${entry##*:}"
+            args+=("$task" "--tests" "$filter")
+          done
+          ./gradlew "${args[@]}" --continue \
+            -Dorg.gradle.jvmargs="-Xmx8g -XX:+UseParallelGC -Xss4m" \
+            -Dkotlin.daemon.jvm.options="-Xmx2g"
+
+      - name: Show failed unit tests
+        if: ${{ failure() && inputs.unitTests != '' }}
+        run: |
+          # Print each failure with its stack trace, so the log alone tells what broke
+          find . -path "*/build/test-results/*" -name "*.xml" -print0 | xargs -0 grep -l "<failure" | while read -r f; do
+            echo "::group::$f"
+            sed -n '/<testcase/,/<\/testcase>/p' "$f" | grep -A60 "<failure" | head -120
+            echo "::endgroup::"
+          done
+
+      - name: Upload unit test reports
+        if: ${{ always() && inputs.unitTests != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: '**/build/reports/tests/'
+          if-no-files-found: ignore
 
       - name: Build APKs
         run: |
