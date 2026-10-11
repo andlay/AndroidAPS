@@ -830,7 +830,8 @@ private fun GraphSeriesBottomSheet(
     onToggle: (SeriesType) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState()
+    // No half open state, like the other sheets of the app: one drag down closes it
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState

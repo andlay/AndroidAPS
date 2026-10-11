@@ -102,7 +102,8 @@ internal fun GraphTracesBottomSheet(
     onDismiss: () -> Unit,
     onRemoveGraph: (() -> Unit)? = null
 ) {
-    val sheetState = rememberModalBottomSheetState()
+    // No half open state, like the other sheets of the app: one drag down closes it
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val colors = rememberSeriesColors()
     var expanded by remember { mutableIntStateOf(-1) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
