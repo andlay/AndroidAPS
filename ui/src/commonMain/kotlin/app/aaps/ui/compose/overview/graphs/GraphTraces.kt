@@ -15,7 +15,6 @@ import com.patrykandpatrick.vico.compose.cartesian.layer.LineCartesianLayer
 import com.patrykandpatrick.vico.compose.common.Fill
 import com.patrykandpatrick.vico.compose.common.component.ShapeComponent
 import kotlin.math.exp
-import kotlin.math.min
 
 // Traces on the secondary graphs: the calculations (EWMA, rolling mean, rolling sum), the shapes the
 // plot styles need (bars, a line that breaks at gaps) and the look of each trace. Display only:
@@ -70,7 +69,8 @@ internal val TRACE_COLOR_CHOICES = listOf(
     Color(0xFFFF66CC), Color(0xFFFF5252), Color(0xFFFB8C00), Color(0xFFD3F166), Color(0xFFBDBDBD)
 )
 
-private const val BAR_FILL_ALPHA = 0.6f
+/** The same fill as the DEV bars. */
+private const val BAR_FILL_ALPHA = 0.5f
 private const val AREA_FILL_ALPHA = 0.3f
 
 /** The Vico line for [look]. */
@@ -87,9 +87,10 @@ internal fun createTraceLine(look: TraceLook): LineCartesianLayer.Line {
             else LineCartesianLayer.Line(fill = lineFill, areaFill = areaFill)
         }
 
+        // Drawn like the DEV bars: no outline, a half see-through fill, square steps
         PlotStyle.BARS                 -> LineCartesianLayer.Line(
             fill = lineFill,
-            stroke = LineCartesianLayer.LineStroke.Continuous(thickness = 1.dp),
+            stroke = LineCartesianLayer.LineStroke.Continuous(thickness = 0.dp),
             areaFill = LineCartesianLayer.AreaFill.single(Fill(color.copy(alpha = BAR_FILL_ALPHA))),
             interpolator = Square
         )
@@ -181,18 +182,14 @@ internal fun splitAtGaps(points: List<Pair<Double, Double>>): List<List<Pair<Dou
     return runs
 }
 
-/** Space between two bars, as a part of the bar width. */
-private const val BAR_GAP_FRACTION = 0.15
-
 /**
- * The points as bars for a [Square] line with an area fill: a bar from zero up to each value, then
- * back to zero. Each bar is as wide as the time to the next (or previous) point, but never wider
- * than the usual gap, so a bar after a gap in the data is not stretched over the gap.
- *
- * @param startAligned true when a point is the start of the time it covers (heart rate, BGI, steps),
- *   false when it is the end (a rolling value over the time before it)
+ * The points as bars for a [Square] line with an area fill, the same shape as the DEV bars: each
+ * value is held from its point to the next one, so bars next to each other touch. Where the next
+ * point is further away than the usual gap (a gap in the data), the bar ends after the usual gap
+ * and the line drops to zero, so a bar is never stretched over a time with no data. The last bar
+ * also ends after the usual gap.
  */
-internal fun barPoints(points: List<Pair<Double, Double>>, startAligned: Boolean): List<Pair<Double, Double>> {
+internal fun barPoints(points: List<Pair<Double, Double>>): List<Pair<Double, Double>> {
     // x has to grow strictly, so a second point at the same time is dropped
     val sorted = points.sortedBy { it.first }.fold(mutableListOf<Pair<Double, Double>>()) { acc, p ->
         if (acc.isEmpty() || p.first > acc.last().first) acc.add(p)
@@ -200,36 +197,23 @@ internal fun barPoints(points: List<Pair<Double, Double>>, startAligned: Boolean
     }
     if (sorted.isEmpty()) return emptyList()
     val typical = typicalGap(sorted)
-    val out = ArrayList<Pair<Double, Double>>(sorted.size * 2)
+    val out = ArrayList<Pair<Double, Double>>(sorted.size + 1)
     for ((index, point) in sorted.withIndex()) {
-        val (x, y) = point
-        if (startAligned) {
-            val width = min(sorted.getOrNull(index + 1)?.let { it.first - x } ?: typical, typical)
-            out.add(x to y)
-            out.add(x + width * (1 - BAR_GAP_FRACTION) to 0.0)
-        } else {
-            val width = min(sorted.getOrNull(index - 1)?.let { x - it.first } ?: typical, typical)
-            out.add(x - width * (1 - BAR_GAP_FRACTION) to y)
-            out.add(x to 0.0)
-        }
+        out.add(point)
+        val end = point.first + typical
+        val next = sorted.getOrNull(index + 1)
+        if (next == null || next.first > end) out.add(end to 0.0)
     }
     return out
 }
 
 /**
- * True when a point of this trace is the start of the time it covers: heart rate and BGI, and steps,
- * which the overview puts on the 5 minute grid at the start of each bucket (like the DEV bars).
- */
-internal fun GraphTrace.barsStartAligned(): Boolean =
-    !isDerived && (type == SeriesType.HEART_RATE || type == SeriesType.BGI || type == SeriesType.STEPS)
-
-/**
  * The runs to draw for one trace in [style]: bars, runs broken at gaps for a line or area, or the
  * points as they are for dots. Each run becomes one series in the chart model.
  */
-internal fun shapeForStyle(points: List<Pair<Double, Double>>, style: PlotStyle, startAligned: Boolean): List<List<Pair<Double, Double>>> =
+internal fun shapeForStyle(points: List<Pair<Double, Double>>, style: PlotStyle): List<List<Pair<Double, Double>>> =
     when (style) {
-        PlotStyle.BARS                 -> listOf(barPoints(points, startAligned)).filter { it.isNotEmpty() }
+        PlotStyle.BARS                 -> listOf(barPoints(points)).filter { it.isNotEmpty() }
         PlotStyle.LINE, PlotStyle.AREA -> splitAtGaps(points)
         PlotStyle.POINTS               -> listOf(points).filter { it.isNotEmpty() }
     }

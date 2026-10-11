@@ -54,30 +54,25 @@ class GraphTracesTest {
     }
 
     @Test
-    fun `bars end at their point and go back to zero`() {
-        val bars = barPoints(listOf(5.0 to 100.0, 10.0 to 50.0), startAligned = false)
+    fun `bars touch like the DEV bars and the last one ends after the usual gap`() {
+        val bars = barPoints(listOf(0.0 to 100.0, 5.0 to 50.0, 10.0 to 0.0, 15.0 to 20.0))
 
-        assertThat(bars.map { it.second }).containsExactly(100.0, 0.0, 50.0, 0.0).inOrder()
+        // Each value is held until the next point; only the end gets a closing point at zero
+        assertThat(bars).containsExactly(0.0 to 100.0, 5.0 to 50.0, 10.0 to 0.0, 15.0 to 20.0, 20.0 to 0.0).inOrder()
+    }
+
+    @Test
+    fun `a bar before a gap is not stretched over the gap`() {
+        val bars = barPoints(listOf(0.0 to 1.0, 5.0 to 1.0, 10.0 to 1.0, 100.0 to 2.0))
+
+        assertThat(bars).containsExactly(0.0 to 1.0, 5.0 to 1.0, 10.0 to 1.0, 15.0 to 0.0, 100.0 to 2.0, 105.0 to 0.0).inOrder()
         // x grows strictly, so the Square line can draw it
         assertThat(bars.zipWithNext().all { (a, b) -> b.first > a.first }).isTrue()
-        assertThat(bars[1].first).isEqualTo(5.0)
-        assertThat(bars[3].first).isEqualTo(10.0)
     }
 
     @Test
-    fun `a bar after a gap is not stretched over the gap`() {
-        val bars = barPoints(listOf(0.0 to 1.0, 5.0 to 1.0, 10.0 to 1.0, 100.0 to 1.0), startAligned = false)
-
-        val lastStart = bars[bars.size - 2].first
-        assertThat(100.0 - lastStart).isLessThan(5.0)
-    }
-
-    @Test
-    fun `start aligned bars begin at their point`() {
-        val bars = barPoints(listOf(0.0 to 70.0, 5.0 to 80.0), startAligned = true)
-
-        assertThat(bars.first()).isEqualTo(0.0 to 70.0)
-        assertThat(bars.zipWithNext().all { (a, b) -> b.first > a.first }).isTrue()
+    fun `a second point at the same time is dropped`() {
+        assertThat(barPoints(listOf(0.0 to 1.0, 0.0 to 9.0, 5.0 to 2.0))).containsExactly(0.0 to 1.0, 5.0 to 2.0, 10.0 to 0.0).inOrder()
     }
 
     @Test

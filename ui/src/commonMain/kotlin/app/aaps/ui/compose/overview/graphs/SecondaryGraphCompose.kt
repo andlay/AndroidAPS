@@ -329,13 +329,13 @@ fun SecondaryGraphCompose(
             for ((type, pts) in processedSimpleSeries + processedPredictionSeries) {
                 val trace = orderedTraces.firstOrNull { it.type == type && !it.isDerived } ?: GraphTrace(type)
                 val look = lookOf(trace, seriesColors)
-                add(ShapedTrace(type, look, shapeForStyle(pts, look.style, trace.barsStartAligned())))
+                add(ShapedTrace(type, look, shapeForStyle(pts, look.style)))
             }
             if (hasRealTimeRange) {
                 for ((trace, points) in primaryDerivedTraces.zip(primaryDerivedPoints)) {
                     val look = lookOf(trace, seriesColors)
                     val pts = processPoints(points, minTimestamp, minX, maxX)
-                    add(ShapedTrace(trace.type, look, shapeForStyle(pts, look.style, trace.barsStartAligned())))
+                    add(ShapedTrace(trace.type, look, shapeForStyle(pts, look.style)))
                 }
             }
         }
@@ -446,7 +446,7 @@ fun SecondaryGraphCompose(
     // Shaped for the plot style like the left axis traces. The flat list is what the axis range uses.
     val shapedSecondary = remember(processedSecondary, secondaryLook, secondaryTrace) {
         if (secondaryLook == null || secondaryTrace == null) emptyList()
-        else shapeForStyle(processedSecondary, secondaryLook.style, secondaryTrace.barsStartAligned())
+        else shapeForStyle(processedSecondary, secondaryLook.style)
     }
     val secondaryPoints = remember(shapedSecondary) { shapedSecondary.flatten() }
 
