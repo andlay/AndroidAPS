@@ -153,4 +153,18 @@ class GraphTracesTest {
         val slope = GraphTrace(SeriesType.DEV_SLOPE)
         assertThat(orderTraces(listOf(hr, slope))).containsExactly(slope, hr).inOrder()
     }
+
+    @Test
+    fun `a step series is sampled every step with the value in effect`() {
+        val samples = sampleSteps(points(0 to 1.0, 12 to 0.0, 20 to 0.5), 5 * minute)
+
+        assertThat(samples.map { it.timestamp / minute }).containsExactly(0L, 5L, 10L, 15L, 20L).inOrder()
+        assertThat(samples.map { it.value }).containsExactly(1.0, 1.0, 1.0, 0.0, 0.5).inOrder()
+    }
+
+    @Test
+    fun `basal is a step series drawn as an area`() {
+        assertThat(GraphTrace(SeriesType.BASAL).effectiveStyle()).isEqualTo(PlotStyle.AREA)
+        assertThat(GraphTrace(SeriesType.BASAL).isStylable).isTrue()
+    }
 }

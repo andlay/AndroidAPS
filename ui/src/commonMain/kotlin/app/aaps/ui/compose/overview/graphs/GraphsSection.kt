@@ -115,15 +115,13 @@ private val SIMPLE_MODE_CONFIG = GraphConfig(
 private const val RECENT_VALUES_SPOKEN = 5
 
 /** Series not made by the graph calculation (sensor and device data, UI flags): no busy ring for these. */
-private val NOT_CALCULATED_SERIES = setOf(SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.PREDICTIONS)
+private val NOT_CALCULATED_SERIES = setOf(SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.BASAL, SeriesType.PREDICTIONS)
 
 /** Series types available as BG graph overlays */
 private val BG_OVERLAY_SERIES = listOf(SeriesType.ACTIVITY, SeriesType.PREDICTIONS)
 
-/** Series types available for user-configurable secondary graphs (IOB + UI-only overlays excluded) */
-private val CONFIGURABLE_SERIES = SeriesType.entries.filter {
-    it != SeriesType.IOB && it != SeriesType.PREDICTIONS
-}
+/** Series types available for user-configurable secondary graphs (the UI-only predictions overlay excluded) */
+private val CONFIGURABLE_SERIES = SeriesType.entries.filter { it != SeriesType.PREDICTIONS }
 
 @OptIn(FlowPreview::class)
 @Composable
@@ -764,6 +762,7 @@ internal fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
     SeriesType.HEART_RATE      -> CoreUiStrings.heartRate_shortname
     SeriesType.STEPS           -> CoreUiStrings.steps_shortname
     SeriesType.ACTIVITY        -> CoreUiStrings.activity_shortname
+    SeriesType.BASAL           -> CoreUiStrings.basal_shortname
     SeriesType.PREDICTIONS     -> CoreUiStrings.predictions_shortname
 }
 

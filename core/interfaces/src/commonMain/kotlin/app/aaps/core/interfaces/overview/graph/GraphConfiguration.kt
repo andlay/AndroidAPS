@@ -25,6 +25,9 @@ enum class SeriesType {
     HEART_RATE,
     STEPS,
     ACTIVITY,
+
+    /** Basal rate actually delivered (temp basals included), U/h. */
+    BASAL,
     PREDICTIONS
 }
 

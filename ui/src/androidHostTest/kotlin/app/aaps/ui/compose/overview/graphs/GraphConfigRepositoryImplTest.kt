@@ -152,4 +152,14 @@ class GraphConfigRepositoryImplTest {
             GraphTrace(SeriesType.COB)
         ).inOrder()
     }
+
+    @Test
+    fun `iob picked in the trace format is kept, the old format still drops it`() {
+        val restored = GraphConfigRepositoryImpl.fromJson(
+            """{"secondaryGraphs":[{"series":["COB"],"traces":[{"type":"IOB"},{"type":"BASAL"}]},{"series":["IOB","COB"]}]}"""
+        )
+
+        assertThat(restored.secondaryGraphs[0].traces).containsExactly(GraphTrace(SeriesType.IOB), GraphTrace(SeriesType.BASAL)).inOrder()
+        assertThat(restored.secondaryGraphs[1].series).containsExactly(SeriesType.COB)
+    }
 }

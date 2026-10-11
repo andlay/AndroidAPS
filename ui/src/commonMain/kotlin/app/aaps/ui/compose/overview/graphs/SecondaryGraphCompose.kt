@@ -232,6 +232,7 @@ fun SecondaryGraphCompose(
     val devSlopeData = if (rawPrimaryType == SeriesType.DEV_SLOPE) viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value else null
     val hrData = if (rawPrimaryType == SeriesType.HEART_RATE) viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value else null
     val stepsData = if (rawPrimaryType == SeriesType.STEPS) viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value else null
+    val basalSeries = if (rawPrimaryType == SeriesType.BASAL) rememberSourcePoints(viewModel, SeriesType.BASAL) else null
     // Activity data: either as primary series OR as overlay (on IOB graph)
     val needsActivity = rawPrimaryType == SeriesType.ACTIVITY || (activityOverlay && hasIob)
     val activityData = if (needsActivity) viewModel.activityGraphFlow.collectAsStateWithLifecycle().value else null
@@ -260,7 +261,7 @@ fun SecondaryGraphCompose(
     // Simple line series processing (excludes BASAL — it's a fixed flipped overlay on IOB)
     val bgiAsBars = rawLook(SeriesType.BGI).style == PlotStyle.BARS
     val processedSimpleSeries = remember(
-        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, activityData, bgiAsBars
+        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, basalSeries, activityData, bgiAsBars
     ) {
         if (!hasRealTimeRange) return@remember emptyList()
         buildList {
@@ -287,6 +288,9 @@ fun SecondaryGraphCompose(
             }
             stepsData?.steps?.takeIf { it.isNotEmpty() }?.let {
                 add(SeriesType.STEPS to processPoints(it, minTimestamp, minX, maxX))
+            }
+            basalSeries?.takeIf { it.isNotEmpty() }?.let {
+                add(SeriesType.BASAL to processPoints(it, minTimestamp, minX, maxX))
             }
             if (rawPrimaryType == SeriesType.ACTIVITY) {
                 activityData?.let {
@@ -1127,39 +1131,16 @@ internal fun orderTraces(traces: List<GraphTrace>): List<GraphTrace> {
     return if (ordered == traces) traces else ordered
 }
 
-/** The points of a series as a single value list (DEV without its types, DEV slope's upper line, sensitivity in %). */
+/** The points of a series as a single value list, from the shared cache (see [GraphViewModel.tracePointsFlow]). */
 @Composable
-internal fun rememberSourcePoints(viewModel: GraphViewModel, type: SeriesType): List<GraphDataPoint> = when (type) {
-    SeriesType.IOB             -> viewModel.iobGraphFlow.collectAsStateWithLifecycle().value.let {
-        remember(it) { it.iob.map { p -> GraphDataPoint(p.timestamp, p.value) } }
-    }
-
-    SeriesType.ABS_IOB         -> viewModel.absIobGraphFlow.collectAsStateWithLifecycle().value.absIob
-    SeriesType.COB             -> viewModel.cobGraphFlow.collectAsStateWithLifecycle().value.cob
-    SeriesType.BGI             -> viewModel.bgiGraphFlow.collectAsStateWithLifecycle().value.bgi
-    SeriesType.DEVIATIONS      -> viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value.let { data ->
-        remember(data) { data.deviations.map { GraphDataPoint(it.timestamp, it.value) } }
-    }
-
-    SeriesType.SENSITIVITY     -> viewModel.ratioGraphFlow.collectAsStateWithLifecycle().value.let { data ->
-        // Stored as 100*(ratio-1), display shifted by +100 to show as percentage (90%, 110%) —
-        // must match the same shift applied when SENSITIVITY is primary (see processedSimpleSeries).
-        remember(data) { data.ratio.map { GraphDataPoint(it.timestamp, it.value + 100.0) } }
-    }
-
-    SeriesType.VAR_SENSITIVITY -> viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.varSens
-    SeriesType.DEV_SLOPE       -> viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value.dsMax
-    SeriesType.HEART_RATE      -> viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value.heartRates
-    SeriesType.STEPS           -> viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value.steps
-    SeriesType.ACTIVITY        -> viewModel.activityGraphFlow.collectAsStateWithLifecycle().value.activity
-    SeriesType.PREDICTIONS     -> emptyList() // UI-only overlay flag, not a secondary series
-}
+internal fun rememberSourcePoints(viewModel: GraphViewModel, type: SeriesType): List<GraphDataPoint> =
+    rememberTracePoints(viewModel, GraphTrace(type))
 
 /** The points of [trace]: its series, with the trace's calculation applied. */
 @Composable
 internal fun rememberTracePoints(viewModel: GraphViewModel, trace: GraphTrace): List<GraphDataPoint> {
-    val source = rememberSourcePoints(viewModel, trace.type)
-    return remember(source, trace.transform, trace.windowMinutes) { source.transformed(trace.transform, trace.windowMinutes) }
+    val flow = remember(viewModel, trace) { viewModel.tracePointsFlow(trace) }
+    return flow.collectAsStateWithLifecycle().value
 }
 
 /**
@@ -1279,7 +1260,8 @@ data class SeriesColors(
     val devSlope: Color,
     val heartRate: Color,
     val steps: Color,
-    val activity: Color
+    val activity: Color,
+    val basal: Color
 ) {
 
     fun colorFor(type: SeriesType): Color = when (type) {
@@ -1294,6 +1276,7 @@ data class SeriesColors(
         SeriesType.HEART_RATE      -> heartRate
         SeriesType.STEPS           -> steps
         SeriesType.ACTIVITY        -> activity
+        SeriesType.BASAL           -> basal
         SeriesType.PREDICTIONS     -> activity // unused — PREDICTIONS is a BG overlay flag, not a secondary series
     }
 }
@@ -1303,7 +1286,8 @@ fun rememberSeriesColors(): SeriesColors {
     val iobColor = AapsTheme.generalColors.iobPrediction
     val cobColor = AapsTheme.generalColors.cobPrediction
     val onSurface = MaterialTheme.colorScheme.onSurface
-    return remember(iobColor, cobColor, onSurface) {
+    val basalColor = AapsTheme.elementColors.tempBasal
+    return remember(iobColor, cobColor, onSurface, basalColor) {
         SeriesColors(
             iob = iobColor,                         // #1e88e5 blue (matches @color/iob)
             absIob = iobColor,                      // same blue as IOB
@@ -1315,7 +1299,8 @@ fun rememberSeriesColors(): SeriesColors {
             devSlope = Color(0xFFFFFF00),            // yellow (matches @color/devSlopePos)
             heartRate = Color(0xFFFFFF66),           // pale yellow (matches @color/heartRate #FFFFFF66)
             steps = Color(0xFF66FFB8),              // mint green (matches @color/steps)
-            activity = Color(0xFFD3F166)            // lime green (matches @color/activity)
+            activity = Color(0xFFD3F166),           // lime green (matches @color/activity)
+            basal = basalColor                      // the same colour as the basal on the IOB graph
         )
     }
 }

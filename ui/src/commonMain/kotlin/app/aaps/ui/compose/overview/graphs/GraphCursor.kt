@@ -511,7 +511,7 @@ private fun markerFor(style: PlotStyle): CursorMarker = when (style) {
 
 /** Number format for the values of a series, and of a calculation over it. */
 private fun formatFor(type: SeriesType, formats: CursorFormats): (Double) -> String = when (type) {
-    SeriesType.IOB, SeriesType.ABS_IOB                                 -> formats.insulin
+    SeriesType.IOB, SeriesType.ABS_IOB, SeriesType.BASAL               -> formats.insulin
     SeriesType.BGI, SeriesType.DEVIATIONS, SeriesType.DEV_SLOPE        -> formats.glucoseChange
     SeriesType.VAR_SENSITIVITY                                         -> formats.glucose
     SeriesType.ACTIVITY                                                -> formats.activity
@@ -593,6 +593,11 @@ private fun rememberSecondaryCursorSeries(viewModel: GraphViewModel, traces: Lis
             SeriesType.ACTIVITY        -> {
                 val data by viewModel.activityGraphFlow.collectAsStateWithLifecycle()
                 listOf(CursorSeries(label, color, data.activity + data.activityPrediction, formats.activity))
+            }
+
+            SeriesType.BASAL           -> {
+                val data by viewModel.basalGraphFlow.collectAsStateWithLifecycle()
+                listOf(CursorSeries(label, color, data.actualBasal, formats.insulin, isStep = true))
             }
 
             SeriesType.PREDICTIONS     -> emptyList() // a BG graph overlay flag, never a secondary series

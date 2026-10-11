@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
+import app.aaps.core.interfaces.overview.graph.BasalGraphData
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.HeartRateGraphData
@@ -64,6 +65,9 @@ class SecondaryGraphTracesRenderTest {
         viewModels.cache.heartRateGraphFlow.value = HeartRateGraphData(
             (0 until 360).filter { it !in 120..180 }.map { m -> GraphDataPoint(start + m * 60_000L + (m * 7919L % 60_000L), 70.0 + 30 * sin(m / 20.0)) }
         )
+        // Basal stored only where the rate changes, every half hour, closing at the end
+        val basal = (0..12).map { i -> GraphDataPoint(start + i * 1_800_000L, if (i % 3 == 0) 0.0 else 1.0 + i * 0.05) }
+        viewModels.cache.basalGraphFlow.value = BasalGraphData(profileBasal = basal.map { GraphDataPoint(it.timestamp, 1.0) }, actualBasal = basal, maxBasal = 1.6)
         // Steps on the 5 minute grid
         viewModels.cache.stepsGraphFlow.value = StepsGraphData(
             (0 until 72).map { i -> GraphDataPoint(start + i * 300_000L + 123_456L, if (i % 7 == 0) 0.0 else (i * 37 % 500).toDouble()) }
@@ -120,6 +124,10 @@ class SecondaryGraphTracesRenderTest {
 
     @Test fun `only calculations, no series`() = render(
         listOf(GraphTrace(SeriesType.HEART_RATE, TraceTransform.EWMA, 30), GraphTrace(SeriesType.HEART_RATE, TraceTransform.ROLLING_MEAN, 30))
+    )
+
+    @Test fun `iob with basal and a basal ewma`() = render(
+        listOf(GraphTrace(SeriesType.IOB), GraphTrace(SeriesType.BASAL), GraphTrace(SeriesType.BASAL, TraceTransform.ROLLING_MEAN, 60))
     )
 
     @Test fun `heart rate as bars`() = render(listOf(GraphTrace(SeriesType.HEART_RATE, style = PlotStyle.BARS)))

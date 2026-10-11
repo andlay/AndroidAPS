@@ -26,7 +26,7 @@ import kotlin.math.exp
  */
 internal val STYLABLE_SERIES = setOf(
     SeriesType.ABS_IOB, SeriesType.BGI, SeriesType.SENSITIVITY, SeriesType.VAR_SENSITIVITY,
-    SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.ACTIVITY
+    SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.ACTIVITY, SeriesType.BASAL
 )
 
 /** True when the user can change how this trace looks. Every derived trace can. */
@@ -45,7 +45,7 @@ internal fun GraphTrace.axisKey(): String {
 internal fun defaultStyle(trace: GraphTrace): PlotStyle =
     if (trace.isDerived) PlotStyle.LINE
     else when (trace.type) {
-        SeriesType.ABS_IOB, SeriesType.ACTIVITY -> PlotStyle.AREA
+        SeriesType.ABS_IOB, SeriesType.ACTIVITY, SeriesType.BASAL -> PlotStyle.AREA
         SeriesType.BGI                          -> PlotStyle.POINTS
         SeriesType.STEPS                        -> PlotStyle.BARS
         else                                    -> PlotStyle.LINE
@@ -62,8 +62,8 @@ internal fun lookOf(trace: GraphTrace, colors: SeriesColors): TraceLook =
     TraceLook(
         style = trace.effectiveStyle(),
         color = trace.color?.takeIf { trace.isStylable }?.let { Color(it) } ?: colors.colorFor(trace.type),
-        // Absolute IOB is a step series; a calculation over it is not
-        square = trace.type == SeriesType.ABS_IOB && !trace.isDerived && trace.effectiveStyle() != PlotStyle.POINTS
+        // Absolute IOB and basal are step series; a calculation over them is not
+        square = (trace.type == SeriesType.ABS_IOB || trace.type == SeriesType.BASAL) && !trace.isDerived && trace.effectiveStyle() != PlotStyle.POINTS
     )
 
 /** Colour as stored in [GraphTrace.color]. */
@@ -156,6 +156,28 @@ internal fun List<GraphDataPoint>.transformed(transform: TraceTransform, windowM
             }
         }
     }
+}
+
+/** Basal is sampled this often before it is drawn or calculated over. */
+internal const val BASAL_SAMPLE_MS = 5 * 60_000L
+
+/**
+ * A step series (a point only where the value changes) as regular samples every [stepMs], from its
+ * first point to its last, each holding the value in effect then. EWMA and rolling values need
+ * regular samples to weigh each value by the time it lasted.
+ */
+internal fun sampleSteps(points: List<GraphDataPoint>, stepMs: Long): List<GraphDataPoint> {
+    if (points.isEmpty()) return points
+    val sorted = points.sortedBy { it.timestamp }
+    val out = ArrayList<GraphDataPoint>()
+    var index = 0
+    var time = sorted.first().timestamp
+    while (time <= sorted.last().timestamp) {
+        while (index + 1 < sorted.size && sorted[index + 1].timestamp <= time) index++
+        out.add(GraphDataPoint(time, sorted[index].value))
+        time += stepMs
+    }
+    return out
 }
 
 // =========================================================================

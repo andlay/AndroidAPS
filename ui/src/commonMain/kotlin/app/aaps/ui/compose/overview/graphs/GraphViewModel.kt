@@ -14,6 +14,8 @@ import app.aaps.core.interfaces.overview.graph.BgInfoData
 import app.aaps.core.interfaces.overview.graph.BgiGraphData
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
+import app.aaps.core.interfaces.overview.graph.GraphDataPoint
+import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.resources.TextResolver
@@ -27,6 +29,7 @@ import dev.zacsweers.metro.AssistedInject
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -35,7 +38,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -154,6 +159,48 @@ class GraphViewModel(
     val basalGraphFlow = cache.basalGraphFlow
     val targetLineFlow = cache.targetLineFlow
     val runningModeGraphFlow = cache.runningModeGraphFlow
+
+    // =========================================================================
+    // Trace points (series and calculations over them), shared
+    // =========================================================================
+
+    /** One flow per distinct trace data, made on first use. Only read and written on the main thread (composition). */
+    private val tracePointFlows = HashMap<GraphTrace, StateFlow<List<GraphDataPoint>>>()
+
+    /**
+     * The points of [trace]: its series, with its calculation applied. Every graph and the touch card
+     * that show the same data share one flow, so a calculation runs once per data change, on a low
+     * priority background thread, and only while something shows it. The look (style, colour) is
+     * not part of the data, so traces that differ only in look share too.
+     */
+    fun tracePointsFlow(trace: GraphTrace): StateFlow<List<GraphDataPoint>> {
+        val key = if (trace.isDerived) GraphTrace(trace.type, trace.transform, trace.windowMinutes) else GraphTrace(trace.type)
+        return tracePointFlows.getOrPut(key) {
+            sourcePointsFlow(key.type)
+                .map { points -> points.transformed(key.transform, key.windowMinutes) }
+                .flowOn(aapsBackgroundDispatcher)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        }
+    }
+
+    /** The points of a series as a single value list (DEV without its types, DEV slope's upper line, sensitivity in %). */
+    private fun sourcePointsFlow(type: SeriesType): Flow<List<GraphDataPoint>> = when (type) {
+        SeriesType.IOB             -> iobGraphFlow.map { data -> data.iob.map { GraphDataPoint(it.timestamp, it.value) } }
+        SeriesType.ABS_IOB         -> absIobGraphFlow.map { it.absIob }
+        SeriesType.COB             -> cobGraphFlow.map { it.cob }
+        SeriesType.BGI             -> bgiGraphFlow.map { it.bgi }
+        SeriesType.DEVIATIONS      -> deviationsGraphFlow.map { data -> data.deviations.map { GraphDataPoint(it.timestamp, it.value) } }
+        // Stored as 100*(ratio-1), shown shifted by +100 as a percentage (90%, 110%), like the graph does
+        SeriesType.SENSITIVITY     -> ratioGraphFlow.map { data -> data.ratio.map { GraphDataPoint(it.timestamp, it.value + 100.0) } }
+        SeriesType.VAR_SENSITIVITY -> varSensGraphFlow.map { it.varSens }
+        SeriesType.DEV_SLOPE       -> devSlopeGraphFlow.map { it.dsMax }
+        SeriesType.HEART_RATE      -> heartRateGraphFlow.map { it.heartRates }
+        SeriesType.STEPS           -> stepsGraphFlow.map { it.steps }
+        SeriesType.ACTIVITY        -> activityGraphFlow.map { it.activity }
+        // Stored only where the rate changes; sampled every 5 minutes, so calculations weigh time right
+        SeriesType.BASAL           -> basalGraphFlow.map { sampleSteps(it.actualBasal, BASAL_SAMPLE_MS) }
+        SeriesType.PREDICTIONS     -> flowOf(emptyList()) // a BG graph overlay flag, never a secondary series
+    }
 
     // NSClient status (pump/openAPS/uploader from Nightscout)
     val nsClientStatusFlow = cache.nsClientStatusFlow
