@@ -177,7 +177,11 @@ class GraphViewModel(
         val key = if (trace.isDerived) GraphTrace(trace.type, trace.transform, trace.windowMinutes) else GraphTrace(trace.type)
         return tracePointFlows.getOrPut(key) {
             sourcePointsFlow(key.type)
-                .map { points -> points.transformed(key.transform, key.windowMinutes) }
+                .map { points ->
+                    val result = points.transformed(key.transform, key.windowMinutes)
+                    // A calculation over bars belongs at the right edge of the newest bar it counts
+                    if (key.isDerived && key.type in PERIOD_START_SERIES) result.shiftedToPeriodEnd(points) else result
+                }
                 .flowOn(aapsBackgroundDispatcher)
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
         }

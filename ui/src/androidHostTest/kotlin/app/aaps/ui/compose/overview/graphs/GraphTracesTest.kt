@@ -167,4 +167,14 @@ class GraphTracesTest {
         assertThat(GraphTrace(SeriesType.BASAL).effectiveStyle()).isEqualTo(PlotStyle.AREA)
         assertThat(GraphTrace(SeriesType.BASAL).isStylable).isTrue()
     }
+
+    @Test
+    fun `a calculation over bars moves to the right edge of the newest bar`() {
+        val steps = points(0 to 100.0, 5 to 200.0, 10 to 300.0)
+        val mean = steps.transformed(TraceTransform.ROLLING_MEAN, 10).shiftedToPeriodEnd(steps)
+
+        // The mean at 10 min counts the bars 5-10 and 10-15, so it sits at 15 min
+        assertThat(mean.map { it.timestamp / minute }).containsExactly(5L, 10L, 15L).inOrder()
+        assertThat(mean.last().value).isEqualTo(250.0)
+    }
 }

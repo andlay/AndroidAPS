@@ -158,6 +158,27 @@ internal fun List<GraphDataPoint>.transformed(transform: TraceTransform, windowM
     }
 }
 
+/**
+ * Series whose points are the START of the time they cover: steps and DEV (drawn as bars from the
+ * point onwards), heart rate (plotted at the start of its sampling) and sampled basal (each sample
+ * holds for the next 5 minutes).
+ */
+internal val PERIOD_START_SERIES = setOf(SeriesType.STEPS, SeriesType.HEART_RATE, SeriesType.BASAL, SeriesType.DEVIATIONS)
+
+/** A period longer than this is a gap in the data, not one sample. */
+private const val MAX_PERIOD_MS = 15 * 60_000L
+
+/**
+ * A calculation over a [PERIOD_START_SERIES] series, moved to the END of the newest period it counts.
+ * A rolling value at t includes the sample that starts at t, which runs on for one usual gap, so
+ * drawn at t it would sit on the left edge of the newest bar it includes, ahead of the data.
+ */
+internal fun List<GraphDataPoint>.shiftedToPeriodEnd(source: List<GraphDataPoint>): List<GraphDataPoint> {
+    val gaps = source.asSequence().map { it.timestamp }.sorted().zipWithNext { a, b -> b - a }.filter { it > 0 }.sorted().toList()
+    val period = (if (gaps.isEmpty()) BASAL_SAMPLE_MS else gaps[gaps.size / 2]).coerceAtMost(MAX_PERIOD_MS)
+    return map { GraphDataPoint(it.timestamp + period, it.value) }
+}
+
 /** Basal is sampled this often before it is drawn or calculated over. */
 internal const val BASAL_SAMPLE_MS = 5 * 60_000L
 
