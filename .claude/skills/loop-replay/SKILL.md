@@ -48,6 +48,15 @@ diabetes team to decide.
    (`asRun=1`) whose TIR, time low and insulin per day are close to reality.
 5. Compare scenarios with the "as run" replay, not with reality. Whatever bias the replay has
    then cancels out.
+6. Prefer the relative mode (`asRun=1` plus `pct`, `cr`, `isf`, `basal`): it scales whatever was in
+   force at each loop run, so profile switches the user made on purpose (gym, a different I:C for a
+   day) stay. The fixed mode puts one profile on every day and so overrides those switches, which
+   shows up as extra lows that are not the profile's fault.
+7. Each scenario reports two sets of numbers: all readings (`sim_*`) and only readings where the
+   real BG was 10 mmol/L or below (`sim10_*`). Above 10, DynISF doses much harder and a fixed
+   `trueIsf` is least believable, so the second set leans less on that assumption. Mask on the real
+   BG, never on the replayed BG: masking on the replayed BG hides the highs that weaker settings
+   cause. A full sweep takes about 15 minutes on 4 cores.
 
 ## Traps found the hard way
 
@@ -71,6 +80,12 @@ diabetes team to decide.
 - **DynISF TDD.** The TDD the phone used can be back-solved from `variable_sens` and BG. Compare
   it with the TDD formula over the delivered insulin to find the effective adjustment factor
   instead of trusting the preference value.
+- **Insulin per day hardly changes between scenarios.** Food is fixed, so the replayed loop ends up
+  giving about the same total; settings change the timing. Read results as timing, not dose.
+- **A lower basal also means smaller SMBs**, because the largest SMB is set in minutes of basal
+  (`maxSMBBasalMinutes`). Say so when a basal scale comes out best.
+- **Do not limit a regression to BG ≤ 10.** Unlike scoring, fitting on a BG-limited sample selects
+  on the outcome: it drops the rises after meals and makes carbs (I:C) look weaker than they are.
 - COB and temp targets (including ones set by automations) stay as they really happened. They do
   not react to the replayed BG. Hypo treatments eaten in reality stay in the truth too, which
   favours settings close to the real ones in both directions.

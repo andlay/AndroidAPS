@@ -40,7 +40,10 @@ import kotlin.math.sqrt
  */
 internal data class Scenario(
     val name: String,
-    /** Use the settings the phone logged at each loop run instead of the fixed candidate profile. */
+    /**
+     * Use the settings the phone logged at each loop run instead of the fixed candidate profile. The
+     * scales and [percentage] then apply on top of them, so profile switches (gym, illness) stay.
+     */
     val asRun: Boolean = false,
     val percentage: Double = 100.0,
     val basalScale: Double = 1.0,
@@ -435,7 +438,8 @@ internal class LoopReplay(private val input: ReplayInput, diaHours: Double, peak
         var manualIndex = 0
 
         val schedule =
-            if (s.asRun) observedSchedule
+            if (s.asRun && s.basalScale == 1.0 && pct == 1.0) observedSchedule
+            else if (s.asRun) DoubleArray(size) { m -> Round.roundTo(observedSchedule[m] * s.basalScale * pct, 0.05) }
             else DoubleArray(size) { m -> Round.roundTo(input.candidateBasalAt(base + m * 60_000L + 30_000L) * s.basalScale * pct, 0.05) }
         val scheduledBasal: (Long) -> Double = { t -> schedule[minuteOf(t).coerceIn(0, size - 1)] }
         val candidateCrNow = candidateCr * s.crScale / pct
@@ -499,14 +503,14 @@ internal class LoopReplay(private val input: ReplayInput, diaHours: Double, peak
                 }
                 ratio = run.ratio
                 dyn = run.dynIsf
-                cr = run.carbRatio ?: candidateCr
+                cr = (run.carbRatio ?: candidateCr) * s.crScale / pct
                 minBg = run.target ?: 99.0
                 maxBg = minBg
                 tempTarget = isTempTarget(minBg)
                 smbAllowed = run.smbAllowed
-                sens = run.profileSens ?: candidateSens
+                sens = (run.profileSens ?: candidateSens) * s.isfScale / pct
                 if (dyn && run.variableSens != null) {
-                    tdd = 1800 / (run.variableSens * ln(run.bg / 65 + 1))
+                    tdd = 1800 / (run.variableSens * ln(run.bg / 65 + 1)) * pct / s.isfScale
                     variableSens = Round.roundTo(1800 / (tdd * ln(gs.glucose / 65 + 1)), 0.1)
                     sens = variableSens
                 }
@@ -581,9 +585,9 @@ internal class LoopReplay(private val input: ReplayInput, diaHours: Double, peak
 
     /** Meal boluses follow the I:C, other manual boluses the ISF, both relative to what was in force then. */
     private fun manualScale(b: LoggedBolus, s: Scenario, cr: Double, sens: Double): Double {
-        if (s.asRun) return 1.0
-        val run = input.lastRunAtOrBefore(b.ts, 60 * 60_000L) ?: return 1.0
         val meal = input.carbs.any { abs(it.first - b.ts) <= 45 * 60_000L && it.second > 0 }
+        if (s.asRun) return s.percentage / 100.0 / (if (meal) s.crScale else s.isfScale)
+        val run = input.lastRunAtOrBefore(b.ts, 60 * 60_000L) ?: return 1.0
         return if (meal) (run.carbRatio ?: return 1.0) / cr
         else (if (run.dynIsf) run.variableSens else run.profileSens)?.let { it / sens } ?: 1.0
     }
