@@ -26,6 +26,10 @@ diabetes team to decide.
 - `plugins/aps/src/jvmTest/kotlin/app/aaps/plugins/aps/replay/` - the Kotlin harness
   (`LoopReplay`, `ReplayInput`) and the entry point `LoopReplayTest`, which does nothing unless
   `REPLAY_IN` is set, so it never runs in CI.
+- `AutoIsfRunner` (same folder) - runs the real `OpenAPSAutoISFPlugin` (`autoISF`, `loop_smb`, SMB ratio),
+  `GlucoseStatusCalculatorAutoIsf` and `DetermineBasalAutoISF`. The plugin's collaborators are
+  reflective stand-ins that answer only what AutoISF asks, so no shipping code changes. Use `aisf=1`;
+  `aisf.<PreferenceKeyName>=value` overrides a setting, `aisfScale` scales all glucose weights.
 - `tools/loop-replay/gen_jobs.py` - writes a sweep of scenarios, one per line.
 - `tools/loop-replay/check_analyze.py` - scores the rebuilt inputs against the phone's own log.
 
@@ -86,6 +90,8 @@ diabetes team to decide.
   (`maxSMBBasalMinutes`). Say so when a basal scale comes out best.
 - **Do not limit a regression to BG ≤ 10.** Unlike scoring, fitting on a BG-limited sample selects
   on the outcome: it drops the rises after meals and makes carbs (I:C) look weaker than they are.
+- **AutoISF iobTH only acts with "SMB on even targets" enabled**: `loop_smb` checks it inside that
+  branch only. With it off, iobTH changes nothing in a replay (and in the app).
 - COB and temp targets (including ones set by automations) stay as they really happened. They do
   not react to the replayed BG. Hypo treatments eaten in reality stay in the truth too, which
   favours settings close to the real ones in both directions.

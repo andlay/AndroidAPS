@@ -33,6 +33,13 @@ for ti in (27, 36, 45):  # true ISF 1.5 / 2.0 / 2.5 mmol/L per U
     jobs.append(f"rel_combo_b0.9_isf1.1_t{ti} basal=0.9 isf=1.1 {rel}")
     jobs.append(f"rel_combo_b0.9_cr1.1_isf1.1_t{ti} basal=0.9 cr=1.1 isf=1.1 {rel}")
 
+    # the AutoISF plugin, from the quick guide's starting values (AutoIsfRunner.GUIDE_START)
+    for name, extra in (("aisf_base", ""), ("aisf_weights_off", "aisf.ApsUseAutoIsfWeights=false"), ("aisf_x0.5", "aisfScale=0.5"),
+                        ("aisf_x2", "aisfScale=2"), ("aisf_max1.5", "aisf.ApsAutoIsfMax=1.5"),
+                        ("aisf_smb_std", "aisf.ApsAutoIsfSmbDeliveryRatio=0.5 aisf.ApsAutoIsfSmbDeliveryRatioBgRange=0 aisf.ApsAutoIsfSmbMaxRangeExtension=1"),
+                        ("aisf_basal0.9", "basal=0.9"), ("aisf_cr1.1", "cr=1.1"), ("aisf_b0.9_isf1.1", "basal=0.9 isf=1.1")):
+        jobs.append(f"{name}_t{ti} aisf=1 {extra} {rel}")
+
     fixed = f"from={FROM} trueIsf={ti} factor=111"
     jobs.append(f"base_t{ti} {fixed}" + (" trace=1" if ti == 36 else ""))
     for p in (70, 80, 90, 110, 120, 130):

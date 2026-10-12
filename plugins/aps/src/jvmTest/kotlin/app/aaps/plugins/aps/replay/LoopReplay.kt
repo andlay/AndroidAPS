@@ -4,6 +4,7 @@ import app.aaps.core.data.iob.InMemoryGlucoseValue
 import app.aaps.core.data.model.BS
 import app.aaps.core.data.model.GlucoseUnit
 import app.aaps.core.data.model.ICfg
+import app.aaps.core.data.model.TT
 import app.aaps.core.data.pump.defs.PumpType
 import app.aaps.core.interfaces.aps.AutosensResult
 import app.aaps.core.interfaces.aps.CurrentTemp
@@ -63,7 +64,13 @@ internal data class Scenario(
     val blockTemps: Boolean = false,
     val from: Long = 0L,
     val to: Long = Long.MAX_VALUE,
-    val trace: Boolean = false
+    val trace: Boolean = false,
+    /** Run the AutoISF plugin instead of SMB (DynISF settings are then ignored). */
+    val autoIsf: Boolean = false,
+    /** AutoISF preference overrides by key name, on top of the quick guide's starting values. */
+    val aisf: Map<String, String> = emptyMap(),
+    /** Multiplies all AutoISF glucose weights (acce, pp, bg range, dura). */
+    val aisfScale: Double = 1.0
 ) {
 
     companion object {
@@ -92,7 +99,9 @@ internal data class Scenario(
                     "from"    -> s.copy(from = v.toLong())
                     "to"      -> s.copy(to = v.toLong())
                     "trace"   -> s.copy(trace = v == "1" || v == "true")
-                    else      -> error("unknown key $k")
+                    "aisf"    -> s.copy(autoIsf = v == "1" || v == "true")
+                    "aisfScale" -> s.copy(aisfScale = v.toDouble())
+                    else      -> if (k.startsWith("aisf.")) s.copy(aisf = s.aisf + (k.removePrefix("aisf.") to v)) else error("unknown key $k")
                 }
             }
             return s
@@ -246,6 +255,20 @@ internal class LoopReplay(private val input: ReplayInput, diaHours: Double, peak
             glucose = data[0].recalculated, noise = 0.0, delta = d.delta, shortAvgDelta = d.shortAvgDelta,
             longAvgDelta = d.longAvgDelta, date = now
         ).asRounded()
+    }
+
+    /** Bucketed BG as the AutoISF glucose status reads it, newest first, last 3 hours. */
+    private fun bucketed(k: Int, bgAt: (Int) -> Double): MutableList<InMemoryGlucoseValue> {
+        val now = input.bgTime[k]
+        val out = ArrayList<InMemoryGlucoseValue>()
+        var i = k
+        while (i >= 0 && input.bgTime[i] >= now - 3 * 3600_000L) {
+            val j = k - i
+            val offset = if (j < 10) input.views[k][j] else input.views[i][0]
+            out.add(InMemoryGlucoseValue(timestamp = input.bgTime[i], value = max(39.0, bgAt(i) + offset)))
+            i--
+        }
+        return out
     }
 
     /** Deviation slopes like the autosens worker: from the last hour of 5 minute deviations. */
@@ -445,6 +468,9 @@ internal class LoopReplay(private val input: ReplayInput, diaHours: Double, peak
         val candidateCrNow = candidateCr * s.crScale / pct
         val candidateSensNow = candidateSens * s.isfScale / pct
 
+        val autoIsf = if (s.autoIsf) AutoIsfRunner(s.aisf + AutoIsfRunner.GLUCOSE_WEIGHTS.associateWith { w ->
+            ((s.aisf[w] ?: AutoIsfRunner.GUIDE_START.getValue(w)).toDouble() * s.aisfScale).toString()
+        }) else null
         val g = DoubleArray(n) { input.truth[it] }
         val bgAt: (Int) -> Double = { g[it] }
         val avgDev = DoubleArray(n) { Double.NaN }
@@ -533,21 +559,47 @@ internal class LoopReplay(private val input: ReplayInput, diaHours: Double, peak
                     sens = variableSens
                 }
             }
-            val iob = iobArray(loopTime, boluses, temps, scheduledBasal, ratio)
-            avgDev[k] = avgDeviation(k, bgAt, iob[0].activity, sens)
-            val rt: RT = determineBasal.determine_basal(
-                glucose_status = gs, currenttemp = currentTemp(active, loopTime), iob_data_array = iob,
-                profile = profile(
-                    minBg, maxBg, cr, sens, currentBasal, if (s.asRun) maxCandidateBasal else maxCandidateBasal * s.basalScale * pct,
-                    tempTarget, !s.asRun, s.maxIob, variableSens, tdd,
-                    if (s.asRun) run?.uam ?: s.uam else s.uam,
-                    if (s.asRun) run?.smbAlways ?: true else true,
-                    if (s.asRun) run?.smbInterval ?: s.smbInterval else s.smbInterval
-                ),
-                autosens_data = AutosensResult(ratio = ratio),
-                meal_data = mealData(now, run, boluses.lastOrNull()?.first ?: 0L, slopes(k, avgDev)),
-                microBolusAllowed = smbAllowed, currentTime = loopTime, flatBGsDetected = false, dynIsfMode = dyn
-            )
+            val uam = if (s.asRun) run?.uam ?: s.uam else s.uam
+            val smbAlways = if (s.asRun) run?.smbAlways ?: true else true
+            val smbInterval = if (s.asRun) run?.smbInterval ?: s.smbInterval else s.smbInterval
+            val maxDailyBasal = if (s.asRun) maxCandidateBasal else maxCandidateBasal * s.basalScale * pct
+            var rtAutoIsf: RT? = null
+            if (autoIsf != null) {
+                // AutoISF: profile ISF (no DynISF, no autosens) changed by the plugin's own factors
+                val profileSens = (if (s.asRun) run?.takeIf { !it.dynIsf }?.profileSens ?: candidateSens else candidateSens) * s.isfScale / pct
+                autoIsf.now = loopTime
+                autoIsf.bucketed = bucketed(k, bgAt)
+                autoIsf.tempTarget = if (tempTarget) TT(timestamp = loopTime - 60_000L, utcOffset = 0L, reason = TT.Reason.CUSTOM, highTarget = maxBg, lowTarget = minBg, duration = 3600_000L) else null
+                val gsA = autoIsf.glucoseStatus.getGlucoseStatusData(allowOldData = false)
+                if (gsA == null) {
+                    if (s.trace) trace.add(traceRow(now, k, g, delivery, nowMin, 0.0, active, 0.0))
+                    continue
+                }
+                val vSens = autoIsf.variableSens(profileSens, (minBg + maxBg) / 2)
+                val iob = iobArray(loopTime, boluses, temps, scheduledBasal, 1.0)
+                avgDev[k] = avgDeviation(k, bgAt, iob[0].activity, vSens)
+                val p = autoIsf.profile(minBg, maxBg, cr, profileSens, vSens, currentBasal, maxDailyBasal, tempTarget, s.maxIob, uam, smbAlways, smbInterval, s.percentage.toInt())
+                sens = vSens
+                rtAutoIsf = autoIsf.determine(
+                    gsA, currentTemp(active, loopTime), iob, p, AutosensResult(ratio = 1.0),
+                    mealData(now, run, boluses.lastOrNull()?.first ?: 0L, slopes(k, avgDev)), smbAllowed, loopTime, s.percentage.toInt()
+                )
+            }
+            val rt: RT = if (rtAutoIsf != null) rtAutoIsf else {
+                val iob = iobArray(loopTime, boluses, temps, scheduledBasal, ratio)
+                avgDev[k] = avgDeviation(k, bgAt, iob[0].activity, sens)
+                determineBasal.determine_basal(
+                    glucose_status = gs, currenttemp = currentTemp(active, loopTime), iob_data_array = iob,
+                    profile = profile(
+                        minBg, maxBg, cr, sens, currentBasal, maxDailyBasal,
+                        tempTarget, !s.asRun, s.maxIob, variableSens, tdd,
+                        uam, smbAlways, smbInterval
+                    ),
+                    autosens_data = AutosensResult(ratio = ratio),
+                    meal_data = mealData(now, run, boluses.lastOrNull()?.first ?: 0L, slopes(k, avgDev)),
+                    microBolusAllowed = smbAllowed, currentTime = loopTime, flatBGsDetected = false, dynIsfMode = dyn
+                )
+            }
             // 4. act like the loop and the pump: temp first, then the SMB
             val thisRun = run?.takeIf { it.ts >= now - 60_000L }
             val rate = rt.rate
@@ -630,7 +682,7 @@ internal class LoopReplay(private val input: ReplayInput, diaHours: Double, peak
 
 // ---------------------------------------------------------------- fakes for the two collaborators
 
-private object SilentLogger : AAPSLogger {
+internal object SilentLogger : AAPSLogger {
 
     override fun debug(message: String) {}
     override fun debug(enable: Boolean, tag: LTag, message: String) {}
@@ -665,7 +717,7 @@ private object NoFabricPrivacy : FabricPrivacy {
 }
 
 /** Only used for the text of the reason, so plain mmol/L numbers are enough. */
-private object ReplayProfileUtil : ProfileUtil {
+internal object ReplayProfileUtil : ProfileUtil {
 
     override val units: GlucoseUnit = GlucoseUnit.MMOL
     override val unitLabel: String = "mmol/L"
