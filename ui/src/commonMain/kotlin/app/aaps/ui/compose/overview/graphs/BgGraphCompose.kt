@@ -668,6 +668,7 @@ fun BgGraphCompose(
         modelProducer = modelProducer,
         modifier = modifier.fillMaxWidth(),
         scrollState = scrollState,
-        zoomState = zoomState
+        zoomState = zoomState,
+        animationSpec = OVERVIEW_CHART_ANIMATION
     )
 }

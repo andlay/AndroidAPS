@@ -517,7 +517,8 @@ fun TreatmentBeltGraphCompose(
             .fillMaxWidth()
             .height(48.dp),
         scrollState = scrollState,
-        zoomState = zoomState
+        zoomState = zoomState,
+        animationSpec = OVERVIEW_CHART_ANIMATION
     )
 }
 

@@ -974,7 +974,8 @@ fun SecondaryGraphCompose(
             ),
             modelProducer = modelProducer,
             modifier = modifier.fillMaxWidth(),
-            scrollState = scrollState, zoomState = zoomState
+            scrollState = scrollState, zoomState = zoomState,
+            animationSpec = OVERVIEW_CHART_ANIMATION
         )
     } else if (isDualAxis) {
         val secondaryLayer = rememberLineCartesianLayer(
@@ -991,7 +992,8 @@ fun SecondaryGraphCompose(
             ),
             modelProducer = modelProducer,
             modifier = modifier.fillMaxWidth(),
-            scrollState = scrollState, zoomState = zoomState
+            scrollState = scrollState, zoomState = zoomState,
+            animationSpec = OVERVIEW_CHART_ANIMATION
         )
     } else {
         CartesianChartHost(
@@ -1003,7 +1005,8 @@ fun SecondaryGraphCompose(
             ),
             modelProducer = modelProducer,
             modifier = modifier.fillMaxWidth(),
-            scrollState = scrollState, zoomState = zoomState
+            scrollState = scrollState, zoomState = zoomState,
+            animationSpec = OVERVIEW_CHART_ANIMATION
         )
     }
 }

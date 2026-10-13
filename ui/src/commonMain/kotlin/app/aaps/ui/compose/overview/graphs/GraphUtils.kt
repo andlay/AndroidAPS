@@ -1,5 +1,6 @@
 package app.aaps.ui.compose.overview.graphs
 
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.runtime.Composable
@@ -566,3 +567,15 @@ fun zeroFloorNiceRange(dataMin: Double, dataMax: Double, maxTickCount: Int = 5, 
         niceScale(dataMin, dataMax, maxTickCount)
     }
 }
+
+/**
+ * No change animation on the overview graphs.
+ *
+ * Vico 3.3.1 can crash ("`entries` and `seriesKeys` must have the same size") when a new model
+ * with a different number of series arrives while it is still drawing the animation frames of the
+ * last one. The graphs change their series often (a calculated trace arrives a moment after its
+ * series, predictions come and go), so this happened. Without the animation each update is applied
+ * in one step. It also saves the work of the frames: these graphs rebuild their model on every
+ * change of the axis range anyway.
+ */
+internal val OVERVIEW_CHART_ANIMATION: AnimationSpec<Float>? = null
