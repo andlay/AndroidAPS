@@ -596,7 +596,7 @@ fun GraphsSection(
                 if (!isSimpleMode) {
                     GraphEditButton(
                         onClick = { editingGraphIndex = i },
-                        graphName = seriesListLabel(secondary.series),
+                        graphName = traceListLabel(secondary.traces),
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(end = 4.dp, top = 2.dp)

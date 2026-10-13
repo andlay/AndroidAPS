@@ -51,7 +51,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import app.aaps.pump.omnipod.omnipod5.history.O5History
 import org.mockito.Mock
 import org.mockito.kotlin.any
 import org.mockito.kotlin.anyOrNull
@@ -86,7 +85,6 @@ class O5PumpPluginTest : TestBaseWithProfile() {
     @Mock lateinit var bolusProgressData: BolusProgressData
     @Mock lateinit var protectionCheck: ProtectionCheck
     @Mock lateinit var blePreCheck: BlePreCheck
-    @Mock lateinit var history: O5History
 
     private lateinit var plugin: O5PumpPlugin
 
