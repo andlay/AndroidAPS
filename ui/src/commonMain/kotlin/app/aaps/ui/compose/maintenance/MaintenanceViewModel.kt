@@ -19,9 +19,9 @@ import app.aaps.core.interfaces.maintenance.CloudDirectoryManager
 import app.aaps.core.interfaces.maintenance.ExportConfig
 import app.aaps.core.interfaces.maintenance.ExportDestination
 import app.aaps.core.interfaces.maintenance.ExportResult
-import app.aaps.core.interfaces.maintenance.PrefsFileInfo
 import app.aaps.core.interfaces.maintenance.ImportExportPrefs
 import app.aaps.core.interfaces.maintenance.Maintenance
+import app.aaps.core.interfaces.maintenance.PrefsFileInfo
 import app.aaps.core.interfaces.overview.OverviewData
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
 import app.aaps.core.interfaces.plugin.ActivePlugin
@@ -94,17 +94,21 @@ class MaintenanceViewModel(
     private val _isDirectoryAccessGranted = MutableStateFlow(false)
     val isDirectoryAccessGranted: StateFlow<Boolean> = _isDirectoryAccessGranted.asStateFlow()
 
+    private val _directoryPath = MutableStateFlow<String?>(null)
+    val directoryPath: StateFlow<String?> = _directoryPath.asStateFlow()
+
     init {
         refreshExportConfig()
     }
 
     fun refreshExportConfig() {
         viewModelScope.launch {
-            val (config, accessGranted) = withContext(aapsIoDispatcher) {
-                importExportPrefs.getExportConfig() to fileListProvider.isDirectoryAccessGranted()
+            val (config, accessGranted, path) = withContext(aapsIoDispatcher) {
+                Triple(importExportPrefs.getExportConfig(), fileListProvider.isDirectoryAccessGranted(), fileListProvider.directoryPath())
             }
             _exportConfig.value = config
             _isDirectoryAccessGranted.value = accessGranted
+            _directoryPath.value = path
         }
     }
 

@@ -3,7 +3,6 @@ package app.aaps.pump.omnipod.common.bledriver.comm
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
-import app.aaps.core.utils.toHex
 import app.aaps.pump.omnipod.common.bledriver.comm.exceptions.ConnectException
 import app.aaps.pump.omnipod.common.bledriver.comm.interfaces.device.BleDeviceManager
 import app.aaps.pump.omnipod.common.bledriver.comm.interfaces.scan.PodScanner
@@ -13,8 +12,8 @@ import app.aaps.pump.omnipod.common.bledriver.comm.pair.LTKExchanger
 import app.aaps.pump.omnipod.common.bledriver.comm.session.ConnectionWaitCondition
 import app.aaps.pump.omnipod.common.bledriver.event.PodEvent
 import app.aaps.pump.omnipod.common.bledriver.pod.state.OmnipodDashPodStateManager
-import io.reactivex.rxjava3.core.Observable
 import dev.zacsweers.metro.Inject
+import io.reactivex.rxjava3.core.Observable
 
 @Inject
 class OmnipodDashBleManagerImpl(
@@ -75,7 +74,6 @@ class OmnipodDashBleManagerImpl(
             val pairResult = LTKExchanger(aapsLogger, config, messageIO, ids).negotiateLTK()
             emitter.onNext(PodEvent.Paired(ids.podId))
             podState.updateFromPairing(ids.podId, pairResult)
-            if (config.DEBUG) aapsLogger.info(LTag.PUMPCOMM, "Got LTK: ${pairResult.ltk.toHex()}")
             emitter.onNext(PodEvent.EstablishingSession)
             establishSession(pairResult.msgSeq)
             emitter.onNext(PodEvent.Connected)

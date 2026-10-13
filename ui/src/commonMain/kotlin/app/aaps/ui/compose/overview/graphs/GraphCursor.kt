@@ -186,7 +186,9 @@ private enum class PressOutcome { TAP, MOVED, MOVED_SIDEWAYS, PINCH, LONG_PRESS 
  * Only the BG graph scrolls and zooms by itself. On the other graphs, pass the BG graph's scroll
  * state as [panTarget] and its zoom state as [zoomTarget]: a sideways drag then scrolls BG and a
  * pinch zooms BG, and the other graphs follow it as usual. An up or down drag is left alone, so the
- * screen still scrolls.
+ * screen still scrolls. [onForwardedGesture] is called when such a drag or pinch starts and when it
+ * ends, like `onScrollOrZoomGesture` on the BG graph: BG is then moved by code, which that modifier
+ * does not see.
  */
 @Composable
 internal fun rememberGraphCursorInput(
@@ -196,7 +198,8 @@ internal fun rememberGraphCursorInput(
     cursorVisible: Boolean,
     onCursorChange: (GraphCursor?) -> Unit,
     panTarget: VicoScrollState? = null,
-    zoomTarget: VicoZoomState? = null
+    zoomTarget: VicoZoomState? = null,
+    onForwardedGesture: () -> Unit = {}
 ): Modifier {
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -205,6 +208,7 @@ internal fun rememberGraphCursorInput(
     val currentMinTimestamp by rememberUpdatedState(minTimestamp)
     val currentCursorVisible by rememberUpdatedState(cursorVisible)
     val currentOnCursorChange by rememberUpdatedState(onCursorChange)
+    val currentOnForwardedGesture by rememberUpdatedState(onForwardedGesture)
 
     // Remembered: the handler reads everything through the updated states above, so the same
     // modifier can be returned on every pass and the chart it is attached to can skip recomposing.
@@ -248,6 +252,7 @@ internal fun rememberGraphCursorInput(
                     PressOutcome.MOVED          -> Unit
                     PressOutcome.MOVED_SIDEWAYS -> {
                         val target = currentPanTarget ?: return@awaitEachGesture
+                        currentOnForwardedGesture()
                         val startScroll = target.value
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -257,11 +262,13 @@ internal fun rememberGraphCursorInput(
                             val scroll = startScroll - (change.position.x - down.position.x)
                             scope.launch { target.scroll(Scroll.Absolute.pixels(scroll)) }
                         }
+                        currentOnForwardedGesture()
                     }
 
                     // BG zooms by itself. On the other graphs the pinch is passed on to BG.
                     PressOutcome.PINCH          -> {
                         val target = currentZoomTarget ?: return@awaitEachGesture
+                        currentOnForwardedGesture()
                         var zoom = target.value
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)

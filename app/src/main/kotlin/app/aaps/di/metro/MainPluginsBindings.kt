@@ -25,7 +25,6 @@ import app.aaps.plugins.main.mealTray.MealTrayPlugin
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.BindingContainer
 import dev.zacsweers.metro.ContributesTo
-import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.IntKey
 import dev.zacsweers.metro.IntoMap
 import dev.zacsweers.metro.Provides

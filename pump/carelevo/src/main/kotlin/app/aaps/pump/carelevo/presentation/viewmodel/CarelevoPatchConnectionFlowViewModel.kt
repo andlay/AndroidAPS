@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.aaps.core.data.model.ICfg
 import app.aaps.core.data.model.TE
+import app.aaps.core.data.model.labelOfInsulin
 import app.aaps.core.data.time.T
 import app.aaps.core.data.ue.Action
 import app.aaps.core.data.ue.Sources
@@ -37,6 +38,7 @@ import app.aaps.pump.carelevo.presentation.type.CarelevoPatchStep
 import app.aaps.pump.carelevo.presentation.type.CarelevoScreenType
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesIntoMap
+import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.binding
 import dev.zacsweers.metrox.viewmodel.ViewModelKey
 import io.reactivex.rxjava3.disposables.CompositeDisposable
@@ -45,7 +47,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
-import dev.zacsweers.metro.Inject
 import kotlin.jvm.optionals.getOrNull
 
 @ContributesIntoMap(AppScope::class, binding = binding<ViewModel>())
@@ -373,7 +374,7 @@ class CarelevoPatchConnectionFlowViewModel @Inject constructor(
     private suspend fun loadInsulins() {
         if (_availableInsulins.value.isNotEmpty()) return
         val insulins = insulinManager.insulins.map { it.deepClone() }
-        val activeLabel = profileFunction.getProfile()?.iCfg?.insulinLabel
+        val activeLabel = insulins.labelOfInsulin(profileFunction.getProfile()?.iCfg)
         _availableInsulins.value = insulins
         _selectedInsulin.value = insulins.find { it.insulinLabel == activeLabel } ?: insulins.firstOrNull()
         _activeInsulinLabel.value = activeLabel
@@ -389,7 +390,7 @@ class CarelevoPatchConnectionFlowViewModel @Inject constructor(
         // Commit the insulin/profile switch BEFORE advancing, so later steps never race a
         // still-in-flight profile change.
         viewModelScope.launch {
-            val currentLabel = profileFunction.getProfile()?.iCfg?.insulinLabel
+            val currentLabel = insulinManager.insulins.labelOfInsulin(profileFunction.getProfile()?.iCfg)
             if (selected.insulinLabel != currentLabel) {
                 profileFunction.createProfileSwitchWithNewInsulin(selected, Sources.Carelevo)
             }

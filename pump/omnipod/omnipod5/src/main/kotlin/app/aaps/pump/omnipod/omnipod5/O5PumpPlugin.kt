@@ -82,11 +82,11 @@ import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.basalDrift
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.basalDelivered
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.util.buildO5ExpirationAlerts
 import app.aaps.pump.omnipod.omnipod5.history.O5History
-import app.aaps.pump.omnipod.omnipod5.history.data.BasalValuesRecord
-import app.aaps.pump.omnipod.omnipod5.history.data.BolusRecord
-import app.aaps.pump.omnipod.omnipod5.history.data.BolusType
-import app.aaps.pump.omnipod.omnipod5.history.data.InitialResult
-import app.aaps.pump.omnipod.omnipod5.history.data.TempBasalRecord
+import app.aaps.pump.omnipod.common.history.data.BasalValuesRecord
+import app.aaps.pump.omnipod.common.history.data.BolusRecord
+import app.aaps.pump.omnipod.common.bledriver.pod.definition.BolusType
+import app.aaps.pump.omnipod.common.history.data.InitialResult
+import app.aaps.pump.omnipod.common.history.data.TempBasalRecord
 import app.aaps.pump.omnipod.common.keys.DashBooleanPreferenceKey
 import app.aaps.pump.omnipod.common.keys.OmnipodBooleanPreferenceKey
 import app.aaps.pump.omnipod.common.keys.OmnipodIntPreferenceKey
@@ -418,9 +418,12 @@ class O5PumpPlugin @Inject constructor(
         podStateManager.activationProgress == ActivationProgress.COMPLETED && podStateManager.isPodRunning
     override fun isSuspended(): Boolean = podStateManager.deliverySuspended
 
+    // The progress alone does not cover pairing: it is still NOT_STARTED until the first step is done,
+    // and the queue then ran and disconnected in the middle of the pairing (Dash #5219).
     override fun isBusy(): Boolean =
-        podStateManager.activationProgress != ActivationProgress.NOT_STARTED &&
-            podStateManager.activationProgress.isBefore(ActivationProgress.COMPLETED)
+        bleManager.isActivationRunning ||
+            (podStateManager.activationProgress != ActivationProgress.NOT_STARTED &&
+                podStateManager.activationProgress.isBefore(ActivationProgress.COMPLETED))
 
     override fun isConnected(): Boolean =
         podStateManager.ltk == null ||
@@ -459,6 +462,11 @@ class O5PumpPlugin @Inject constructor(
 
     override fun disconnect(reason: String) {
         aapsLogger.info(LTag.PUMP, "O5 disconnect reason=$reason")
+        if (bleManager.isActivationRunning) {
+            // The activation uses the BLE link outside the queue. Closing it here breaks the pairing (Dash #5219).
+            aapsLogger.info(LTag.PUMP, "O5 disconnect ignored, pod activation is running")
+            return
+        }
         stopConnecting?.countDown()
         bleManager.disconnect(false)
     }
@@ -1631,7 +1639,7 @@ class O5PumpPlugin @Inject constructor(
                 commandType = OmnipodCommandType.SET_BOLUS,
                 date = startedAt,
                 initialResult = InitialResult.NOT_SENT,
-                bolusRecord = BolusRecord(requestedInsulinAmount, BolusType.BASAL_DRIFT_COMPENSATION)
+                bolusRecord = BolusRecord(requestedInsulinAmount, BolusType.BASAL_CORRECTION)
             ).blockingGet()
             val pendingDose = O5PodStateManager.PendingDoseCommand(
                 type = O5PodStateManager.PendingDoseType.BOLUS,

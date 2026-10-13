@@ -2,6 +2,7 @@ package app.aaps.pump.omnipod.dash
 
 import android.os.Handler
 import android.os.HandlerThread
+import androidx.annotation.VisibleForTesting
 import app.aaps.core.data.model.BS
 import app.aaps.core.data.plugin.PluginType
 import app.aaps.core.data.pump.defs.ManufacturerType
@@ -16,8 +17,8 @@ import app.aaps.core.interfaces.notifications.AlarmSound
 import app.aaps.core.interfaces.notifications.NotificationId
 import app.aaps.core.interfaces.notifications.NotificationLevel
 import app.aaps.core.interfaces.notifications.NotificationManager
-import app.aaps.core.interfaces.plugin.PluginBase
 import app.aaps.core.interfaces.plugin.OwnDatabasePlugin
+import app.aaps.core.interfaces.plugin.PluginBase
 import app.aaps.core.interfaces.plugin.PluginDescription
 import app.aaps.core.interfaces.profile.Profile
 import app.aaps.core.interfaces.pump.BolusProgressData
@@ -72,16 +73,21 @@ import app.aaps.pump.omnipod.common.queue.command.CommandPlayTestBeep
 import app.aaps.pump.omnipod.common.queue.command.CommandResumeDelivery
 import app.aaps.pump.omnipod.common.queue.command.CommandSilenceAlerts
 import app.aaps.pump.omnipod.common.queue.command.CommandUpdateAlertConfiguration
-import app.aaps.pump.omnipod.common.R as CommonR
+import app.aaps.pump.omnipod.common.util.mapProfileToBasalProgram
 import app.aaps.pump.omnipod.dash.driver.OmnipodDashManager
 import app.aaps.pump.omnipod.dash.history.DashHistory
-import app.aaps.pump.omnipod.dash.history.data.BasalValuesRecord
-import app.aaps.pump.omnipod.dash.history.data.BolusRecord
-import app.aaps.pump.omnipod.dash.history.data.TempBasalRecord
+import app.aaps.pump.omnipod.common.history.data.BasalValuesRecord
+import app.aaps.pump.omnipod.common.history.data.BolusRecord
+import app.aaps.pump.omnipod.common.history.data.TempBasalRecord
 import app.aaps.pump.omnipod.dash.history.database.DashHistoryDatabase
 import app.aaps.pump.omnipod.dash.ui.compose.OmnipodDashComposeContent
 import app.aaps.pump.omnipod.dash.util.Constants
-import app.aaps.pump.omnipod.common.util.mapProfileToBasalProgram
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.ContributesIntoMap
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.IntKey
+import dev.zacsweers.metro.SingleIn
+import dev.zacsweers.metro.binding
 import io.reactivex.rxjava3.core.Completable
 import io.reactivex.rxjava3.core.Single
 import kotlinx.coroutines.CoroutineScope
@@ -100,15 +106,10 @@ import kotlinx.coroutines.rx3.rxCompletable
 import java.time.Duration
 import java.time.ZonedDateTime
 import java.util.concurrent.CountDownLatch
-import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesIntoMap
-import dev.zacsweers.metro.IntKey
-import dev.zacsweers.metro.binding
-import dev.zacsweers.metro.Inject
-import dev.zacsweers.metro.SingleIn
 import kotlin.concurrent.thread
 import kotlin.math.ceil
 import kotlin.time.Duration.Companion.hours
+import app.aaps.pump.omnipod.common.R as CommonR
 
 @ContributesIntoMap(AppScope::class, binding = binding<PluginBase>())
 @PumpDriver
@@ -258,8 +259,11 @@ class OmnipodDashPumpPlugin(
 
     override fun isBusy(): Boolean {
         // prevents the queue from executing commands
-        return podStateManager.activationProgress != ActivationProgress.NOT_STARTED &&
-            podStateManager.activationProgress.isBefore(ActivationProgress.COMPLETED)
+        // The progress alone does not cover pairing: it is still NOT_STARTED until the first step is done,
+        // and the queue then ran and disconnected in the middle of the pairing (#5219).
+        return omnipodManager.isActivationRunning ||
+            (podStateManager.activationProgress != ActivationProgress.NOT_STARTED &&
+                podStateManager.activationProgress.isBefore(ActivationProgress.COMPLETED))
     }
 
     override fun isConnected(): Boolean {
@@ -313,6 +317,11 @@ class OmnipodDashPumpPlugin(
 
     override fun disconnect(reason: String) {
         aapsLogger.info(LTag.PUMP, "disconnect reason=$reason")
+        if (omnipodManager.isActivationRunning) {
+            // The activation uses the BLE link outside the queue. Closing it here broke the pairing (#5219).
+            aapsLogger.info(LTag.PUMP, "disconnect ignored, pod activation is running")
+            return
+        }
         stopConnecting?.countDown()
         omnipodManager.disconnect(false)
     }
@@ -1353,7 +1362,8 @@ class OmnipodDashPumpPlugin(
         Completable.complete()
     }
 
-    private suspend fun handleCommandConfirmation(confirmation: CommandConfirmed) {
+    @VisibleForTesting
+    internal suspend fun handleCommandConfirmation(confirmation: CommandConfirmed) {
         val command = confirmation.command
         val historyEntry = history.getById(command.historyId)
         aapsLogger.debug(LTag.PUMPCOMM, "handling command confirmation: $confirmation ${historyEntry.commandType}")
@@ -1398,13 +1408,18 @@ class OmnipodDashPumpPlugin(
                 }
             }
 
-            OmnipodCommandType.SET_BASAL_PROFILE      -> {
+            // Setting the time is the same pod command as a profile change: suspend, then a new basal program.
+            // The suspend also starts a "pump suspended" temp basal and the pod's "delivery suspended" alert
+            // (20 min), so both must be ended here too. Without SET_TIME the pod beeped about 20 min after
+            // every time change while basal was running again (#2982).
+            OmnipodCommandType.SET_BASAL_PROFILE,
+            OmnipodCommandType.SET_TIME               -> {
                 if (confirmation.success) {
                     podStateManager.basalProgram = command.basalProgram
                     if (podStateManager.basalProgram == null) {
                         aapsLogger.warn(LTag.PUMP, "Saving null basal profile")
                     }
-                    if (!commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)) {
+                    if (historyEntry.commandType == OmnipodCommandType.SET_BASAL_PROFILE && !commandQueue.isRunning(Command.CommandType.BASAL_PROFILE)) {
                         // we are late-confirming this command. before that, we answered with success:false
                         rxBus.send(EventProfileChangeRequested())
                     }
@@ -1474,7 +1489,7 @@ class OmnipodDashPumpPlugin(
                     record as BolusRecord
 
                     podStateManager.createLastBolus(
-                        record.amout,
+                        record.amount,
                         command.historyId,
                         record.bolusType
                     )

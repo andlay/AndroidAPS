@@ -1,8 +1,5 @@
 package app.aaps.workflow
 
-import app.aaps.core.objects.workflow.WorkOutcome
-import kotlinx.coroutines.test.TestScope
-import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import app.aaps.core.data.configuration.Constants
@@ -24,9 +21,11 @@ import app.aaps.core.interfaces.rx.events.EventBucketedDataCreated
 import app.aaps.core.interfaces.workflow.CalculationSignalsEmitter
 import app.aaps.core.interfaces.workflow.CalculationWorkflow.ProgressData
 import app.aaps.core.keys.StringKey
+import app.aaps.core.objects.workflow.WorkOutcome
 import app.aaps.shared.tests.TestBaseWithProfile
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -101,7 +100,7 @@ class PrepareGraphDataRunnerTest : TestBaseWithProfile() {
         whenever(profileFunction.getProfile(any())).thenReturn(null)
         whenever(dataAds.getLastAutosensData(any(), any(), any())).thenReturn(null)
         whenever(persistenceLayer.getBgReadingsDataFromTimeToTime(any(), any(), any())).thenReturn(emptyList())
-        whenever(persistenceLayer.getApsResults(any(), any())).thenReturn(emptyList())
+        whenever(persistenceLayer.getVariableSensitivities(any(), any())).thenReturn(emptyList())
         whenever(persistenceLayer.getTemporaryTargetActiveAt(any())).thenReturn(null)
         whenever(dataIobCob.calculateIobArrayForSMB(any(), any(), any(), any())).thenReturn(emptyArray())
         whenever(dataIobCob.iobArrayToString(any())).thenReturn("")

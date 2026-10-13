@@ -15,7 +15,6 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlin.concurrent.Volatile
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.graph.vico.Square
 import app.aaps.core.interfaces.overview.graph.ActivityGraphData
@@ -26,6 +25,7 @@ import app.aaps.core.interfaces.overview.graph.EpsGraphPoint
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.AapsTheme
+import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.icons.IcProfile
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.VicoScrollState
@@ -46,6 +46,7 @@ import com.patrykandpatrick.vico.compose.common.component.ShapeComponent
 import com.patrykandpatrick.vico.compose.common.component.TextComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
 import com.patrykandpatrick.vico.compose.common.data.ExtraStore
+import kotlin.concurrent.Volatile
 
 /** Series identifiers */
 /** Basal on BG graph — deprecated, now shown as flipped overlay on IOB graph. Set to true to restore. */

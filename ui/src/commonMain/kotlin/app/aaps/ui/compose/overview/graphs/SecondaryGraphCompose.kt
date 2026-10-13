@@ -11,8 +11,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -24,7 +22,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.graph.vico.AdaptiveStep
 import app.aaps.core.graph.vico.Square
-import app.aaps.core.interfaces.utils.DecimalFormatter
 import app.aaps.core.interfaces.overview.graph.BolusType
 import app.aaps.core.interfaces.overview.graph.DeviationType
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
@@ -32,9 +29,10 @@ import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.PlotStyle
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.overview.graph.TreatmentGraphData
-import app.aaps.core.ui.compose.LocalDecimalFormatter
-import app.aaps.core.ui.compose.LocalDateUtil
+import app.aaps.core.interfaces.utils.DecimalFormatter
 import app.aaps.core.ui.compose.AapsTheme
+import app.aaps.core.ui.compose.LocalDateUtil
+import app.aaps.core.ui.compose.LocalDecimalFormatter
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.CartesianDrawingContext
 import com.patrykandpatrick.vico.compose.cartesian.VicoScrollState
@@ -56,10 +54,7 @@ import com.patrykandpatrick.vico.compose.common.component.ShapeComponent
 import com.patrykandpatrick.vico.compose.common.component.TextComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
 import com.patrykandpatrick.vico.compose.common.data.ExtraStore
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.debounce
 
 /**
  * CartesianChartModelProducer.update() skips notifying receivers (and thus skips recomputing axis
@@ -69,12 +64,6 @@ import kotlinx.coroutines.flow.debounce
  * it. When the ranges are the same objects as last time, nothing changed and skipping is right.
  */
 private val AXIS_RANGES_KEY = ExtraStore.Key<List<Any>>()
-
-/** Frames to read the visible window on after the scroll, zoom or time range moved. */
-private const val VISIBLE_RANGE_READ_FRAMES = 3
-
-/** Safety-net read of the visible window, for a change the frame reads did not see. */
-private const val VISIBLE_RANGE_FALLBACK_POLL_MS = 1000L
 
 /**
  * Secondary graphs are much shorter than the BG graph, so Vico's ItemPlacer thins out a denser
@@ -151,7 +140,6 @@ internal class ClampedVerticalAxisItemPlacer(
  * The first trace uses the left axis, the second the right axis. Two traces share one axis when they
  * have the same scale: BGI with DEV, or a series with its own EWMA or rolling mean.
  */
-@OptIn(FlowPreview::class)
 @Composable
 fun SecondaryGraphCompose(
     viewModel: GraphViewModel,
@@ -445,46 +433,26 @@ fun SecondaryGraphCompose(
     // Visible-window bounds (same x-unit as processed* points — minutes from minTimestamp) for
     // windowing the Y-axis scale to only the currently scrolled/zoomed portion of this graph's
     // own chart, instead of the full loaded time range.
-    // The reporter writes into a plain (non-Compose-state) holder on every draw pass — see
-    // VisibleRangeHolder — so we poll it here rather than observing it directly, keeping Compose
-    // state writes off the draw path.
+    // The reporter writes into a StateFlow holder (not Compose state) on every draw pass — see
+    // VisibleRangeHolder — and we collect it here, keeping Compose state writes off the draw path.
     // Computed here (before the model-rebuild LaunchedEffect below) so visibleMinX/visibleMaxX can
     // be included in that effect's keys — Vico only reliably re-applies axis ranges via a real
     // modelProducer.runTransaction, not merely by swapping the CartesianLayerRangeProvider instance.
     val visibleRangeHolder = remember { VisibleRangeHolder() }
     val visibleRangeReporter = rememberVisibleRangeReporter(visibleRangeHolder)
 
-    var rawVisibleRange by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var visibleRange by remember { mutableStateOf<Pair<Double, Double>?>(null) }
 
-    // The holder is written while drawing, so read it on the next frames after the window can have
-    // moved (scroll, zoom, new time range). A poll every 50 ms ran in every graph for as long as the
-    // screen was open. The slow poll is only a safety net for a window change none of these show.
-    val currentMaxX by rememberUpdatedState(maxX)
-    LaunchedEffect(visibleRangeHolder, scrollState, zoomState) {
-        snapshotFlow { Triple(scrollState.value, zoomState.value, currentMaxX) }.collectLatest {
-            repeat(VISIBLE_RANGE_READ_FRAMES) {
-                withFrameMillis { }
-                val current = visibleRangeHolder.value
-                if (current != rawVisibleRange) rawVisibleRange = current
-            }
-        }
-    }
+    // Runs only when the range changes. The delay limits updates to 20 per second during
+    // scroll/zoom (each one rebuilds the model); the StateFlow keeps the latest value meanwhile.
     LaunchedEffect(visibleRangeHolder) {
-        while (true) {
-            delay(VISIBLE_RANGE_FALLBACK_POLL_MS)
-            val current = visibleRangeHolder.value
-            if (current != rawVisibleRange) rawVisibleRange = current
+        visibleRangeHolder.value.collect {
+            visibleRange = it
+            delay(50)
         }
     }
 
-    LaunchedEffect(Unit) {
-        snapshotFlow { rawVisibleRange }
-            .debounce(30)
-            .collect { visibleRange = it }
-    }
-
-    // Expose this graph's own (already debounced) visible window upward — used by BgGraphCompose
+    // Expose this graph's own (already throttled) visible window upward — used by BgGraphCompose
     // to window its own axis from this graph's synced scroll/zoom instead of attaching its own
     // decoration (that was tried and found to break BG's own pinch-zoom gesture handling).
     val currentOnVisibleRangeChanged by rememberUpdatedState(onVisibleRangeChanged)

@@ -19,21 +19,21 @@ import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.interfaces.utils.fabric.FabricPrivacy
 import app.aaps.shared.tests.generatedTextResolver
 import com.google.common.truth.Truth.assertThat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -91,6 +91,21 @@ internal class MaintenanceViewModelTest {
         assertThat(sut.exportState.value).isEqualTo(MaintenanceViewModel.ExportState.Idle)
         assertThat(sut.cloudDirectoryState.value).isEqualTo(MaintenanceViewModel.CloudDirectoryState.Hidden)
         assertThat(sut.exportConfig.value).isNull()
+        assertThat(sut.isDirectoryAccessGranted.value).isFalse()
+        assertThat(sut.directoryPath.value).isNull()
+    }
+
+    @Test
+    fun `refreshExportConfig shows the chosen directory even when access is lost`() = runBlocking {
+        whenever(fileListProvider.isDirectoryAccessGranted()).thenReturn(false)
+        whenever(fileListProvider.directoryPath()).thenReturn("Documents/AAPS")
+        runEagerly()
+
+        sut.refreshExportConfig()
+
+        // The read runs on the IO dispatcher, so wait for it rather than assume it is done.
+        val path = withTimeout(10_000) { sut.directoryPath.first { it != null } }
+        assertThat(path).isEqualTo("Documents/AAPS")
         assertThat(sut.isDirectoryAccessGranted.value).isFalse()
     }
 

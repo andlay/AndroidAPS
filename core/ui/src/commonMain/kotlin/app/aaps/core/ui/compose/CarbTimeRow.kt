@@ -3,28 +3,23 @@ package app.aaps.core.ui.compose
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Notifications
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.aaps.core.ui.CoreUiStrings
@@ -70,58 +65,41 @@ fun CarbTimeRow(
             .fillMaxWidth()
             .bringIntoViewRequester(expandRequester)
     ) {
-        // Header row: icon + label + value + Change/OK button
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
+        ExpandableRowHeader(
+            label = stringResource(CoreUiStrings.wizard_carb_time),
+            expanded = expanded,
+            onExpand = { expanded = true }
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.weight(1f)
-            ) {
+            if (offsetMinutes == 0) {
                 Text(
-                    text = stringResource(CoreUiStrings.wizard_carb_time) + ": ",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    text = stringResource(CoreUiStrings.carb_time_now),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                if (offsetMinutes == 0) {
-                    Text(
-                        text = stringResource(CoreUiStrings.carb_time_now),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                } else {
-                    Column {
-                        if (resolvedTimeText != null) {
-                            Text(
-                                text = resolvedTimeText,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
+            } else {
+                Column {
+                    if (resolvedTimeText != null) {
                         Text(
-                            text = "(${formatOffset(offsetMinutes)})",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = resolvedTimeText,
+                            style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
-                }
-                if (alarmChecked && offsetMinutes != 0) {
-                    Icon(
-                        imageVector = Icons.Outlined.Notifications,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(16.dp)
+                    Text(
+                        text = stringResource(CoreUiStrings.value_in_parentheses, formatOffset(offsetMinutes)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
-
-            if (!expanded) {
-                FilledTonalButton(onClick = { expanded = true }) {
-                    Text(stringResource(CoreUiStrings.change))
-                }
+            if (alarmChecked && offsetMinutes != 0) {
+                Icon(
+                    imageVector = Icons.Outlined.Notifications,
+                    // The only sign that an alarm is set when the row is collapsed.
+                    contentDescription = stringResource(CoreUiStrings.wizard_set_alarm),
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
 
@@ -147,37 +125,25 @@ fun CarbTimeRow(
                 // Alarm toggle (disabled when offset <= 0)
                 val alarmEnabled = offsetMinutes > 0
                 Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(enabled = alarmEnabled) { onAlarmChange(!alarmChecked) },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    val alarmAlpha = if (alarmEnabled) 1f else 0.38f
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                val alarmAlpha = if (alarmEnabled) 1f else 0.38f
+                LabeledSwitch(
+                    label = stringResource(CoreUiStrings.wizard_set_alarm),
+                    checked = alarmChecked && alarmEnabled,
+                    onCheckedChange = onAlarmChange,
+                    enabled = alarmEnabled,
+                    labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = alarmAlpha),
+                    labelStyle = MaterialTheme.typography.bodyMedium,
+                    leadingContent = {
                         Icon(
                             imageVector = Icons.Outlined.Notifications,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alarmAlpha),
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = stringResource(CoreUiStrings.wizard_set_alarm),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = alarmAlpha)
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .size(20.dp)
                         )
                     }
-                    Switch(
-                        checked = alarmChecked && alarmEnabled,
-                        onCheckedChange = { onAlarmChange(it) },
-                        enabled = alarmEnabled
-                    )
-                }
+                )
 
                 // Optional date/time content (Carbs dialog)
                 if (dateTimeContent != null) {
@@ -193,7 +159,7 @@ fun CarbTimeRow(
 private fun formatOffset(minutes: Int): String {
     return when {
         minutes == 0 -> stringResource(CoreUiStrings.carb_time_now)
-        minutes > 0  -> "+${formatMinutesAsDuration(minutes)}"
-        else         -> "-${formatMinutesAsDuration(-minutes)}"
+        minutes > 0  -> stringResource(CoreUiStrings.value_with_plus_sign, formatMinutesAsDuration(minutes))
+        else         -> stringResource(CoreUiStrings.value_with_minus_sign, formatMinutesAsDuration(-minutes))
     }
 }

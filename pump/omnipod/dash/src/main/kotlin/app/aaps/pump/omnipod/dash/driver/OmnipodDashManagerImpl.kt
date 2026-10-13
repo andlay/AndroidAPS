@@ -40,6 +40,11 @@ import app.aaps.pump.omnipod.common.bledriver.pod.response.ResponseType
 import app.aaps.pump.omnipod.common.bledriver.pod.response.SetUniqueIdResponse
 import app.aaps.pump.omnipod.common.bledriver.pod.response.VersionResponse
 import app.aaps.pump.omnipod.common.bledriver.pod.state.OmnipodDashPodStateManager
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.ContributesBinding
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
+import dev.zacsweers.metro.binding
 import io.reactivex.rxjava3.core.Observable
 import io.reactivex.rxjava3.functions.Action
 import io.reactivex.rxjava3.functions.Consumer
@@ -49,11 +54,7 @@ import java.util.Date
 import java.util.EnumSet
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesBinding
-import dev.zacsweers.metro.SingleIn
-import dev.zacsweers.metro.binding
-import dev.zacsweers.metro.Inject
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration.Companion.hours
 
 @ContributesBinding(AppScope::class, binding = binding<OmnipodDashManager>())
@@ -70,6 +71,11 @@ class OmnipodDashManagerImpl(
 
         const val NONCE = 1229869870 // The Omnipod Dash seems to use a fixed nonce
     }
+
+    private val activationRunning = AtomicBoolean(false)
+
+    override val isActivationRunning: Boolean
+        get() = activationRunning.get()
 
     private val observePodReadyForActivationPart1: Observable<PodEvent>
         get() = Observable.defer {
@@ -277,6 +283,7 @@ class OmnipodDashManagerImpl(
             observeActivationPart1Commands(lowReservoirAlertTrigger)
         ).doOnComplete(ActivationProgressUpdater(ActivationProgress.PHASE_1_COMPLETED))
             .interceptPodEvents()
+            .markActivationRunning()
     }
 
     private fun observeActivationPart1Commands(lowReservoirAlertTrigger: AlertTrigger.ReservoirVolumeTrigger?): Observable<PodEvent> {
@@ -380,6 +387,7 @@ class OmnipodDashManagerImpl(
             observeActivationPart2Commands(basalProgram, userConfiguredExpirationReminderHours, userConfiguredExpirationAlarmHours)
         ).doOnComplete(ActivationProgressUpdater(ActivationProgress.COMPLETED))
             .interceptPodEvents()
+            .markActivationRunning()
     }
 
     private fun observeActivationPart2Commands(basalProgram: BasalProgram, userConfiguredExpirationReminderHours: Long?, userConfiguredExpirationAlarmHours: Long?):
@@ -778,6 +786,12 @@ class OmnipodDashManagerImpl(
         return this.doOnNext(PodEventInterceptor())
             .doOnError(ErrorInterceptor())
             .subscribeOn(aapsSchedulers.io)
+    }
+
+    // Placed after subscribeOn, so the flag is set on the subscribing thread before any BLE work starts.
+    private fun Observable<PodEvent>.markActivationRunning(): Observable<PodEvent> {
+        return this.doOnSubscribe { activationRunning.set(true) }
+            .doFinally { activationRunning.set(false) }
     }
 
     inner class ErrorInterceptor : Consumer<Throwable> {

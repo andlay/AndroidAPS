@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.aaps.core.data.model.ICfg
 import app.aaps.core.data.model.TE
+import app.aaps.core.data.model.labelOfInsulin
 import app.aaps.core.data.time.T
 import app.aaps.core.data.ue.Action
 import app.aaps.core.data.ue.Sources
@@ -45,6 +46,11 @@ import app.aaps.pump.eopatch.keys.EopatchIntKey
 import app.aaps.pump.eopatch.vo.PatchConfig
 import app.aaps.pump.eopatch.vo.PatchLifecycleEvent
 import app.aaps.pump.eopatch.vo.PatchState
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.ContributesIntoMap
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.binding
+import dev.zacsweers.metrox.viewmodel.ViewModelKey
 import io.reactivex.rxjava3.core.Maybe
 import io.reactivex.rxjava3.core.Observable
 import io.reactivex.rxjava3.core.Single
@@ -60,11 +66,6 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
-import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesIntoMap
-import dev.zacsweers.metro.binding
-import dev.zacsweers.metrox.viewmodel.ViewModelKey
-import dev.zacsweers.metro.Inject
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.hours
@@ -911,7 +912,7 @@ class EopatchPatchViewModel(
         if (_availableInsulins.value.isNotEmpty()) return
         viewModelScope.launch {
             val insulins = insulinManager.insulins.map { it.deepClone() }
-            val activeLabel = profileFunction.getProfile()?.iCfg?.insulinLabel
+            val activeLabel = insulins.labelOfInsulin(profileFunction.getProfile()?.iCfg)
             val current = insulins.find { it.insulinLabel == activeLabel } ?: insulins.firstOrNull()
             _availableInsulins.value = insulins
             _selectedInsulin.value = current

@@ -13,6 +13,7 @@ import app.aaps.core.ui.compose.StatusLevel
 import app.aaps.core.ui.compose.pump.PumpInfoRow
 import app.aaps.pump.omnipod.common.bledriver.pod.definition.ActivationProgress
 import app.aaps.pump.omnipod.common.bledriver.pod.definition.PodStatus
+import app.aaps.pump.omnipod.common.queue.command.CommandResumeDelivery
 import app.aaps.pump.omnipod.omnipod5.bledriver.pod.state.O5PodStateManager
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.Dispatchers
@@ -29,16 +30,15 @@ import org.mockito.MockitoAnnotations
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.whenever
+import java.time.Duration
 import app.aaps.core.ui.R as CoreUiR
 import app.aaps.pump.omnipod.common.R as CommonR
 
 /**
- * Mirrors [app.aaps.pump.omnipod.dash.ui.compose.DashOverviewViewModelTest]'s pattern for
+ * Mirrors `DashOverviewViewModelTest`'s pattern for
  * O5's [O5OverviewViewModel] - covers [app.aaps.core.ui.compose.pump.PumpOverviewUiState]
- * assembly (the initial value produced by `buildUiState()`). Both tests keep the pod in the
- * pre-activation ("not initialized", `activationProgress = NOT_STARTED`) state, the
- * least stub-heavy branch of `buildInfoRows()`: it emits placeholder rows and never
- * dereferences the pod's optional dosing fields.
+ * assembly (the initial value produced by `buildUiState()`), including action visibility
+ * before activation and while delivery is running or suspended.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class O5OverviewViewModelTest {
@@ -76,6 +76,8 @@ internal class O5OverviewViewModelTest {
     @Test
     fun preActivation_buildsPlaceholderRows_criticalPodStatus_andOffersActivate() {
         whenever(rh.gs(CommonR.string.omnipod_common_overview_pod_status)).thenReturn("Pod status")
+        whenever(rh.gs(CommonR.string.omnipod_common_overview_pod_expiry_date)).thenReturn("Pod expires")
+        whenever(rh.gs(CommonR.string.omnipod_common_overview_pod_hard_end_date)).thenReturn("Pod hard end")
         whenever(rh.gs(CommonR.string.omnipod_common_pod_management_button_activate_pod)).thenReturn("Activate pod")
         whenever(rh.gs(CoreUiR.string.refresh)).thenReturn("Refresh")
 
@@ -88,10 +90,32 @@ internal class O5OverviewViewModelTest {
         val podStatusRow = state.infoRows.filterIsInstance<PumpInfoRow>().first { it.label == "Pod status" }
         assertThat(podStatusRow.level).isEqualTo(StatusLevel.CRITICAL)
 
+        val podExpiresIndex = state.infoRows.indexOfFirst { it is PumpInfoRow && it.label == "Pod expires" }
+        val podHardEndRow = state.infoRows.filterIsInstance<PumpInfoRow>().first { it.label == "Pod hard end" }
+        assertThat(podHardEndRow.value).isEqualTo("-")
+        assertThat(state.infoRows.indexOf(podHardEndRow)).isEqualTo(podExpiresIndex + 1)
+
         val refresh = state.primaryActions.first { it.label == "Refresh" }
         assertThat(refresh.enabled).isFalse()
         val activate = state.managementActions.first { it.label == "Activate pod" }
         assertThat(activate.visible).isTrue()
+    }
+
+    @Test
+    fun activePod_hardEndIsEightHoursAfterExpiry() {
+        whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.COMPLETED)
+        whenever(podStateManager.podLifeInHours).thenReturn(16.toShort())
+        whenever(podStateManager.minutesSinceActivation).thenReturn(0.toShort())
+        whenever(podStateManager.lastStatusResponseReceived).thenReturn(System.currentTimeMillis())
+        whenever(rh.gs(CommonR.string.omnipod_common_overview_pod_expiry_date)).thenReturn("Pod expires")
+        whenever(rh.gs(CommonR.string.omnipod_common_overview_pod_hard_end_date)).thenReturn("Pod hard end")
+        whenever(dateUtil.dateAndTimeString(any())).thenAnswer { invocation -> invocation.getArgument<Long>(0).toString() }
+
+        val rows = createViewModel().uiState.value.infoRows.filterIsInstance<PumpInfoRow>()
+        val expiryValue = rows.first { it.label == "Pod expires" }.value.toLong()
+        val hardEndValue = rows.first { it.label == "Pod hard end" }.value.toLong()
+
+        assertThat(hardEndValue - expiryValue).isEqualTo(Duration.ofHours(8).toMillis())
     }
 
     @Test
@@ -143,8 +167,61 @@ internal class O5OverviewViewModelTest {
 
         val resume = state.primaryActions.first { it.label == "Resume" }
         assertThat(resume.visible).isTrue()
-        val suspend = state.primaryActions.first { it.label == "Suspend" }
-        assertThat(suspend.visible).isFalse()
+        assertThat(resume.enabled).isTrue()
+        assertThat(state.primaryActions.none { it.label == "Suspend" }).isTrue()
+    }
+
+    @Test
+    fun runningActivePod_offersNeitherSuspendNorResume() {
+        whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.COMPLETED)
+        whenever(podStateManager.podStatus).thenReturn(PodStatus.RUNNING_ABOVE_MIN_VOLUME)
+        whenever(podStateManager.deliverySuspended).thenReturn(false)
+        whenever(rh.gs(CommonR.string.omnipod_common_overview_button_resume_delivery)).thenReturn("Resume")
+        whenever(rh.gs(CommonR.string.omnipod_common_overview_button_suspend_delivery)).thenReturn("Suspend")
+
+        val state = createViewModel().uiState.value
+
+        assertThat(state.primaryActions.first { it.label == "Resume" }.visible).isFalse()
+        assertThat(state.primaryActions.none { it.label == "Suspend" }).isTrue()
+    }
+
+    @Test
+    fun suspendedActivePod_busyQueue_disablesResume() {
+        whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.COMPLETED)
+        whenever(podStateManager.podStatus).thenReturn(PodStatus.RUNNING_ABOVE_MIN_VOLUME)
+        whenever(podStateManager.deliverySuspended).thenReturn(true)
+        whenever(commandQueue.size()).thenReturn(1)
+        whenever(rh.gs(CommonR.string.omnipod_common_overview_button_resume_delivery)).thenReturn("Resume")
+
+        val resume = createViewModel().uiState.value.primaryActions.first { it.label == "Resume" }
+
+        assertThat(resume.visible).isTrue()
+        assertThat(resume.enabled).isFalse()
+    }
+
+    @Test
+    fun activePod_resumeQueued_keepsResumeVisible() {
+        whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.COMPLETED)
+        whenever(podStateManager.podStatus).thenReturn(PodStatus.RUNNING_ABOVE_MIN_VOLUME)
+        whenever(podStateManager.deliverySuspended).thenReturn(false)
+        whenever(commandQueue.isCustomCommandInQueue(CommandResumeDelivery::class)).thenReturn(true)
+        whenever(commandQueue.size()).thenReturn(1)
+        whenever(rh.gs(CommonR.string.omnipod_common_overview_button_resume_delivery)).thenReturn("Resume")
+
+        val resume = createViewModel().uiState.value.primaryActions.first { it.label == "Resume" }
+
+        assertThat(resume.visible).isTrue()
+        assertThat(resume.enabled).isFalse()
+    }
+
+    @Test
+    fun preActivation_suspendedState_doesNotOfferResume() {
+        whenever(podStateManager.deliverySuspended).thenReturn(true)
+        whenever(rh.gs(CommonR.string.omnipod_common_overview_button_resume_delivery)).thenReturn("Resume")
+
+        val resume = createViewModel().uiState.value.primaryActions.first { it.label == "Resume" }
+
+        assertThat(resume.visible).isFalse()
     }
 
     @Test

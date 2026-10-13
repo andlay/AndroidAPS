@@ -23,6 +23,9 @@ import app.aaps.core.interfaces.rx.events.EventShowSnackbar
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.ui.CoreUiStrings
 import app.aaps.plugins.aps.ApsStrings
+import app.aaps.plugins.aps.loop.runningMode.RunningModeReconciler.Companion.ALARM_AFTER_MS
+import app.aaps.plugins.aps.loop.runningMode.RunningModeReconciler.Companion.ALARM_REPEAT_MS
+import app.aaps.plugins.aps.loop.runningMode.RunningModeReconciler.Companion.RENEW_BEFORE_END_MS
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -83,6 +86,7 @@ class RunningModeReconciler(
     private var lastReconciledMode: RM.Mode? = null
     private var lastReconciledRowId: Long? = null
     private var lastReconciledDuration: Long = -1L
+    private var lastReconciledTimestamp: Long = 0L
     private var started = false
     private var observerJob: Job? = null
 
@@ -120,6 +124,7 @@ class RunningModeReconciler(
         lastReconciledMode = null
         lastReconciledRowId = null
         lastReconciledDuration = -1L
+        lastReconciledTimestamp = 0L
         zeroTbrMissingSince = null
         lastZeroTbrAlarm = null
     }
@@ -157,6 +162,7 @@ class RunningModeReconciler(
         lastReconciledMode = active.mode
         lastReconciledRowId = active.id
         lastReconciledDuration = active.duration
+        lastReconciledTimestamp = active.timestamp
         aapsLogger.debug(LTag.APS, "RunningModeReconciler: startup reconcile, mode=${active.mode}")
     }
 
@@ -183,12 +189,27 @@ class RunningModeReconciler(
         val prevId = lastReconciledRowId
         val prevDuration = lastReconciledDuration
         if (prevMode == current.mode && prevId == current.id && prevDuration == current.duration) return
-        val action = ReconcilerDecision.decide(prevMode ?: RM.Mode.CLOSED_LOOP, current.mode)
+        val decisionPrev = if (prevMode == RM.Mode.SUSPENDED_BY_PUMP) modeBeforePumpSuspend() else prevMode ?: RM.Mode.CLOSED_LOOP
+        val action = ReconcilerDecision.decide(decisionPrev, current.mode)
         executeAction(action, current, now)
         updateZeroTbrAlarm(current)
         lastReconciledMode = current.mode
         lastReconciledRowId = current.id
         lastReconciledDuration = current.duration
+        lastReconciledTimestamp = current.timestamp
+    }
+
+    /**
+     * The mode that was active just before the pump suspend began. Leaving SUSPENDED_BY_PUMP is decided
+     * from it, as if the pump suspend had not been there: while SUSPENDED_BY_PUMP is on top, the modes
+     * under it change unseen. A disconnect that runs out during a long battery change must still get its
+     * zero TBR cancelled; one that goes on gets it set again (#4486).
+     *
+     * Read from the database, not kept in memory, so it is right after an app restart too.
+     */
+    private suspend fun modeBeforePumpSuspend(): RM.Mode {
+        val before = persistenceLayer.getRunningModeActiveAt(lastReconciledTimestamp - 1).mode
+        return if (before == RM.Mode.SUSPENDED_BY_PUMP) RM.Mode.CLOSED_LOOP else before
     }
 
     /**
