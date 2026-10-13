@@ -187,6 +187,8 @@ class GraphViewModel(
 
     /** The points of a series as a single value list (DEV without its types, DEV slope's upper line, sensitivity in %). */
     private fun sourcePointsFlow(type: SeriesType): Flow<List<GraphDataPoint>> = when (type) {
+        // In the user's units, like the BG graph
+        SeriesType.BG              -> bgReadingsFlow.map { readings -> readings.map { GraphDataPoint(it.timestamp, it.value) } }
         SeriesType.IOB             -> iobGraphFlow.map { data -> data.iob.map { GraphDataPoint(it.timestamp, it.value) } }
         SeriesType.ABS_IOB         -> absIobGraphFlow.map { it.absIob }
         SeriesType.COB             -> cobGraphFlow.map { it.cob }

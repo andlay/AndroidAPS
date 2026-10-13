@@ -43,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import app.aaps.core.interfaces.overview.graph.AxisRange
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.PlotStyle
@@ -83,12 +84,25 @@ private fun styleNameId(style: PlotStyle): TextRef = when (style) {
 /** Window choices step by 5 minutes. */
 private const val WINDOW_STEP_MINUTES = 5.0
 
+/** One axis whose range the sheet lets the user set. */
+internal class AxisEdit(
+    val title: TextRef,
+    val range: AxisRange,
+    val unit: AxisUnit,
+    val onChange: (AxisRange) -> Unit,
+    val maxOnly: Boolean = false
+)
+
 /**
- * Edit sheet of a secondary graph: height, the series shown as they are, and per trace its
- * calculation, window, plot style and colour.
+ * Edit sheet of a graph: height, the series shown as they are, per trace its calculation, window,
+ * plot style and colour, and the range of each axis.
  *
  * @param availableSeries series the user can pick
  * @param onTracesChange the new trace list. An empty list means the user removed everything.
+ * @param lockedType a series that is always on this graph as it is (BG on the BG graph): it is in
+ *   [traces] so calculations can be added over it, but it cannot be removed or changed
+ * @param extraContent switches of this graph that are not traces (BG overlays, activity over IOB)
+ * @param axes the axes whose range can be set, left first
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -100,7 +114,10 @@ internal fun GraphTracesBottomSheet(
     onHeightChange: (Int) -> Unit,
     onTracesChange: (List<GraphTrace>) -> Unit,
     onDismiss: () -> Unit,
-    onRemoveGraph: (() -> Unit)? = null
+    onRemoveGraph: (() -> Unit)? = null,
+    lockedType: SeriesType? = null,
+    extraContent: (@Composable () -> Unit)? = null,
+    axes: List<AxisEdit> = emptyList()
 ) {
     // No half open state, like the other sheets of the app: one drag down closes it
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -143,14 +160,19 @@ internal fun GraphTracesBottomSheet(
             ) {
                 for (type in availableSeries) {
                     SheetChip(
-                        selected = traces.any { it.type == type && !it.isDerived },
+                        selected = type == lockedType || traces.any { it.type == type && !it.isDerived },
                         label = stringResource(seriesShortNameId(type)),
                         onClick = {
+                            if (type == lockedType) return@SheetChip
                             expanded = -1
                             onTracesChange(traces.toggleRaw(type))
                         }
                     )
                 }
+            }
+            extraContent?.let {
+                Spacer(Modifier.height(8.dp))
+                it()
             }
             if (traces.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
@@ -158,17 +180,19 @@ internal fun GraphTracesBottomSheet(
                 Spacer(Modifier.height(8.dp))
                 Text(stringResource(UiStrings.graph_traces), style = MaterialTheme.typography.titleSmall)
                 for ((index, trace) in traces.withIndex()) {
+                    val locked = trace.type == lockedType && !trace.isDerived
                     TraceRow(
                         trace = trace,
                         color = lookOf(trace, colors).color,
-                        expanded = expanded == index,
+                        locked = locked,
+                        expanded = expanded == index && !locked,
                         onExpand = { expanded = if (expanded == index) -1 else index },
                         onRemove = {
                             expanded = -1
                             onTracesChange(traces.filterIndexed { i, _ -> i != index })
                         }
                     )
-                    if (expanded == index) {
+                    if (expanded == index && !locked) {
                         TraceOptions(
                             trace = trace,
                             availableSeries = availableSeries,
@@ -187,28 +211,38 @@ internal fun GraphTracesBottomSheet(
                     }
                 }
             }
+            if (axes.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                for (axis in axes) {
+                    AxisRangeEditor(axis.title, axis.range, axis.unit, axis.onChange, axis.maxOnly)
+                }
+            }
             Spacer(Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-private fun TraceRow(trace: GraphTrace, color: Color, expanded: Boolean, onExpand: () -> Unit, onRemove: () -> Unit) {
+private fun TraceRow(trace: GraphTrace, color: Color, locked: Boolean, expanded: Boolean, onExpand: () -> Unit, onRemove: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onExpand)
+            .clickable(enabled = !locked, onClick = onExpand)
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(12.dp).background(color, CircleShape))
         Spacer(Modifier.width(8.dp))
         Text(traceLabel(trace), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        IconButton(onClick = onExpand) {
-            Icon(if (expanded) Icons.Filled.Close else Icons.Filled.Tune, contentDescription = stringResource(CoreUiStrings.switch_to_edit))
-        }
-        IconButton(onClick = onRemove) {
-            Icon(Icons.Filled.Delete, contentDescription = stringResource(CoreUiStrings.remove))
+        // A locked trace is drawn by the graph itself: nothing to change or remove
+        if (!locked) {
+            IconButton(onClick = onExpand) {
+                Icon(if (expanded) Icons.Filled.Close else Icons.Filled.Tune, contentDescription = stringResource(CoreUiStrings.switch_to_edit))
+            }
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Filled.Delete, contentDescription = stringResource(CoreUiStrings.remove))
+            }
         }
     }
 }
@@ -276,7 +310,7 @@ private fun OptionTitle(text: TextRef) {
 }
 
 @Composable
-private fun SheetChip(selected: Boolean, label: String, onClick: () -> Unit) {
+internal fun SheetChip(selected: Boolean, label: String, onClick: () -> Unit) {
     FilterChip(
         selected = selected,
         onClick = onClick,

@@ -18,18 +18,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -51,6 +46,7 @@ import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.GlucoseUnit
 import app.aaps.core.interfaces.InterfacesStrings
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
+import app.aaps.core.interfaces.overview.graph.AxisRange
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.SecondaryGraph
@@ -60,7 +56,6 @@ import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.LocalDecimalFormatter
 import app.aaps.core.ui.compose.LocalProfileUtil
-import app.aaps.core.ui.compose.NumberInputRow
 import app.aaps.core.ui.compose.rowAction
 import app.aaps.core.ui.compose.stringResource
 import app.aaps.ui.UiStrings
@@ -96,8 +91,7 @@ import kotlin.math.abs
 /** Fixed graph layout used in simple mode: BG (no overlays), IOB+BAS (no overlays), COB */
 private val SIMPLE_MODE_CONFIG = GraphConfig(
     bgOverlays = emptyList(),
-    iobOverlays = emptyList(),
-    secondaryGraphs = listOf(SecondaryGraph.of(listOf(SeriesType.COB)))
+    secondaryGraphs = listOf(GraphConfig.DEFAULT_IOB_GRAPH.copy(activityOverlay = false), SecondaryGraph.of(listOf(SeriesType.COB)))
 )
 
 /**
@@ -200,6 +194,8 @@ fun GraphsSection(
     val sec3zoom = rememberVicoZoomState(zoomEnabled = false, initialZoom = startZoom)
     val sec4scroll = rememberVicoScrollState(scrollEnabled = false, initialScroll = Scroll.Absolute.End)
     val sec4zoom = rememberVicoZoomState(zoomEnabled = false, initialZoom = startZoom)
+    val sec5scroll = rememberVicoScrollState(scrollEnabled = false, initialScroll = Scroll.Absolute.End)
+    val sec5zoom = rememberVicoZoomState(zoomEnabled = false, initialZoom = startZoom)
 
     // Collect nowTimestamp ONCE so all graphs use the same value (avoids separate recompositions every 30s)
     val nowTimestamp by graphViewModel.nowTimestamp.collectAsStateWithLifecycle()
@@ -216,31 +212,32 @@ fun GraphsSection(
     val busyRingEnd = if (isSimpleMode) 8.dp else 36.dp
 
 
-    // One x layout for all graphs, reported by the fixed IOB graph. A pinch on another graph uses it
-    // to zoom BG around the fingers.
+    // One x layout for all graphs, reported by the treatment belt, which is always there. A pinch on
+    // another graph uses it to zoom BG around the fingers.
     val graphGeometry = remember { GraphGeometryHolder() }
 
-    // BG's own visible window, sourced from the fixed IOB graph's already-computed visible range
-    // (its scroll/zoom are synced to BG's, see the sync LaunchedEffect below) — not from a
-    // decoration on BG's own chart, since that was tried and found to break BG's pinch-zoom
-    // gesture handling (BG is the only graph with live scrollEnabled/zoomEnabled = true).
-    var iobVisibleRange by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    val onIobVisibleRangeChanged: (Pair<Double, Double>?) -> Unit = remember { { iobVisibleRange = it } }
+    // BG's own visible window, sourced from the treatment belt's visible range (its scroll/zoom are
+    // synced to BG's, see the sync LaunchedEffect below) — not from a decoration on BG's own chart,
+    // since that was tried and found to break BG's pinch-zoom gesture handling (BG is the only graph
+    // with live scrollEnabled/zoomEnabled = true). The belt and not a graph below, because every
+    // graph below can be removed.
+    var beltVisibleRange by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    val onBeltVisibleRangeChanged: (Pair<Double, Double>?) -> Unit = remember { { beltVisibleRange = it } }
 
     // Settle further before feeding into BG specifically: unlike the secondary graphs (which are
     // non-interactive and unaffected by frequent updates), BG has live pinch-zoom. Updating its
     // axis range on every ~80ms tick during an active gesture kept changing the Y-axis label
     // width/layerDimensions mid-gesture and broke pinch-zoom. Only update once the window has
     // been stable for a bit, i.e. after the gesture ends.
-    var iobVisibleRangeSettled by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var beltVisibleRangeSettled by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     LaunchedEffect(Unit) {
-        snapshotFlow { iobVisibleRange }
+        snapshotFlow { beltVisibleRange }
             .debounce(400)
-            .collect { iobVisibleRangeSettled = it }
+            .collect { beltVisibleRangeSettled = it }
     }
 
     val bgVisibleTimeRange = derivedTimeRange?.first?.let { minTs ->
-        iobVisibleRangeSettled?.let { (minXv, maxXv) ->
+        beltVisibleRangeSettled?.let { (minXv, maxXv) ->
             (minTs + (minXv * 60_000).toLong()) to (minTs + (maxXv * 60_000).toLong())
         }
     }
@@ -255,10 +252,6 @@ fun GraphsSection(
         initialZoom = startZoom
     )
 
-    // Fixed IOB graph - non-interactive, synced from BG
-    val iobScrollState = rememberVicoScrollState(scrollEnabled = false, initialScroll = Scroll.Absolute.End)
-    val iobZoomState = rememberVicoZoomState(zoomEnabled = false, initialZoom = startZoom)
-
     // Active graph count — rememberUpdatedState so coroutines always read the latest value
     // without writing to state during composition. Unattached states are no-ops for
     // .zoom()/.scroll(), but we skip them to avoid redundant calls.
@@ -267,21 +260,20 @@ fun GraphsSection(
     )
 
     // All secondary scroll/zoom states in arrays for indexed access (keyed to rebuild if state identity changes)
-    val secScrollStates = remember(sec0scroll, sec1scroll, sec2scroll, sec3scroll, sec4scroll) {
-        arrayOf(sec0scroll, sec1scroll, sec2scroll, sec3scroll, sec4scroll)
+    val secScrollStates = remember(sec0scroll, sec1scroll, sec2scroll, sec3scroll, sec4scroll, sec5scroll) {
+        arrayOf(sec0scroll, sec1scroll, sec2scroll, sec3scroll, sec4scroll, sec5scroll)
     }
-    val secZoomStates = remember(sec0zoom, sec1zoom, sec2zoom, sec3zoom, sec4zoom) {
-        arrayOf(sec0zoom, sec1zoom, sec2zoom, sec3zoom, sec4zoom)
+    val secZoomStates = remember(sec0zoom, sec1zoom, sec2zoom, sec3zoom, sec4zoom, sec5zoom) {
+        arrayOf(sec0zoom, sec1zoom, sec2zoom, sec3zoom, sec4zoom, sec5zoom)
     }
 
     // Observe BG graph scroll/zoom and sync to belt + active secondary graphs
     // Keys include ALL state objects — identical pattern to the original working sync
     LaunchedEffect(
         bgScrollState, bgZoomState, beltScrollState, beltZoomState,
-        iobScrollState, iobZoomState,
         sec0scroll, sec0zoom, sec1scroll, sec1zoom,
         sec2scroll, sec2zoom, sec3scroll, sec3zoom,
-        sec4scroll, sec4zoom
+        sec4scroll, sec4zoom, sec5scroll, sec5zoom
     ) {
         var lastZoom = Float.NaN
         // Every change, every frame: a debounce here only fires when the finger pauses, so the other
@@ -298,12 +290,10 @@ fun GraphsSection(
                 if (zoom != lastZoom) {
                     lastZoom = zoom
                     beltZoomState.zoom(Zoom.fixed(zoom))
-                    iobZoomState.zoom(Zoom.fixed(zoom))
                     for (i in 0 until count) secZoomStates[i].zoom(Zoom.fixed(zoom))
                     delay(10)
                 }
                 beltScrollState.scroll(Scroll.Absolute.pixels(scroll))
-                iobScrollState.scroll(Scroll.Absolute.pixels(scroll))
                 for (i in 0 until count) secScrollStates[i].scroll(Scroll.Absolute.pixels(scroll))
             }
     }
@@ -361,11 +351,10 @@ fun GraphsSection(
     // in the first attempt at this feature).
     LaunchedEffect(bgScrollState, bgZoomState) {
         snapshotFlow {
-            // Only read states that are attached to a chart (belt + IOB fixed + active secondary)
+            // Only read states that are attached to a chart (belt + active graphs below BG)
             val count = activeCount
             buildList {
                 add(beltScrollState.value to beltZoomState.value)
-                add(iobScrollState.value to iobZoomState.value)
                 for (i in 0 until count) {
                     add(secScrollStates[i].value to secZoomStates[i].value)
                 }
@@ -382,11 +371,9 @@ fun GraphsSection(
                 if (needsSync) {
                     val count = activeCount
                     beltZoomState.zoom(Zoom.fixed(bgZoom))
-                    iobZoomState.zoom(Zoom.fixed(bgZoom))
                     for (i in 0 until count) secZoomStates[i].zoom(Zoom.fixed(bgZoom))
                     delay(10)
                     beltScrollState.scroll(Scroll.Absolute.pixels(bgScroll))
-                    iobScrollState.scroll(Scroll.Absolute.pixels(bgScroll))
                     for (i in 0 until count) secScrollStates[i].scroll(Scroll.Absolute.pixels(bgScroll))
                 }
             }
@@ -404,6 +391,8 @@ fun GraphsSection(
         TreatmentBeltGraphCompose(
             viewModel = graphViewModel,
             inspect = inspect,
+            onVisibleRangeChanged = onBeltVisibleRangeChanged,
+            geometryHolder = graphGeometry,
             scrollState = beltScrollState,
             zoomState = beltZoomState,
             derivedTimeRange = derivedTimeRange,
@@ -457,6 +446,9 @@ fun GraphsSection(
                 nowTimestamp = nowTimestamp,
                 visibleTimeRange = bgVisibleTimeRange,
                 inspect = inspect,
+                traces = graphConfig.bgTraces,
+                leftRange = graphConfig.bgLeftRange,
+                rightRange = graphConfig.bgRightRange,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.bgHeight.dp)
@@ -495,79 +487,18 @@ fun GraphsSection(
             )
         }
         if (editingBgOverlays) {
-            GraphSeriesBottomSheet(
-                title = stringResource(CoreUiStrings.graph_bg),
-                selectedSeries = graphConfig.bgOverlays,
-                availableSeries = BG_OVERLAY_SERIES,
-                height = graphConfig.bgHeight,
-                onHeightChange = { h ->
-                    graphViewModel.updateGraphConfig(graphConfig.copy(bgHeight = h))
-                },
-                onToggle = { type ->
-                    val current = graphConfig.bgOverlays.toMutableList()
-                    if (type in current) current.remove(type) else current.add(type)
-                    graphViewModel.updateGraphConfig(graphConfig.copy(bgOverlays = current))
-                },
+            BgGraphSheet(
+                graphConfig = graphConfig,
+                isMmol = profileUtil.units == GlucoseUnit.MMOL,
+                toShown = { profileUtil.fromMgdlToUnits(it) },
+                fromShown = { profileUtil.convertToMgdl(it, profileUtil.units) },
+                onConfigChange = { graphViewModel.updateGraphConfig(it(graphViewModel.graphConfigFlow.value)) },
                 onDismiss = { editingBgOverlays = false }
             )
         }
-        // Fixed IOB graph (Graph 1) with optional Activity overlay
-        var editingIobOverlays by remember { mutableStateOf(false) }
-        Box(modifier = Modifier.offset(y = (-8).dp)) {
-            SecondaryGraphCompose(
-                viewModel = graphViewModel,
-                traces = IOB_TRACES,
-                scrollState = iobScrollState,
-                zoomState = iobZoomState,
-                derivedTimeRange = derivedTimeRange,
-                nowTimestamp = nowTimestamp,
-                activityOverlay = SeriesType.ACTIVITY in graphConfig.iobOverlays,
-                onVisibleRangeChanged = onIobVisibleRangeChanged,
-                geometryHolder = graphGeometry,
-                inspect = inspect,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(graphConfig.iobHeight.dp)
-                    .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, graphViewModel::onGraphInteraction))
-            )
-            Text(
-                text = stringResource(CoreUiStrings.iob) + " / " + stringResource(CoreUiStrings.basal_shortname),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 36.dp, top = 2.dp)
-            )
-            if (!isSimpleMode) {
-                GraphEditButton(
-                    onClick = { editingIobOverlays = true },
-                    graphName = stringResource(CoreUiStrings.iob),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(end = 4.dp, top = 2.dp)
-                )
-            }
-            GraphBusyRing(busy = calculationRunning, modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp))
-        }
-        if (editingIobOverlays) {
-            GraphSeriesBottomSheet(
-                title = stringResource(CoreUiStrings.iob) + " / " + stringResource(CoreUiStrings.basal_shortname),
-                selectedSeries = graphConfig.iobOverlays,
-                availableSeries = listOf(SeriesType.ACTIVITY),
-                height = graphConfig.iobHeight,
-                onHeightChange = { h ->
-                    graphViewModel.updateGraphConfig(graphConfig.copy(iobHeight = h))
-                },
-                onToggle = { type ->
-                    val current = graphConfig.iobOverlays.toMutableList()
-                    if (type in current) current.remove(type) else current.add(type)
-                    graphViewModel.updateGraphConfig(graphConfig.copy(iobOverlays = current))
-                },
-                onDismiss = { editingIobOverlays = false }
-            )
-        }
 
-        // Secondary graphs — config-driven (labels start at "Graph 2")
+        // The graphs under BG — config-driven (labels start at "Graph 2"). The first one is IOB with
+        // basal unless the user changed it.
         var editingGraphIndex by remember { mutableIntStateOf(-1) }
         for (i in 0 until activeCount) {
             val secondary = graphConfig.secondaryGraphs[i]
@@ -580,6 +511,10 @@ fun GraphsSection(
                     zoomState = secZoomStates[i],
                     derivedTimeRange = derivedTimeRange,
                     nowTimestamp = nowTimestamp,
+                    activityOverlay = secondary.activityOverlay,
+                    leftRange = secondary.leftRange,
+                    rightRange = secondary.rightRange,
+                    geometryHolder = graphGeometry,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(secondary.height.dp)
@@ -631,9 +566,15 @@ fun GraphsSection(
                         graphs.removeAt(index)
                         editingGraphIndex = -1
                     } else {
-                        graphs[index] = graphs[index].copy(traces = traces)
+                        graphs[index] = graphs[index].withTraces(traces)
                     }
                     graphViewModel.updateGraphConfig(graphConfig.copy(secondaryGraphs = graphs))
+                },
+                extraContent = activityOverlaySwitch(editing) { on ->
+                    updateSecondaryGraph(graphViewModel, index, editing.traces) { it.copy(activityOverlay = on) }
+                },
+                axes = graphAxisEdits(editing, profileUtil.units == GlucoseUnit.MMOL) { change ->
+                    updateSecondaryGraph(graphViewModel, index, editing.traces, change)
                 },
                 onRemoveGraph = {
                     val graphs = graphConfig.secondaryGraphs.toMutableList()
@@ -683,8 +624,107 @@ fun GraphsSection(
     }
 }
 
-/** The fixed IOB graph's trace, as one constant so the graph sees the same list on every pass. */
-private val IOB_TRACES = listOf(GraphTrace(SeriesType.IOB))
+/**
+ * Settings sheet of the BG graph: height, the predictions and activity switches, more traces (BG
+ * itself stays, locked), and the range of the BG axis and of the right axis.
+ *
+ * @param toShown mg/dL to the user's units, for the BG axis range
+ * @param fromShown the user's units to mg/dL
+ * @param onConfigChange gets a change to apply to the current config, so a field that saves after
+ *   the sheet closed never writes back an old config
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BgGraphSheet(
+    graphConfig: GraphConfig,
+    isMmol: Boolean,
+    toShown: (Double) -> Double,
+    fromShown: (Double) -> Double,
+    onConfigChange: ((GraphConfig) -> GraphConfig) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val traces = remember(graphConfig.bgTraces) { listOf(GraphTrace(SeriesType.BG)) + graphConfig.bgTraces }
+    val right = axisGroups(traces).second
+    val axes = buildList {
+        add(AxisEdit(UiStrings.graph_axis_left, graphConfig.bgLeftRange, bgAxisUnit(isMmol, toShown, fromShown), { r -> onConfigChange { it.copy(bgLeftRange = r) } }))
+        right.firstOrNull()?.let { first ->
+            add(AxisEdit(UiStrings.graph_axis_right, graphConfig.bgRightRange, axisUnitFor(first, isMmol), { r -> onConfigChange { it.copy(bgRightRange = r) } }))
+        }
+    }
+    GraphTracesBottomSheet(
+        title = stringResource(CoreUiStrings.graph_bg),
+        traces = traces,
+        availableSeries = CONFIGURABLE_SERIES,
+        height = graphConfig.bgHeight,
+        onHeightChange = { h -> onConfigChange { it.copy(bgHeight = h) } },
+        onTracesChange = { edited ->
+            val newTraces = bgTracesAfterEdit(edited)
+            onConfigChange { config ->
+                val rightChanged = rightAxisKey(listOf(GraphTrace(SeriesType.BG)) + config.bgTraces) != rightAxisKey(listOf(GraphTrace(SeriesType.BG)) + newTraces)
+                config.copy(bgTraces = newTraces, bgRightRange = if (rightChanged) AxisRange.AUTO else config.bgRightRange)
+            }
+        },
+        onDismiss = onDismiss,
+        lockedType = SeriesType.BG,
+        extraContent = {
+            Text(stringResource(UiStrings.graph_bg_overlays), style = MaterialTheme.typography.titleSmall)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (type in BG_OVERLAY_SERIES) {
+                    SheetChip(
+                        selected = type in graphConfig.bgOverlays,
+                        label = stringResource(seriesShortNameId(type)),
+                        onClick = {
+                            onConfigChange { config ->
+                                val current = config.bgOverlays.toMutableList()
+                                if (type in current) current.remove(type) else current.add(type)
+                                config.copy(bgOverlays = current)
+                            }
+                        }
+                    )
+                }
+            }
+        },
+        axes = axes
+    )
+}
+
+/** The "activity over IOB" switch, for a graph that starts with IOB; null for any other graph. */
+private fun activityOverlaySwitch(graph: SecondaryGraph, onChange: (Boolean) -> Unit): (@Composable () -> Unit)? {
+    val first = axisGroups(graph.traces).first.firstOrNull() ?: return null
+    if (first.type != SeriesType.IOB || first.isDerived) return null
+    return {
+        SheetChip(
+            selected = graph.activityOverlay,
+            label = stringResource(UiStrings.graph_activity_overlay),
+            onClick = { onChange(!graph.activityOverlay) }
+        )
+    }
+}
+
+/** The axes of [graph] whose range the sheet can set: the left one, and the right one when there is one. */
+private fun graphAxisEdits(graph: SecondaryGraph, isMmol: Boolean, onChange: ((SecondaryGraph) -> SecondaryGraph) -> Unit): List<AxisEdit> {
+    val (left, right) = axisGroups(graph.traces)
+    val first = left.firstOrNull() ?: return emptyList()
+    return buildList {
+        add(AxisEdit(UiStrings.graph_axis_left, graph.leftRange, axisUnitFor(first, isMmol), { r -> onChange { it.copy(leftRange = r) } }))
+        when (rightAxisKey(graph.traces)) {
+            null            -> Unit
+            BASAL_AXIS_KEY  -> add(AxisEdit(UiStrings.graph_axis_basal, graph.rightRange, BASAL_AXIS_UNIT, { r -> onChange { it.copy(rightRange = r) } }, maxOnly = true))
+            else            -> add(AxisEdit(UiStrings.graph_axis_right, graph.rightRange, axisUnitFor(right.first(), isMmol), { r -> onChange { it.copy(rightRange = r) } }))
+        }
+    }
+}
+
+/**
+ * Applies [change] to graph [index] of the current config, if it still shows [expectedTraces]. Fields
+ * can save after the sheet closed or the graph was removed (see [withSecondaryGraphHeight]).
+ */
+private fun updateSecondaryGraph(viewModel: GraphViewModel, index: Int, expectedTraces: List<GraphTrace>, change: (SecondaryGraph) -> SecondaryGraph) {
+    val config = viewModel.graphConfigFlow.value
+    val graph = config.secondaryGraphs.getOrNull(index) ?: return
+    if (graph.traces != expectedTraces) return
+    viewModel.updateGraphConfig(config.copy(secondaryGraphs = config.secondaryGraphs.toMutableList().also { it[index] = change(graph) }))
+}
 
 /**
  * The [count] newest readings, newest first.
@@ -726,6 +766,7 @@ private fun traceListLabel(traces: List<GraphTrace>): String {
 
 /** String resource ID for the short name of a series type */
 internal fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
+    SeriesType.BG              -> CoreUiStrings.bg_label
     SeriesType.IOB             -> CoreUiStrings.iob
     SeriesType.ABS_IOB         -> CoreUiStrings.abs_insulin_shortname
     SeriesType.COB             -> CoreUiStrings.cob
@@ -791,63 +832,5 @@ private fun GraphEditButton(
             contentDescription = rowAction(CoreUiStrings.switch_to_edit, graphName),
             modifier = Modifier.size(16.dp)
         )
-    }
-}
-
-/** Bottom sheet with toggleable FilterChips for the overlays of the BG and IOB graphs */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-private fun GraphSeriesBottomSheet(
-    title: String,
-    selectedSeries: List<SeriesType>,
-    availableSeries: List<SeriesType>,
-    height: Int,
-    onHeightChange: (Int) -> Unit,
-    onToggle: (SeriesType) -> Unit,
-    onDismiss: () -> Unit
-) {
-    // No half open state, like the other sheets of the app: one drag down closes it
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Spacer(Modifier.height(12.dp))
-            NumberInputRow(
-                labelRef = CoreUiStrings.graph_height,
-                value = height.toDouble(),
-                onValueChange = { onHeightChange(it.toInt()) },
-                valueRange = GraphConfig.DEFAULT_GRAPH_HEIGHT_DP.toDouble()..GraphConfig.MAX_GRAPH_HEIGHT_DP.toDouble(),
-                step = 10.0,
-                formatAsInt = true
-            )
-            Spacer(Modifier.height(8.dp))
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.padding(bottom = 16.dp)
-            ) {
-                for (type in availableSeries) {
-                    FilterChip(
-                        selected = type in selectedSeries,
-                        onClick = { onToggle(type) },
-                        label = { Text(stringResource(seriesShortNameId(type))) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    )
-                }
-            }
-        }
     }
 }

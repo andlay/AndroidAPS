@@ -5,8 +5,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -18,13 +18,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.graph.vico.Square
 import app.aaps.core.interfaces.overview.graph.ActivityGraphData
+import app.aaps.core.interfaces.overview.graph.AxisRange
 import app.aaps.core.interfaces.overview.graph.BasalGraphData
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgType
 import app.aaps.core.interfaces.overview.graph.EpsGraphPoint
+import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.SeriesType
-import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.AapsTheme
+import app.aaps.core.ui.compose.LocalDateUtil
+import app.aaps.core.ui.compose.LocalDecimalFormatter
+import app.aaps.core.ui.compose.LocalProfileUtil
 import app.aaps.core.ui.compose.icons.IcProfile
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
 import com.patrykandpatrick.vico.compose.cartesian.VicoScrollState
@@ -34,11 +38,12 @@ import com.patrykandpatrick.vico.compose.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.compose.cartesian.axis.VerticalAxis
 import com.patrykandpatrick.vico.compose.cartesian.data.CartesianChartModelProducer
 import com.patrykandpatrick.vico.compose.cartesian.data.CartesianLayerRangeProvider
+import com.patrykandpatrick.vico.compose.cartesian.data.CartesianValueFormatter
 import com.patrykandpatrick.vico.compose.cartesian.data.lineModel
 import com.patrykandpatrick.vico.compose.cartesian.decoration.HorizontalBox
-import com.patrykandpatrick.vico.compose.cartesian.marker.CartesianMarkerController
 import com.patrykandpatrick.vico.compose.cartesian.layer.LineCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberLineCartesianLayer
+import com.patrykandpatrick.vico.compose.cartesian.marker.CartesianMarkerController
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.compose.common.Fill
 import com.patrykandpatrick.vico.compose.common.component.LineComponent
@@ -75,6 +80,9 @@ private val PREDICTION_SERIES = listOf(SERIES_PRED_IOB, SERIES_PRED_COB, SERIES_
  * it. An unchanged scale with unchanged data is rightly skipped. Same mechanism as SecondaryGraphCompose.kt.
  */
 private val BG_AXIS_SCALE_KEY = ExtraStore.Key<NiceScale>()
+
+/** Same as [BG_AXIS_SCALE_KEY], for the right axis of the extra traces. */
+private val BG_RIGHT_AXIS_SCALE_KEY = ExtraStore.Key<NiceScale>()
 
 /** One series as chart coordinates: x in minutes from the start of the graph, sorted by time. */
 private class XySeries(val x: List<Double>, val y: List<Double>) {
@@ -160,9 +168,16 @@ fun BgGraphCompose(
     visibleTimeRange: Pair<Long, Long>? = null,
     /** Press and hold to see the values at a reading. Null turns it off. */
     inspect: GraphInspectState? = null,
+    /** More traces: calculations over BG on the BG axis, other series on the right axis (see GraphConfig.bgTraces). */
+    traces: List<GraphTrace> = emptyList(),
+    /** Range of the BG axis, in mg/dL. */
+    leftRange: AxisRange = AxisRange.AUTO,
+    /** Range of the right axis, in the unit of its traces. */
+    rightRange: AxisRange = AxisRange.AUTO,
     modifier: Modifier = Modifier
 ) {
     val dateUtil = LocalDateUtil.current
+    val profileUtil = LocalProfileUtil.current
     // Collect flows independently - each triggers recomposition only when it changes
     val bgReadings by viewModel.bgReadingsFlow.collectAsStateWithLifecycle()
     val bucketedData by viewModel.bucketedDataFlow.collectAsStateWithLifecycle()
@@ -219,6 +234,15 @@ fun BgGraphCompose(
         MutableYRangeProvider(maxX = maxX, minY = initialScale.min, maxY = initialScale.max, yStep = initialScale.step)
     }
 
+    // Basal Y-axis range: maxBasal / BASAL_HEIGHT_FRACTION so basal occupies that fraction of chart height
+    val basalMaxY = remember(basalData.maxBasal) {
+        if (basalData.maxBasal > 0.0) basalData.maxBasal / BASAL_HEIGHT_FRACTION else 1.0
+    }
+    // The right side (end axis) range: shared by the basal layer and the right axis traces, so Vico,
+    // which joins the ranges of all layers on one side, sees one range. Mutated in place like the BG
+    // axis one, so the chart object is never made again.
+    val endAxisRangeProvider = remember { MutableYRangeProvider(maxX = maxX, minY = 0.0, maxY = 1.0) }
+
     // Track which series are currently included (for matching LineProvider)
     val activeSeriesState = remember { mutableStateOf(listOf<String>()) }
 
@@ -234,7 +258,9 @@ fun BgGraphCompose(
         targetPoints: XySeries,
         currentEpsPoints: List<EpsGraphPoint>,
         currentActivityData: ActivityGraphData,
-        bgScale: NiceScale
+        bgScale: NiceScale,
+        extraTraces: BgExtraTraces,
+        rightScale: NiceScale?
     ) {
         val currentMinBgY = bgScale.min
         val currentMaxBgY = bgScale.max
@@ -349,10 +375,30 @@ fun BgGraphCompose(
                 }
             }
 
+            // Block 6 → calculations over BG (layer 5, start axis). Lines travel with the model, see
+            // extrasLineProvider. A layer always needs one series: an invisible one when empty.
+            lineModel {
+                val runs = extraTraces.left.filter { it.points.isNotEmpty() }
+                if (runs.isEmpty()) series(x = listOf(0.0, 1.0), y = listOf(currentMinBgY, currentMinBgY))
+                for (run in runs) series(x = run.points.map { it.first }, y = run.points.map { it.second })
+            }
+
+            // Block 7 → traces of the right axis (layer 6, end axis)
+            lineModel {
+                val runs = extraTraces.right.filter { it.points.isNotEmpty() }
+                if (runs.isEmpty()) series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
+                for (run in runs) series(x = run.points.map { it.first }, y = run.points.map { it.second })
+            }
+
             // Forces Vico to reprocess this transaction when only the axis scale changed (see
             // BG_AXIS_SCALE_KEY doc) — otherwise the same partials would be silently skipped,
             // never picking up the updated startAxisRangeProvider.
-            extras { it[BG_AXIS_SCALE_KEY] = bgScale }
+            extras {
+                it[BG_AXIS_SCALE_KEY] = bgScale
+                rightScale?.let { scale -> it[BG_RIGHT_AXIS_SCALE_KEY] = scale }
+                it[BG_LEFT_TRACE_LINES_KEY] = extraTraces.left.filter { run -> run.points.isNotEmpty() }.map { run -> createTraceLine(run.look) }
+                it[BG_RIGHT_TRACE_LINES_KEY] = extraTraces.right.filter { run -> run.points.isNotEmpty() }.map { run -> createTraceLine(run.look) }
+            }
         }
     }
 
@@ -390,12 +436,26 @@ fun BgGraphCompose(
     // full unwindowed history's max instead of the actually-visible prediction values.
     // The model below is rebuilt when this rounded scale changes, not when the window moves:
     // most scrolls keep the same scale and then cost nothing.
-    val niceBgScale = remember(bgReadings, bucketedData, predictions, visibleTimeRange, chartConfig.lowMark, chartConfig.highMark) {
-        bgAxisScale(bgReadings + bucketedData + predictions, visibleTimeRange, chartConfig.lowMark, chartConfig.highMark)
+    // A range the user typed (stored in mg/dL) replaces the found one at the ends that are set
+    val niceBgScale = remember(bgReadings, bucketedData, predictions, visibleTimeRange, chartConfig.lowMark, chartConfig.highMark, leftRange, profileUtil.units) {
+        val auto = bgAxisScale(bgReadings + bucketedData + predictions, visibleTimeRange, chartConfig.lowMark, chartConfig.highMark)
+        if (leftRange.isAuto) auto
+        else {
+            val typed = AxisRange(leftRange.min?.let { profileUtil.fromMgdlToUnits(it) }, leftRange.max?.let { profileUtil.fromMgdlToUnits(it) })
+            typed.applyTo(auto.min, auto.max)?.let { (low, high) -> NiceScale(low, high, niceScale(low, high).step) } ?: auto
+        }
+    }
+
+    // More traces: calculations over BG on the BG axis, and the right axis
+    val extraTraces = rememberBgExtraTraces(viewModel, traces, minTimestamp, maxX)
+    val rightScale = remember(extraTraces, visibleTimeRange, rightRange, minTimestamp) {
+        val first = extraTraces.rightFirst ?: return@remember null
+        val window = visibleTimeRange?.let { (from, to) -> timestampToX(from, minTimestamp) to timestampToX(to, minTimestamp) }
+        bgRightAxisScale(extraTraces.right, first, window?.first, window?.second, rightRange)
     }
 
     // Single LaunchedEffect for all data - ensures atomic updates
-    LaunchedEffect(regularXy, bucketedXy, predictionXy, profileBasalXy, actualBasalXy, targetXy, epsPoints, activityData, showActivity, maxX, niceBgScale) {
+    LaunchedEffect(regularXy, bucketedXy, predictionXy, profileBasalXy, actualBasalXy, targetXy, epsPoints, activityData, showActivity, maxX, niceBgScale, extraTraces, rightScale) {
         // Mutate the stable provider in place (see MutableYRangeProvider) — Vico picks up the new
         // values when it processes the transaction submitted below, without ever recreating BG's
         // chart object.
@@ -403,9 +463,14 @@ fun BgGraphCompose(
         startAxisRangeProvider.minY = niceBgScale.min
         startAxisRangeProvider.maxY = niceBgScale.max
         startAxisRangeProvider.yStep = niceBgScale.step
+        // The right side: the right axis traces when there are any, else the (unused) basal layer
+        endAxisRangeProvider.maxX = maxX
+        endAxisRangeProvider.minY = rightScale?.min ?: 0.0
+        endAxisRangeProvider.maxY = rightScale?.max ?: basalMaxY
+        endAxisRangeProvider.yStep = rightScale?.step ?: 0.0
 
         // EPS icons and the activity overlay are placed on the same (visible) range as the axis.
-        rebuildChart(regularXy, bucketedXy, predictionXy, profileBasalXy, actualBasalXy, targetXy, epsPoints, activityData, niceBgScale)
+        rebuildChart(regularXy, bucketedXy, predictionXy, profileBasalXy, actualBasalXy, targetXy, epsPoints, activityData, niceBgScale, extraTraces, rightScale)
     }
 
     // Build lookup map for BUCKETED points: x-value -> BgDataPoint (for PointProvider)
@@ -560,10 +625,6 @@ fun BgGraphCompose(
         listOf(activityHistLine, activityHistLine)
     }
 
-    // Basal Y-axis range: maxBasal / BASAL_HEIGHT_FRACTION so basal occupies that fraction of chart height
-    val basalMaxY = remember(basalData.maxBasal) {
-        if (basalData.maxBasal > 0.0) basalData.maxBasal / BASAL_HEIGHT_FRACTION else 1.0
-    }
 
     // =========================================================================
     // Decorations
@@ -599,11 +660,18 @@ fun BgGraphCompose(
     // Range providers — hoisted out of rememberCartesianChart so keys are re-evaluated on recomposition
     // =========================================================================
 
-    // startAxisRangeProvider (BG axis) is created once, further up, and mutated in place — see
-    // MutableYRangeProvider and the LaunchedEffect above.
-    val endAxisRangeProvider = remember(maxX, basalMaxY) {
-        CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = 0.0, maxY = basalMaxY)
+    // startAxisRangeProvider (BG axis) and endAxisRangeProvider are created once, further up, and
+    // mutated in place — see MutableYRangeProvider and the LaunchedEffect above.
+    val leftTraceLineProvider = remember { extrasLineProvider(BG_LEFT_TRACE_LINES_KEY) }
+    val rightTraceLineProvider = remember { extrasLineProvider(BG_RIGHT_TRACE_LINES_KEY) }
+    val decimalFormatter = LocalDecimalFormatter.current
+    val seriesColors = rememberSeriesColors()
+    val rightAxisColor = extraTraces.rightFirst?.let { lookOf(it, seriesColors).color } ?: MaterialTheme.colorScheme.onSurface
+    val rightAxisPlacer = remember { VerticalAxis.ItemPlacer.step({ endAxisRangeProvider.yStep.takeIf { it > 0.0 } }) }
+    val rightAxisFormatter = remember(decimalFormatter) {
+        CartesianValueFormatter { _, value, _ -> axisNumber(value, endAxisRangeProvider.yStep.takeIf { it > 0.0 }, decimalFormatter) }
     }
+    val endAxis = if (extraTraces.hasRight) rememberEndAxis(rightAxisColor, rightAxisPlacer, rightAxisFormatter) else rememberEndAxisSpacer()
 
     // =========================================================================
     // Chart — multi layer
@@ -641,8 +709,21 @@ fun BgGraphCompose(
                 rangeProvider = startAxisRangeProvider,
                 verticalAxisPosition = Axis.Position.Vertical.Start
             ),
-            // Invisible, only so this graph is as wide as the ones with a right scale (GraphEndAxis.kt)
-            endAxis = rememberEndAxisSpacer(),
+            // Layer 5: calculations over BG (start axis — same unit as BG)
+            rememberLineCartesianLayer(
+                lineProvider = leftTraceLineProvider,
+                rangeProvider = startAxisRangeProvider,
+                verticalAxisPosition = Axis.Position.Vertical.Start
+            ),
+            // Layer 6: traces of the right axis
+            rememberLineCartesianLayer(
+                lineProvider = rightTraceLineProvider,
+                rangeProvider = endAxisRangeProvider,
+                verticalAxisPosition = Axis.Position.Vertical.End
+            ),
+            // The right axis numbers when there are right axis traces; otherwise invisible, only so this
+            // graph is as wide as the ones with a right scale (GraphEndAxis.kt)
+            endAxis = endAxis,
             startAxis = VerticalAxis.rememberStart(
                 itemPlacer = VerticalAxis.ItemPlacer.step({ startAxisRangeProvider.yStep }),
                 label = rememberTextComponent(

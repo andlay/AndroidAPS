@@ -6,9 +6,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import app.aaps.core.graph.vico.Square
+import app.aaps.core.interfaces.overview.graph.AxisRange
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.PlotStyle
+import app.aaps.core.interfaces.overview.graph.SecondaryGraph
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.overview.graph.TraceTransform
 import com.patrykandpatrick.vico.compose.cartesian.layer.LineCartesianLayer
@@ -26,7 +28,7 @@ import kotlin.math.exp
  */
 internal val STYLABLE_SERIES = setOf(
     SeriesType.ABS_IOB, SeriesType.BGI, SeriesType.SENSITIVITY, SeriesType.VAR_SENSITIVITY,
-    SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.ACTIVITY, SeriesType.BASAL
+    SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.ACTIVITY, SeriesType.BASAL, SeriesType.BG
 )
 
 /** True when the user can change how this trace looks. Every derived trace can. */
@@ -46,7 +48,7 @@ internal fun defaultStyle(trace: GraphTrace): PlotStyle =
     if (trace.isDerived) PlotStyle.LINE
     else when (trace.type) {
         SeriesType.ABS_IOB, SeriesType.ACTIVITY, SeriesType.BASAL -> PlotStyle.AREA
-        SeriesType.BGI                          -> PlotStyle.POINTS
+        SeriesType.BGI, SeriesType.BG           -> PlotStyle.POINTS
         SeriesType.STEPS                        -> PlotStyle.BARS
         else                                    -> PlotStyle.LINE
     }
@@ -326,4 +328,54 @@ internal fun List<GraphTrace>.replaced(index: Int, trace: GraphTrace): List<Grap
     if (index !in indices) return this
     if (withIndex().any { (i, other) -> i != index && other.sameDataAs(trace) }) return this
     return mapIndexed { i, old -> if (i == index) trace else old }.fitToGraph(trace)
+}
+
+// =========================================================================
+// Axes of a graph
+// =========================================================================
+
+/** The traces of the left and of the right axis, as the graph draws them. Right is empty with one axis group. */
+internal fun axisGroups(traces: List<GraphTrace>): Pair<List<GraphTrace>, List<GraphTrace>> {
+    if (traces.isEmpty()) return emptyList<GraphTrace>() to emptyList()
+    val ordered = orderTraces(traces)
+    val leftKey = ordered[0].axisKey()
+    val left = ordered.filter { it.axisKey() == leftKey }
+    val rest = ordered.filter { it.axisKey() != leftKey }
+    val right = rest.filter { it.axisKey() == rest.firstOrNull()?.axisKey() }
+    return left to right
+}
+
+/** Key of the right axis of a graph with these traces: its traces' scale, the basal band of an IOB graph, or null for none. */
+internal fun rightAxisKey(traces: List<GraphTrace>): String? {
+    val (left, right) = axisGroups(traces)
+    return right.firstOrNull()?.axisKey() ?: BASAL_AXIS_KEY.takeIf { left.firstOrNull()?.let { it.type == SeriesType.IOB && !it.isDerived } == true }
+}
+
+/** Right axis key of an IOB graph with nothing on the right: its basal band. */
+internal const val BASAL_AXIS_KEY = "BASAL_BAND"
+
+/**
+ * This graph with [newTraces]. An axis whose series changed gets back to Auto: a range typed for
+ * COB means nothing for heart rate.
+ */
+internal fun SecondaryGraph.withTraces(newTraces: List<GraphTrace>): SecondaryGraph {
+    val leftSame = axisGroups(traces).first.firstOrNull()?.axisKey() == axisGroups(newTraces).first.firstOrNull()?.axisKey()
+    val rightSame = rightAxisKey(traces) == rightAxisKey(newTraces)
+    return copy(
+        traces = newTraces,
+        leftRange = if (leftSame) leftRange else AxisRange.AUTO,
+        rightRange = if (rightSame) rightRange else AxisRange.AUTO
+    )
+}
+
+/**
+ * The extra traces of the BG graph after an edit, with BG itself taken out again. [edited] holds BG
+ * as it is (the sheet shows it, locked); fitting keeps BG's axis, so a third axis group pushes out
+ * the oldest other group and never BG.
+ */
+internal fun bgTracesAfterEdit(edited: List<GraphTrace>): List<GraphTrace> {
+    val bg = GraphTrace(SeriesType.BG)
+    val withBg = if (edited.any { it.type == SeriesType.BG && !it.isDerived }) edited else listOf(bg) + edited
+    return withBg.fitToGraph(keep = withBg.first { it.type == SeriesType.BG && !it.isDerived })
+        .filter { it.type != SeriesType.BG || it.isDerived }
 }

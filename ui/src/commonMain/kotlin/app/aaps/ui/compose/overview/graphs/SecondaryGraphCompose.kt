@@ -24,6 +24,7 @@ import app.aaps.core.graph.vico.AdaptiveStep
 import app.aaps.core.graph.vico.Square
 import app.aaps.core.interfaces.overview.graph.BolusType
 import app.aaps.core.interfaces.overview.graph.DeviationType
+import app.aaps.core.interfaces.overview.graph.AxisRange
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.PlotStyle
@@ -152,7 +153,10 @@ fun SecondaryGraphCompose(
     derivedTimeRange: Pair<Long, Long>?,
     nowTimestamp: Long,
     activityOverlay: Boolean = false,
-    onVisibleRangeChanged: ((Pair<Double, Double>?) -> Unit)? = null,
+    /** Range of the left axis, in the unit of its traces. */
+    leftRange: AxisRange = AxisRange.AUTO,
+    /** Range of the right axis: its traces, or the basal rate of an IOB graph (max only). */
+    rightRange: AxisRange = AxisRange.AUTO,
     geometryHolder: GraphGeometryHolder? = null,
     /** While holding the BG graph, a line at the inspected time. Null turns it off. */
     inspect: GraphInspectState? = null,
@@ -226,6 +230,7 @@ fun SecondaryGraphCompose(
     val hrData = if (rawPrimaryType == SeriesType.HEART_RATE) viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value else null
     val stepsData = if (rawPrimaryType == SeriesType.STEPS) viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value else null
     val basalSeries = if (rawPrimaryType == SeriesType.BASAL) rememberSourcePoints(viewModel, SeriesType.BASAL) else null
+    val bgSeries = if (rawPrimaryType == SeriesType.BG) rememberSourcePoints(viewModel, SeriesType.BG) else null
     // Activity data: either as primary series OR as overlay (on IOB graph)
     val needsActivity = rawPrimaryType == SeriesType.ACTIVITY || (activityOverlay && hasIob)
     val activityData = if (needsActivity) viewModel.activityGraphFlow.collectAsStateWithLifecycle().value else null
@@ -254,7 +259,7 @@ fun SecondaryGraphCompose(
     // Simple line series processing (excludes BASAL — it's a fixed flipped overlay on IOB)
     val bgiAsBars = rawLook(SeriesType.BGI).style == PlotStyle.BARS
     val processedSimpleSeries = remember(
-        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, basalSeries, activityData, bgiAsBars
+        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, basalSeries, bgSeries, activityData, bgiAsBars
     ) {
         if (!hasRealTimeRange) return@remember emptyList()
         buildList {
@@ -284,6 +289,9 @@ fun SecondaryGraphCompose(
             }
             basalSeries?.takeIf { it.isNotEmpty() }?.let {
                 add(SeriesType.BASAL to processPoints(it, minTimestamp, minX, maxX))
+            }
+            bgSeries?.takeIf { it.isNotEmpty() }?.let {
+                add(SeriesType.BG to processPoints(it, minTimestamp, minX, maxX))
             }
             if (rawPrimaryType == SeriesType.ACTIVITY) {
                 activityData?.let {
@@ -457,14 +465,6 @@ fun SecondaryGraphCompose(
         }
     }
 
-    // Expose this graph's own (already throttled) visible window upward — used by BgGraphCompose
-    // to window its own axis from this graph's synced scroll/zoom instead of attaching its own
-    // decoration (that was tried and found to break BG's own pinch-zoom gesture handling).
-    val currentOnVisibleRangeChanged by rememberUpdatedState(onVisibleRangeChanged)
-    LaunchedEffect(visibleRange) {
-        currentOnVisibleRangeChanged?.invoke(visibleRange)
-    }
-
     val visibleMinX = visibleRange?.first
     val visibleMaxX = visibleRange?.second
 
@@ -632,11 +632,14 @@ fun SecondaryGraphCompose(
     // Result pairs the final (inflated) axis range with the un-inflated data max — the latter is
     // where tick labels must stop (see ClampedVerticalAxisItemPlacer) so they don't extend into
     // the reserved basal band above the actual IOB data.
-    val iobBasalScaleResult = remember(hasBasalLayer, primaryYValues) {
+    val iobBasalScaleResult = remember(hasBasalLayer, primaryYValues, leftRange) {
         if (!hasBasalLayer) return@remember null // auto-range when no basal
         if (primaryYValues.isEmpty()) null
         else {
-            val nice = zeroFloorNiceRange(primaryYValues.min(), primaryYValues.max().coerceAtLeast(0.1), IOB_GRAPH_TICK_COUNT)
+            val auto = zeroFloorNiceRange(primaryYValues.min(), primaryYValues.max().coerceAtLeast(0.1), IOB_GRAPH_TICK_COUNT)
+            // A range the user typed replaces the found one; the basal band still goes on top of it
+            val nice = leftRange.applyTo(auto.min, auto.max)?.takeIf { !leftRange.isAuto }
+                ?.let { (low, high) -> NiceScale(low, high, niceScale(low, high, IOB_GRAPH_TICK_COUNT).step) } ?: auto
             val axisMax = nice.min + (nice.max - nice.min) / (1 - BASAL_HEIGHT_FRACTION)
             NiceScale(nice.min, axisMax, nice.step) to nice.max
         }
@@ -759,23 +762,32 @@ fun SecondaryGraphCompose(
     }
     // Dynamic tick step for the start axis' ItemPlacer — null falls back to Vico's own automatic
     // spacing for series that don't have a "nice" rule yet.
-    val primaryYStep = iobBasalScale?.step ?: primarySingleAxisScale?.step
-    val primaryRangeProvider = remember(maxX, iobBasalScale, dualAxisRanges, hasPrimaryData, primarySingleAxisScale, primaryConstantRange, primaryAutoRange) {
-        when {
-            // Basal overlay case takes precedence (reserves the top BASAL_HEIGHT_FRACTION of axis for basal)
-            iobBasalScale != null        -> CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = iobBasalScale.min, maxY = iobBasalScale.max)
-            // Dual-axis: use zero-aligned primary range so zeros line up with secondary axis
-            dualAxisRanges != null       -> CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = dualAxisRanges.aMin, maxY = dualAxisRanges.aMax)
-            // No data: anchor a default range so the empty frame is visible
-            !hasPrimaryData              -> CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = 0.0, maxY = 1.0)
-            // Single-axis nice-scale dispatch (COB / zero-floor / free-range / pivot — see primarySingleAxisScale)
-            primarySingleAxisScale != null -> CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = primarySingleAxisScale.min, maxY = primarySingleAxisScale.max)
-            // Constant series (whole loaded range is flat): explicit range so it isn't collapsed to 0..1 and clipped
-            primaryConstantRange != null -> CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = primaryConstantRange.first, maxY = primaryConstantRange.second)
-            // Single-axis: window the range to the visible portion instead of Vico's full-model auto-range
-            primaryAutoRange != null     -> CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = primaryAutoRange.first, maxY = primaryAutoRange.second)
-            else                         -> CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX)
-        }
+    // The left axis range found from the data, before a range the user typed (null: let Vico decide)
+    val primaryAutoBounds: Pair<Double, Double>? = when {
+        // Basal overlay case takes precedence (reserves the top BASAL_HEIGHT_FRACTION of axis for basal; the typed range is already in it)
+        iobBasalScale != null          -> iobBasalScale.min to iobBasalScale.max
+        // Dual-axis: use zero-aligned primary range so zeros line up with secondary axis
+        dualAxisRanges != null         -> dualAxisRanges.aMin to dualAxisRanges.aMax
+        // No data: anchor a default range so the empty frame is visible
+        !hasPrimaryData                -> 0.0 to 1.0
+        // Single-axis nice-scale dispatch (COB / zero-floor / free-range / pivot — see primarySingleAxisScale)
+        primarySingleAxisScale != null -> primarySingleAxisScale.min to primarySingleAxisScale.max
+        // Constant series (whole loaded range is flat): explicit range so it isn't collapsed to 0..1 and clipped
+        primaryConstantRange != null   -> primaryConstantRange
+        // Single-axis: window the range to the visible portion instead of Vico's full-model auto-range
+        primaryAutoRange != null       -> primaryAutoRange
+        else                           -> null
+    }
+    // A typed range wins, except on the IOB graph, where it is already inside iobBasalScale. With two
+    // axes a typed end can move zero away from the other axis' zero; that is the user's choice.
+    val typedPrimary = leftRange.takeIf { !it.isAuto && iobBasalScale == null }
+    val primaryBounds = primaryAutoBounds?.let { (low, high) -> typedPrimary?.applyTo(low, high) ?: (low to high) }
+    val primaryYStep = iobBasalScale?.step
+        ?: primaryBounds?.takeIf { typedPrimary != null }?.let { (low, high) -> niceScale(low, high, SECONDARY_GRAPH_TICK_COUNT).step }
+        ?: primarySingleAxisScale?.step
+    val primaryRangeProvider = remember(maxX, primaryBounds) {
+        primaryBounds?.let { (low, high) -> CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = low, maxY = high) }
+            ?: CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX)
     }
     // Basal range: 0 at top, -basalMaxY at bottom → basal occupies the top BASAL_HEIGHT_FRACTION of the height.
     // Windowed to the visible scroll/zoom range, like the primary IOB scale above, so basal doesn't
@@ -805,7 +817,9 @@ fun SecondaryGraphCompose(
         val windowedAbsMax = (literalWindowed + hiddenValues).map { -it }.maxOrNull()
         windowedAbsMax?.takeIf { it > 0.0 } ?: hiddenValues.maxOfOrNull { -it } ?: basalData.maxBasal
     }
-    val basalMaxY = basalDataMax / BASAL_HEIGHT_FRACTION
+    // A typed max for the basal axis replaces the highest rate in view (the axis always starts at 0)
+    val basalShownMax = rightRange.max?.takeIf { it > 0.0 } ?: basalDataMax
+    val basalMaxY = basalShownMax / BASAL_HEIGHT_FRACTION
     val basalRangeProvider = remember(maxX, basalMaxY) {
         CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = -basalMaxY, maxY = 0.0)
     }
@@ -817,10 +831,18 @@ fun SecondaryGraphCompose(
             .ifEmpty { listOf(LineCartesianLayer.Line(fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)), areaFill = null)) }
         traceLines + normalizerLine
     }
-    // Secondary range: zero-aligned counterpart to primary when available, otherwise auto-range.
-    val secondaryRangeProvider = remember(maxX, dualAxisRanges) {
-        if (dualAxisRanges != null)
-            CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = dualAxisRanges.bMin, maxY = dualAxisRanges.bMax)
+    // Secondary range: zero-aligned counterpart to primary when available, otherwise auto-range. A
+    // range the user typed wins.
+    val secondaryBounds: Pair<Double, Double>? = remember(dualAxisRanges, rightRange, secondaryPoints) {
+        val auto = dualAxisRanges?.let { it.bMin to it.bMax }
+            ?: secondaryPoints.takeIf { it.isNotEmpty() }?.let { pts -> pts.minOf { it.second } to pts.maxOf { it.second } }
+            ?: return@remember null
+        if (rightRange.isAuto) auto else rightRange.applyTo(auto.first, auto.second) ?: auto
+    }
+    val secondaryRangeProvider = remember(maxX, secondaryBounds, dualAxisRanges, rightRange) {
+        // Only fixed when found by the alignment or typed: otherwise Vico's own auto range, as before
+        if (secondaryBounds != null && (dualAxisRanges != null || !rightRange.isAuto))
+            CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = secondaryBounds.first, maxY = secondaryBounds.second)
         else
             CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX)
     }
@@ -900,10 +922,11 @@ fun SecondaryGraphCompose(
     )
 
     // Common axis components
-    val startAxisItemPlacer = remember(primaryYStep, iobDataMax, dualAxisRanges?.primaryLabelFloor) {
+    val startAxisItemPlacer = remember(primaryYStep, iobDataMax, dualAxisRanges?.primaryLabelFloor, typedPrimary) {
         val stepPlacer = VerticalAxis.ItemPlacer.step({ primaryYStep })
         val dataMax = iobDataMax
-        val labelFloor = dualAxisRanges?.primaryLabelFloor
+        // A typed min is the user's floor: no clamping to the series' own floor then
+        val labelFloor = dualAxisRanges?.primaryLabelFloor?.takeIf { typedPrimary == null }
         when {
             dataMax != null   -> ClampedVerticalAxisItemPlacer(stepPlacer, visibleMax = { dataMax })
             labelFloor != null -> ClampedVerticalAxisItemPlacer(stepPlacer, visibleMin = { labelFloor })
@@ -930,21 +953,22 @@ fun SecondaryGraphCompose(
     // Right axis: the basal rate on the IOB graph, the second scale on a graph with two scales, else
     // an invisible one that keeps this graph as wide as the others (see GraphEndAxis.kt).
     val decimalFormatter = LocalDecimalFormatter.current
-    val endAxisStep = remember(hasBasalLayer, basalDataMax, isDualAxis, dualAxisRanges) {
+    val endAxisStep = remember(hasBasalLayer, basalShownMax, isDualAxis, dualAxisRanges, rightRange, secondaryBounds) {
         when {
-            hasBasalLayer                        -> niceScale(0.0, basalDataMax, BASAL_AXIS_TICK_COUNT).step
-            isDualAxis && dualAxisRanges != null -> niceScale(dualAxisRanges.bMin, dualAxisRanges.bMax, SECONDARY_GRAPH_TICK_COUNT).step
-            else                                 -> null
+            hasBasalLayer                                                     -> niceScale(0.0, basalShownMax, BASAL_AXIS_TICK_COUNT).step
+            isDualAxis && secondaryBounds != null && (dualAxisRanges != null || !rightRange.isAuto) ->
+                niceScale(secondaryBounds.first, secondaryBounds.second, SECONDARY_GRAPH_TICK_COUNT).step
+            else                                                              -> null
         }
     }
-    val endAxisPlacer = remember(hasBasalLayer, endAxisStep, basalDataMax) {
+    val endAxisPlacer = remember(hasBasalLayer, endAxisStep, basalShownMax) {
         val step = endAxisStep
         when {
             // Basal hangs down from 0 at the top: label only real rates, and leave out the 0 at the
             // very top, where the edit button sits.
             hasBasalLayer && step != null -> ClampedVerticalAxisItemPlacer(
                 VerticalAxis.ItemPlacer.step({ step }),
-                visibleMin = { -basalDataMax - step * 1e-6 },
+                visibleMin = { -basalShownMax - step * 1e-6 },
                 visibleMax = { -step / 2 }
             )
             step != null                  -> VerticalAxis.ItemPlacer.step({ step })
@@ -1114,7 +1138,7 @@ internal fun windowedPrimaryY(
 }
 
 @Suppress("SameParameterValue")
-private fun processPoints(points: List<GraphDataPoint>, minTimestamp: Long, minX: Double, maxX: Double): List<Pair<Double, Double>> {
+internal fun processPoints(points: List<GraphDataPoint>, minTimestamp: Long, minX: Double, maxX: Double): List<Pair<Double, Double>> {
     val pts = points.map { timestampToX(it.timestamp, minTimestamp) to it.value }
     return filterToRange(pts, minX, maxX)
 }
@@ -1267,6 +1291,7 @@ private data class ProcessedIobOverlays(
 
 /** Color map for simple line series */
 data class SeriesColors(
+    val bg: Color,
     val iob: Color,
     val absIob: Color,
     val cob: Color,
@@ -1282,6 +1307,7 @@ data class SeriesColors(
 ) {
 
     fun colorFor(type: SeriesType): Color = when (type) {
+        SeriesType.BG              -> bg
         SeriesType.IOB             -> iob
         SeriesType.ABS_IOB         -> absIob
         SeriesType.COB             -> cob
@@ -1304,8 +1330,10 @@ fun rememberSeriesColors(): SeriesColors {
     val cobColor = AapsTheme.generalColors.cobPrediction
     val onSurface = MaterialTheme.colorScheme.onSurface
     val basalColor = AapsTheme.elementColors.tempBasal
-    return remember(iobColor, cobColor, onSurface, basalColor) {
+    val bgColor = AapsTheme.generalColors.bgInRange
+    return remember(iobColor, cobColor, onSurface, basalColor, bgColor) {
         SeriesColors(
+            bg = bgColor,                           // the in range BG colour
             iob = iobColor,                         // #1e88e5 blue (matches @color/iob)
             absIob = iobColor,                      // same blue as IOB
             cob = cobColor,                         // #FB8C00 orange (matches @color/cob)

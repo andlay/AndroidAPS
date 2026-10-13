@@ -372,6 +372,14 @@
     <string name="ai_hide_data">Hide data</string>
     <string name="graph_traces">Traces</string>
     <string name="graph_trace_add">Add calculated trace</string>
+    <string name="graph_axis_left">Left axis</string>
+    <string name="graph_axis_right">Right axis</string>
+    <string name="graph_axis_basal">Right axis (basal)</string>
+    <string name="graph_axis_min" comment="Lowest value shown on a graph axis">Min</string>
+    <string name="graph_axis_max" comment="Highest value shown on a graph axis">Max</string>
+    <string name="graph_axis_auto" comment="The graph finds the axis end from the data in view">Auto</string>
+    <string name="graph_activity_overlay">Insulin activity over IOB</string>
+    <string name="graph_bg_overlays">On the BG graph</string>
     <string name="graph_trace_series">Series</string>
     <string name="graph_trace_calculation">Calculation</string>
     <string name="graph_trace_window">Window</string>

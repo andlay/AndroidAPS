@@ -3,6 +3,7 @@ package app.aaps.ui.compose.overview.graphs
 import app.aaps.core.interfaces.concurrent.aapsIoDispatcher
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
+import app.aaps.core.interfaces.overview.graph.AxisRange
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
 import app.aaps.core.interfaces.overview.graph.GraphTrace
@@ -32,6 +33,8 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
@@ -92,6 +95,21 @@ class GraphConfigRepositoryImpl(
         private const val KEY_WINDOW = "window"
         private const val KEY_STYLE = "style"
         private const val KEY_COLOR = "color"
+        private const val KEY_VERSION = "version"
+        private const val KEY_BG_TRACES = "bgTraces"
+        private const val KEY_BG_LEFT_RANGE = "bgLeftRange"
+        private const val KEY_BG_RIGHT_RANGE = "bgRightRange"
+        private const val KEY_LEFT_RANGE = "leftRange"
+        private const val KEY_RIGHT_RANGE = "rightRange"
+        private const val KEY_ACTIVITY_OVERLAY = "activityOverlay"
+        private const val KEY_MIN = "min"
+        private const val KEY_MAX = "max"
+
+        /**
+         * 2: the IOB graph is the first graph of the list. Before, it was a fixed graph of its own
+         * with [KEY_IOB_HEIGHT] and [KEY_IOB_OVERLAYS]; such a config gets it put in front once.
+         */
+        private const val FORMAT_VERSION = 2
 
         private fun overlaysToJson(overlays: List<SeriesType>) = buildJsonArray {
             for (type in overlays) add(type.name)
@@ -113,10 +131,12 @@ class GraphConfigRepositoryImpl(
 
         fun toJson(config: GraphConfig): String =
             buildJsonObject {
+                put(KEY_VERSION, FORMAT_VERSION)
                 put(KEY_BG_OVERLAYS, overlaysToJson(config.bgOverlays))
-                put(KEY_IOB_OVERLAYS, overlaysToJson(config.iobOverlays))
                 put(KEY_BG_HEIGHT, config.bgHeight)
-                put(KEY_IOB_HEIGHT, config.iobHeight)
+                put(KEY_BG_TRACES, buildJsonArray { for (trace in config.bgTraces) add(traceToJson(trace)) })
+                rangeToJson(config.bgLeftRange)?.let { put(KEY_BG_LEFT_RANGE, it) }
+                rangeToJson(config.bgRightRange)?.let { put(KEY_BG_RIGHT_RANGE, it) }
                 put(
                     KEY_SECONDARY_GRAPHS,
                     buildJsonArray {
@@ -126,6 +146,9 @@ class GraphConfigRepositoryImpl(
                                 put(KEY_SERIES, buildJsonArray { for (series in graph.series.distinct()) add(series.name) })
                                 put(KEY_HEIGHT, graph.height)
                                 put(KEY_TRACES, buildJsonArray { for (trace in graph.traces) add(traceToJson(trace)) })
+                                rangeToJson(graph.leftRange)?.let { put(KEY_LEFT_RANGE, it) }
+                                rangeToJson(graph.rightRange)?.let { put(KEY_RIGHT_RANGE, it) }
+                                if (graph.activityOverlay) put(KEY_ACTIVITY_OVERLAY, true)
                             }
                         }
                     }
@@ -138,6 +161,24 @@ class GraphConfigRepositoryImpl(
             put(KEY_WINDOW, trace.windowMinutes)
             trace.style?.let { put(KEY_STYLE, it.name) }
             trace.color?.let { put(KEY_COLOR, it) }
+        }
+
+        /** Null for Auto, so nothing is written for it. */
+        private fun rangeToJson(range: AxisRange): JsonObject? =
+            if (range.isAuto) null
+            else buildJsonObject {
+                range.min?.let { put(KEY_MIN, it) }
+                range.max?.let { put(KEY_MAX, it) }
+            }
+
+        /** A stored range; Auto when absent, and for an end that is not a number. A range with min >= max is dropped. */
+        private fun rangeFromJson(element: JsonElement?): AxisRange {
+            val obj = element as? JsonObject ?: return AxisRange.AUTO
+            fun end(key: String) = (obj[key] as? JsonPrimitive)?.let { runCatching { it.double }.getOrNull() }?.takeIf { it.isFinite() }
+            val range = AxisRange(end(KEY_MIN), end(KEY_MAX))
+            val min = range.min
+            val max = range.max
+            return if (min != null && max != null && min >= max) AxisRange.AUTO else range
         }
 
         /** A stored trace, or null when its series is unknown to this version. Unknown options fall back to defaults. */
@@ -164,11 +205,15 @@ class GraphConfigRepositoryImpl(
             return out.fitToGraph(keep = out.firstOrNull())
         }
 
+        /** Extra traces of the BG graph: no repeats, and no BG as it is (the BG graph draws that itself). */
+        private fun cleanBgTraces(traces: List<GraphTrace>): List<GraphTrace> =
+            cleanTraces(listOf(GraphTrace(SeriesType.BG)) + traces).filter { it.type != SeriesType.BG || it.isDerived }
+
         private fun parseSeriesArray(seriesArray: JsonArray): List<SeriesType> {
             val series = mutableListOf<SeriesType>()
             for (element in seriesArray) {
                 val type = element.seriesTypeOrNull() ?: continue // Skip unknown series (forward compat)
-                // IOB is now a fixed graph — strip it from configurable graphs (legacy migration)
+                // IOB was a fixed graph then; it is put in front as its own graph (see fromJson)
                 if (type == SeriesType.IOB) continue
                 if (type !in series) series.add(type)
             }
@@ -178,10 +223,14 @@ class GraphConfigRepositoryImpl(
         fun fromJson(json: String): GraphConfig {
             val obj = Json.parseToJsonElement(json) as JsonObject
             val bgOverlays = overlaysFromJson(obj.array(KEY_BG_OVERLAYS), listOf(SeriesType.ACTIVITY, SeriesType.PREDICTIONS))
-            val iobOverlays = overlaysFromJson(obj.array(KEY_IOB_OVERLAYS), listOf(SeriesType.ACTIVITY))
             val bgHeight = obj.height(KEY_BG_HEIGHT)
-            val iobHeight = obj.height(KEY_IOB_HEIGHT)
             val graphs = mutableListOf<SecondaryGraph>()
+            val version = (obj[KEY_VERSION] as? JsonPrimitive)?.let { runCatching { it.int }.getOrNull() } ?: 1
+            if (version < 2) {
+                // The fixed IOB graph of before becomes the first graph, as it was
+                val iobOverlays = overlaysFromJson(obj.array(KEY_IOB_OVERLAYS), listOf(SeriesType.ACTIVITY))
+                graphs.add(GraphConfig.DEFAULT_IOB_GRAPH.copy(height = obj.height(KEY_IOB_HEIGHT), activityOverlay = SeriesType.ACTIVITY in iobOverlays))
+            }
             for (raw in obj.array(KEY_SECONDARY_GRAPHS).orEmpty()) {
                 // Legacy format: element is an array of series names.
                 // New format: element is an object { series: [...], height: Int }.
@@ -195,14 +244,24 @@ class GraphConfigRepositoryImpl(
 
                     else          -> emptyList<GraphTrace>() to GraphConfig.DEFAULT_GRAPH_HEIGHT_DP
                 }
-                if (traces.isNotEmpty()) graphs.add(SecondaryGraph(traces, height))
+                if (traces.isEmpty()) continue
+                val options = raw as? JsonObject
+                graphs.add(
+                    SecondaryGraph(
+                        traces, height,
+                        leftRange = rangeFromJson(options?.get(KEY_LEFT_RANGE)),
+                        rightRange = rangeFromJson(options?.get(KEY_RIGHT_RANGE)),
+                        activityOverlay = (options?.get(KEY_ACTIVITY_OVERLAY) as? JsonPrimitive)?.let { runCatching { it.boolean }.getOrNull() } ?: false
+                    )
+                )
             }
             return GraphConfig(
                 bgOverlays = bgOverlays,
-                iobOverlays = iobOverlays,
                 bgHeight = bgHeight,
-                iobHeight = iobHeight,
-                secondaryGraphs = graphs
+                bgTraces = obj.array(KEY_BG_TRACES)?.mapNotNull { traceFromJson(it) }?.let { cleanBgTraces(it) }.orEmpty(),
+                bgLeftRange = rangeFromJson(obj[KEY_BG_LEFT_RANGE]),
+                bgRightRange = rangeFromJson(obj[KEY_BG_RIGHT_RANGE]),
+                secondaryGraphs = graphs.take(GraphConfig.MAX_SECONDARY_GRAPHS)
             )
         }
 

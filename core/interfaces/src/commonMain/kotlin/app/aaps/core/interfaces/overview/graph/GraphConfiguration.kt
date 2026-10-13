@@ -8,11 +8,13 @@ import kotlinx.coroutines.flow.StateFlow
  * Each type maps to a data flow in OverviewDataCache.
  * IOB implicitly includes bolus markers, COB implicitly includes carbs markers.
  *
- * Not all types are allowed on all graphs — the UI enforces allowed sets per graph type.
- * BG graph: only BASAL, ACTIVITY.
- * Secondary graphs: all types.
+ * PREDICTIONS is not a series: it is the switch for the predictions on the BG graph. All other
+ * types can be traces on any graph.
  */
 enum class SeriesType {
+
+    /** Glucose readings in the user's units. Drawn by the BG graph itself; as a trace it is the source of calculations over BG. */
+    BG,
 
     IOB,
     ABS_IOB,
@@ -96,14 +98,44 @@ data class GraphTrace(
 }
 
 /**
+ * The value range of one axis. Each end is fixed by the user or found from the data in view (null).
+ * Data outside a fixed range is cut off at the edge of the graph.
+ */
+data class AxisRange(val min: Double? = null, val max: Double? = null) {
+
+    val isAuto: Boolean get() = min == null && max == null
+
+    /** [autoMin]..[autoMax] with the fixed ends put in. Null when that would leave nothing to show. */
+    fun applyTo(autoMin: Double, autoMax: Double): Pair<Double, Double>? {
+        val low = min ?: autoMin
+        val high = max ?: autoMax
+        return if (high > low) low to high else null
+    }
+
+    companion object {
+
+        val AUTO = AxisRange()
+    }
+}
+
+/**
  * Secondary graph entry: trace list + per-graph height (dp).
  * Traces with the same scale share an axis, so a series can be shown with any number of
  * calculations over it, or only with those. At most two axes (left and right) per graph.
  * Height is per-graph user-adjustable.
+ *
+ * @param leftRange  range of the left axis, in the unit of its traces
+ * @param rightRange range of the right axis. With IOB on the left and nothing on the right, the
+ *   right axis is the basal rate (U/h) and only its max is used.
+ * @param activityOverlay draw insulin activity over IOB, scaled to fit. Only used when the graph
+ *   starts with IOB.
  */
 data class SecondaryGraph(
     val traces: List<GraphTrace>,
-    val height: Int = GraphConfig.DEFAULT_GRAPH_HEIGHT_DP
+    val height: Int = GraphConfig.DEFAULT_GRAPH_HEIGHT_DP,
+    val leftRange: AxisRange = AxisRange.AUTO,
+    val rightRange: AxisRange = AxisRange.AUTO,
+    val activityOverlay: Boolean = false
 ) {
 
     /** The series the traces are made from, in trace order. */
@@ -120,32 +152,37 @@ data class SecondaryGraph(
 /**
  * Configuration for the overview graphs.
  *
- * Fixed graphs (not removable):
- * - BG graph: blood glucose with optional activity overlay (toggled via [bgOverlays]).
- * - IOB graph: IOB line with bolus markers + flipped basal overlay, with optional activity
- *   overlay (toggled via [iobOverlays]).
+ * The BG graph is always there and always shows BG on its left axis. Everything else can be set:
  *
- * @param bgOverlays       Overlay toggles for the BG graph (currently only [SeriesType.ACTIVITY]).
- * @param iobOverlays      Overlay toggles for the fixed IOB graph (currently only [SeriesType.ACTIVITY]).
- * @param secondaryGraphs  Ordered list of user-configurable secondary graph configurations.
- *   IOB as it is cannot appear here (it has a dedicated fixed slot). The traces of a graph keep
- *   their selection order: the first trace's axis group is the left axis, the next group the
- *   right axis (see [SecondaryGraph]).
+ * @param bgOverlays  switches of the BG graph: [SeriesType.ACTIVITY] and [SeriesType.PREDICTIONS]
+ * @param bgTraces    more traces on the BG graph. Calculations over BG share the BG axis; the
+ *   first other axis group goes on the right axis. While there is one, the BG graph's basal band
+ *   is not drawn (it uses the right side).
+ * @param bgLeftRange range of the BG axis, in mg/dL
+ * @param bgRightRange range of the right axis of the BG graph, in the unit of its traces
+ * @param secondaryGraphs the graphs under the BG graph, in order. The first one is IOB with basal
+ *   unless the user changed it. The traces of a graph keep their selection order: the first
+ *   trace's axis group is the left axis, the next group the right axis (see [SecondaryGraph]).
  */
 data class GraphConfig(
     val bgOverlays: List<SeriesType> = listOf(SeriesType.ACTIVITY, SeriesType.PREDICTIONS),
-    val iobOverlays: List<SeriesType> = listOf(SeriesType.ACTIVITY),
     val bgHeight: Int = DEFAULT_GRAPH_HEIGHT_DP,
-    val iobHeight: Int = DEFAULT_GRAPH_HEIGHT_DP,
+    val bgTraces: List<GraphTrace> = emptyList(),
+    val bgLeftRange: AxisRange = AxisRange.AUTO,
+    val bgRightRange: AxisRange = AxisRange.AUTO,
     val secondaryGraphs: List<SecondaryGraph> = listOf(
+        DEFAULT_IOB_GRAPH,
         SecondaryGraph.of(listOf(SeriesType.COB))
     )
 ) {
 
     companion object {
 
-        /** Maximum number of secondary graphs allowed */
-        const val MAX_SECONDARY_GRAPHS = 5
+        /** Maximum number of graphs under the BG graph (the old fixed IOB graph counts as one) */
+        const val MAX_SECONDARY_GRAPHS = 6
+
+        /** The graph that was fixed under the BG graph before: IOB with bolus markers and basal, and activity over it. */
+        val DEFAULT_IOB_GRAPH = SecondaryGraph(listOf(GraphTrace(SeriesType.IOB)), activityOverlay = true)
 
         /** Default graph height in dp (minimum value — user-adjustable up to [MAX_GRAPH_HEIGHT_DP]) */
         const val DEFAULT_GRAPH_HEIGHT_DP = 100

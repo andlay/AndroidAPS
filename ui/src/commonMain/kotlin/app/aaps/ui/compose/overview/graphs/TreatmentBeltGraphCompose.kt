@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -58,6 +59,7 @@ import com.patrykandpatrick.vico.compose.common.component.ShapeComponent
 import com.patrykandpatrick.vico.compose.common.component.TextComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
 import com.patrykandpatrick.vico.compose.common.data.ExtraStore
+import kotlinx.coroutines.delay
 
 /** ExtraStore key for therapy event lookup by X position. */
 private val therapyEventMapKey = ExtraStore.Key<Map<Double, TherapyEventGraphPoint>>()
@@ -98,6 +100,13 @@ fun TreatmentBeltGraphCompose(
     nowTimestamp: Long,
     /** While holding the BG graph, a line at the inspected time. Null turns it off. */
     inspect: GraphInspectState? = null,
+    /**
+     * Gets the visible time window (minutes from the start of the axis) when it changes. The belt
+     * reports it for the BG graph because it is always there; see GraphsSection.
+     */
+    onVisibleRangeChanged: ((Pair<Double, Double>?) -> Unit)? = null,
+    /** Gets the x layout of the plot on every draw, for the pinch passed on from other graphs. */
+    geometryHolder: GraphGeometryHolder? = null,
     modifier: Modifier = Modifier
 ) {
     val dateUtil = LocalDateUtil.current
@@ -479,7 +488,21 @@ fun TreatmentBeltGraphCompose(
     val nowLineColor = MaterialTheme.colorScheme.onSurface
     val nowLine = rememberNowLine(minTimestamp, nowTimestamp, nowLineColor)
     val inspectLine = rememberInspectLine(inspect)
-    val beltDecorations = remember(nowLine, inspectLine) { listOfNotNull(nowLine, inspectLine) }
+    // The visible window, written while drawing into a StateFlow (not Compose state, see
+    // VisibleRangeHolder) and passed on when it changes, at most 20 times a second.
+    val visibleRangeHolder = remember { VisibleRangeHolder() }
+    val visibleRangeReporter = rememberVisibleRangeReporter(visibleRangeHolder)
+    val currentOnVisibleRangeChanged by rememberUpdatedState(onVisibleRangeChanged)
+    LaunchedEffect(visibleRangeHolder) {
+        visibleRangeHolder.value.collect {
+            currentOnVisibleRangeChanged?.invoke(it)
+            delay(50)
+        }
+    }
+    val geometryReporter = remember(geometryHolder) { geometryHolder?.let { GraphGeometryReporter(it) } }
+    val beltDecorations = remember(nowLine, inspectLine, visibleRangeReporter, geometryReporter) {
+        listOfNotNull(nowLine, inspectLine, visibleRangeReporter, geometryReporter)
+    }
 
     val rangeProvider = remember(maxX) {
         CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = 0.0, maxY = 1.0)
