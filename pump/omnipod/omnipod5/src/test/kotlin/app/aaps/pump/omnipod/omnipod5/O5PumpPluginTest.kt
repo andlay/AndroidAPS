@@ -42,11 +42,15 @@ import app.aaps.pump.omnipod.common.queue.command.CommandSilenceAlerts
 import app.aaps.pump.omnipod.common.queue.command.CommandSuspendDelivery
 import app.aaps.pump.omnipod.common.queue.command.CommandUpdateAlertConfiguration
 import app.aaps.pump.omnipod.omnipod5.history.O5History
+import app.aaps.pump.omnipod.omnipod5.keys.O5BooleanPreferenceKey
+import app.aaps.pump.omnipod.omnipod5.keys.O5IntPreferenceKey
+import app.aaps.pump.omnipod.omnipod5.keys.O5LongNonPreferenceKey
 import app.aaps.shared.tests.TestBaseWithProfile
 import com.google.common.truth.Truth.assertThat
 import io.reactivex.rxjava3.core.Completable
 import io.reactivex.rxjava3.core.Observable
 import io.reactivex.rxjava3.core.Single
+import java.util.EnumSet
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
@@ -314,7 +318,7 @@ class O5PumpPluginTest : TestBaseWithProfile() {
     @Test
     fun `executeCustomCommand silences alerts for CommandSilenceAlerts when there are active alerts`() {
         whenever(podStateManager.podId).thenReturn(12345L)
-        whenever(podStateManager.activeAlerts).thenReturn(java.util.EnumSet.of(AlertType.LOW_RESERVOIR))
+        whenever(podStateManager.activeAlerts).thenReturn(EnumSet.of(AlertType.LOW_RESERVOIR))
         whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
 
         val result = plugin.executeCustomCommand(CommandSilenceAlerts())
@@ -604,7 +608,7 @@ class O5PumpPluginTest : TestBaseWithProfile() {
         verify(podStateManager).pendingDoseCommand = null
     }
 
-    private fun stubOutOfRange(enabled: Boolean, armedPodId: Long, alerts: java.util.EnumSet<AlertType>? = null) {
+    private fun stubOutOfRange(enabled: Boolean, armedPodId: Long, alerts: EnumSet<AlertType>? = null) {
         whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.COMPLETED)
         whenever(podStateManager.isPodRunning).thenReturn(true)
         whenever(podStateManager.podId).thenReturn(12345L)
@@ -639,7 +643,7 @@ class O5PumpPluginTest : TestBaseWithProfile() {
 
     @Test
     fun `out-of-range alert that went off is silenced, reported and set again`() {
-        stubOutOfRange(enabled = true, armedPodId = 12345L, alerts = java.util.EnumSet.of(AlertType.MULTI_COMMAND))
+        stubOutOfRange(enabled = true, armedPodId = 12345L, alerts = EnumSet.of(AlertType.MULTI_COMMAND))
 
         plugin.updateOutOfRangeAlert()
 

@@ -16,8 +16,8 @@ import kotlin.test.assertNull
  */
 class SecondaryGraphHeightTest {
 
-    private val cob = SecondaryGraph(listOf(SeriesType.COB), height = 100)
-    private val bgi = SecondaryGraph(listOf(SeriesType.BGI, SeriesType.DEVIATIONS), height = 120)
+    private val cob = SecondaryGraph.of(listOf(SeriesType.COB), height = 100)
+    private val bgi = SecondaryGraph.of(listOf(SeriesType.BGI, SeriesType.DEVIATIONS), height = 120)
     private val config = GraphConfig(secondaryGraphs = listOf(cob, bgi))
 
     @Test
