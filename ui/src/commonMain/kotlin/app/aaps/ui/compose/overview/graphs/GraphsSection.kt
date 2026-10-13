@@ -5,7 +5,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -32,21 +31,18 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.State
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -54,7 +50,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.GlucoseUnit
 import app.aaps.core.interfaces.InterfacesStrings
-import app.aaps.core.interfaces.ai.AiTopic
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphTrace
@@ -62,7 +57,6 @@ import app.aaps.core.interfaces.overview.graph.SecondaryGraph
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.keys.interfaces.TextRef
 import app.aaps.core.ui.CoreUiStrings
-import app.aaps.core.ui.compose.LocalAiAssistant
 import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.LocalDecimalFormatter
 import app.aaps.core.ui.compose.LocalProfileUtil
@@ -70,7 +64,6 @@ import app.aaps.core.ui.compose.NumberInputRow
 import app.aaps.core.ui.compose.rowAction
 import app.aaps.core.ui.compose.stringResource
 import app.aaps.ui.UiStrings
-import app.aaps.ui.compose.ai.AiExplainSheet
 import com.patrykandpatrick.vico.compose.cartesian.Scroll
 import com.patrykandpatrick.vico.compose.cartesian.Zoom
 import com.patrykandpatrick.vico.compose.cartesian.rememberVicoScrollState
@@ -79,7 +72,6 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.drop
 import kotlin.math.abs
 
 /**
@@ -89,7 +81,7 @@ import kotlin.math.abs
  * - Each graph has its OWN VicoScrollState and VicoZoomState
  * - BG graph: Interactive - user can scroll/zoom
  * - Secondary graphs: scroll/zoom disabled on the chart; a sideways drag or a pinch on them is
- *   passed on to the BG graph (see rememberGraphCursorInput)
+ *   passed on to the BG graph (see rememberForwardToBgInput)
  * - LaunchedEffect observes BG graph's state changes and syncs to secondary
  *
  * Synchronization Implementation:
@@ -118,6 +110,12 @@ private const val RECENT_VALUES_SPOKEN = 5
 
 /** Series not made by the graph calculation (sensor and device data, UI flags): no busy ring for these. */
 private val NOT_CALCULATED_SERIES = setOf(SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.BASAL, SeriesType.PREDICTIONS)
+
+/**
+ * Moves the BG graph pop-up up over the treatment belt, so it covers less of the BG graph. The belt
+ * is 48 dp high and the BG graph already starts 16 dp under it.
+ */
+private val INSPECT_PILL_OFFSET = (-32).dp
 
 /** Series types available as BG graph overlays */
 private val BG_OVERLAY_SERIES = listOf(SeriesType.ACTIVITY, SeriesType.PREDICTIONS)
@@ -217,18 +215,10 @@ fun GraphsSection(
     // The busy ring sits left of the edit button, or in the corner when there is none (simple mode)
     val busyRingEnd = if (isSimpleMode) 8.dp else 36.dp
 
-    // Touch cursor (see GraphCursor.kt). One x layout for all graphs, reported by the fixed IOB graph.
-    val cursorGeometry = remember { GraphGeometryHolder() }
-    // Read only through the derived values below and inside GraphCursorFor. Read here directly, every
-    // move of the cursor recomposed this whole section and with it every chart.
-    val cursorState = remember { mutableStateOf<GraphCursor?>(null) }
-    val cursorGraphId by remember { derivedStateOf { cursorState.value?.graphId } }
-    val cursorShown by remember { derivedStateOf { cursorState.value != null } }
-    // AI explanation of the touched moment (wand in the touch card). Only offered when set up.
-    val aiAssistant = LocalAiAssistant.current
-    val aiAvailable = aiAssistant() != null
-    var aiRequest by remember { mutableStateOf<Pair<AiTopic, Long>?>(null) }
-    val onCursorChange: (GraphCursor?) -> Unit = remember { { cursorState.value = it } }
+
+    // One x layout for all graphs, reported by the fixed IOB graph. A pinch on another graph uses it
+    // to zoom BG around the fingers.
+    val graphGeometry = remember { GraphGeometryHolder() }
 
     // BG's own visible window, sourced from the fixed IOB graph's already-computed visible range
     // (its scroll/zoom are synced to BG's, see the sync LaunchedEffect below) — not from a
@@ -402,12 +392,8 @@ fun GraphsSection(
             }
     }
 
-    // The card shows the time under the finger, so it must not stay put while the graphs move under it.
-    LaunchedEffect(bgScrollState, bgZoomState) {
-        snapshotFlow { bgScrollState.value to bgZoomState.value }
-            .drop(1)
-            .collect { cursorState.value = null }
-    }
+    // Shared by all graphs: the BG graph sets it on press and hold, every graph draws the line from it
+    val inspect = remember { GraphInspectState() }
 
     Column(
         modifier = modifier
@@ -417,6 +403,7 @@ fun GraphsSection(
         // Treatment Belt Graph - running mode background + therapy events
         TreatmentBeltGraphCompose(
             viewModel = graphViewModel,
+            inspect = inspect,
             scrollState = beltScrollState,
             zoomState = beltZoomState,
             derivedTimeRange = derivedTimeRange,
@@ -456,7 +443,11 @@ fun GraphsSection(
             else                                   -> stringResource(UiStrings.a11y_bg_graph_summary_values_only, recentValues)
         }
 
-        Box(modifier = Modifier.offset(y = (-16).dp).zIndex(if (cursorGraphId == CURSOR_GRAPH_BG) 1f else 0f)) {
+        Box(
+            modifier = Modifier
+                .offset(y = (-16).dp)
+                .graphInspectTouch(inspect)
+        ) {
             BgGraphCompose(
                 viewModel = graphViewModel,
                 bgOverlays = graphConfig.bgOverlays,
@@ -465,6 +456,7 @@ fun GraphsSection(
                 derivedTimeRange = derivedTimeRange,
                 nowTimestamp = nowTimestamp,
                 visibleTimeRange = bgVisibleTimeRange,
+                inspect = inspect,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.bgHeight.dp)
@@ -475,7 +467,6 @@ fun GraphsSection(
                             else Modifier
                         }
                     )
-                    .then(rememberGraphCursorInput(CURSOR_GRAPH_BG, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange))
             )
             if (!isSimpleMode) {
                 GraphEditButton(
@@ -491,9 +482,16 @@ fun GraphsSection(
                 busy = calculationRunning && (SeriesType.ACTIVITY in graphConfig.bgOverlays || SeriesType.PREDICTIONS in graphConfig.bgOverlays),
                 modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp)
             )
-            GraphCursorFor(
-                CURSOR_GRAPH_BG, cursorState, graphViewModel, graphConfig.bgOverlays, derivedTimeRange?.first, cursorGeometry,
-                onExplain = if (aiAvailable) { t -> aiRequest = AiTopic.BG_PREDICTIONS to t } else null
+            // Press and hold: the pill, in its own composable so a finger move does not recompose this section
+            GraphInspectOverlay(
+                inspect = inspect,
+                graphViewModel = graphViewModel,
+                bgReadings = bgReadings,
+                minTimestamp = derivedTimeRange?.first,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = INSPECT_PILL_OFFSET)
+                    .padding(top = 2.dp, start = 36.dp, end = 36.dp)
             )
         }
         if (editingBgOverlays) {
@@ -515,7 +513,7 @@ fun GraphsSection(
         }
         // Fixed IOB graph (Graph 1) with optional Activity overlay
         var editingIobOverlays by remember { mutableStateOf(false) }
-        Box(modifier = Modifier.offset(y = (-8).dp).zIndex(if (cursorGraphId == CURSOR_GRAPH_IOB) 1f else 0f)) {
+        Box(modifier = Modifier.offset(y = (-8).dp)) {
             SecondaryGraphCompose(
                 viewModel = graphViewModel,
                 traces = IOB_TRACES,
@@ -525,11 +523,12 @@ fun GraphsSection(
                 nowTimestamp = nowTimestamp,
                 activityOverlay = SeriesType.ACTIVITY in graphConfig.iobOverlays,
                 onVisibleRangeChanged = onIobVisibleRangeChanged,
-                geometryHolder = cursorGeometry,
+                geometryHolder = graphGeometry,
+                inspect = inspect,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.iobHeight.dp)
-                    .then(rememberGraphCursorInput(CURSOR_GRAPH_IOB, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange, panTarget = bgScrollState, zoomTarget = bgZoomState, onForwardedGesture = graphViewModel::onGraphInteraction))
+                    .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, graphViewModel::onGraphInteraction))
             )
             Text(
                 text = stringResource(CoreUiStrings.iob) + " / " + stringResource(CoreUiStrings.basal_shortname),
@@ -549,10 +548,6 @@ fun GraphsSection(
                 )
             }
             GraphBusyRing(busy = calculationRunning, modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp))
-            GraphCursorFor(
-                CURSOR_GRAPH_IOB, cursorState, graphViewModel, graphConfig.iobOverlays, derivedTimeRange?.first, cursorGeometry,
-                onExplain = if (aiAvailable) { t -> aiRequest = AiTopic.INSULIN to t } else null
-            )
         }
         if (editingIobOverlays) {
             GraphSeriesBottomSheet(
@@ -576,11 +571,11 @@ fun GraphsSection(
         var editingGraphIndex by remember { mutableIntStateOf(-1) }
         for (i in 0 until activeCount) {
             val secondary = graphConfig.secondaryGraphs[i]
-            val cursorGraphId = i + 1
-            Box(modifier = Modifier.offset(y = (-8).dp).zIndex(if (cursorGraphId == cursorGraphId) 1f else 0f)) {
+            Box(modifier = Modifier.offset(y = (-8).dp)) {
                 SecondaryGraphCompose(
                     viewModel = graphViewModel,
                     traces = secondary.traces,
+                    inspect = inspect,
                     scrollState = secScrollStates[i],
                     zoomState = secZoomStates[i],
                     derivedTimeRange = derivedTimeRange,
@@ -588,7 +583,7 @@ fun GraphsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(secondary.height.dp)
-                        .then(rememberGraphCursorInput(cursorGraphId, cursorGeometry, derivedTimeRange?.first, cursorShown, onCursorChange, panTarget = bgScrollState, zoomTarget = bgZoomState, onForwardedGesture = graphViewModel::onGraphInteraction))
+                        .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, graphViewModel::onGraphInteraction))
                 )
                 Text(
                     text = traceListLabel(secondary.traces),
@@ -610,11 +605,6 @@ fun GraphsSection(
                 GraphBusyRing(
                     busy = calculationRunning && secondary.series.any { it !in NOT_CALCULATED_SERIES },
                     modifier = Modifier.align(Alignment.TopEnd).padding(end = busyRingEnd, top = 10.dp)
-                )
-                GraphCursorFor(
-                    cursorGraphId, cursorState, graphViewModel, secondary.series, derivedTimeRange?.first, cursorGeometry,
-                    onExplain = if (aiAvailable) { t -> aiRequest = aiTopicFor(secondary.series) to t } else null,
-                    traces = secondary.traces
                 )
             }
         }
@@ -691,59 +681,10 @@ fun GraphsSection(
         // Spacer so the last graph / Add button isn't covered by QuickLaunch toolbar
         Spacer(Modifier.height(48.dp))
     }
-    aiRequest?.let { (topic, time) ->
-        aiAssistant()?.let { assistant ->
-            AiExplainSheet(
-                assistant = assistant,
-                topic = topic,
-                timestamp = time,
-                title = stringResource(UiStrings.ai_explain_title, dateUtil.timeString(time)),
-                autoExplain = true,
-                onDismiss = { aiRequest = null }
-            )
-        }
-    }
-}
-
-/** What an explanation on a secondary graph is about, from the series it shows. */
-private fun aiTopicFor(series: List<SeriesType>): AiTopic = when {
-    SeriesType.COB in series                                                     -> AiTopic.COB
-    SeriesType.DEVIATIONS in series || SeriesType.BGI in series                  -> AiTopic.DEVIATIONS
-    SeriesType.SENSITIVITY in series || SeriesType.VAR_SENSITIVITY in series      -> AiTopic.SENSITIVITY
-    SeriesType.IOB in series || SeriesType.ABS_IOB in series || SeriesType.ACTIVITY in series -> AiTopic.INSULIN
-    else                                                                         -> AiTopic.GENERAL
 }
 
 /** The fixed IOB graph's trace, as one constant so the graph sees the same list on every pass. */
 private val IOB_TRACES = listOf(GraphTrace(SeriesType.IOB))
-
-/** Shows the touch cursor in this graph's Box when the cursor is on this graph. */
-@Composable
-private fun BoxScope.GraphCursorFor(
-    graphId: Int,
-    cursorState: State<GraphCursor?>,
-    viewModel: GraphViewModel,
-    seriesTypes: List<SeriesType>,
-    minTimestamp: Long?,
-    geometry: GraphGeometryHolder,
-    onExplain: ((Long) -> Unit)? = null,
-    traces: List<GraphTrace>? = null
-) {
-    // Read here, in the overlay's own scope, so a cursor move redraws only the overlay.
-    val cursor = cursorState.value
-    if (cursor == null || cursor.graphId != graphId || minTimestamp == null) return
-    GraphCursorOverlay(
-        viewModel = viewModel,
-        graphId = graphId,
-        seriesTypes = seriesTypes,
-        cursorTimestamp = cursor.timestamp,
-        minTimestamp = minTimestamp,
-        geometry = geometry,
-        modifier = Modifier.matchParentSize(),
-        onExplain = onExplain,
-        traces = traces
-    )
-}
 
 /**
  * The [count] newest readings, newest first.

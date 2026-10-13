@@ -350,17 +350,6 @@
     <string name="graph_therapy_event_bg_with_note" comment="Shown when the user taps a BG check in the overview graph. %1$s = glucose with its unit, %2$s = the note the user wrote. Example: 6.1 mmol/L, before lunch">%1$s, %2$s</string>
 
     <!-- Graph touch cursor -->
-    <string name="graph_cursor_now" comment="Shown in the graph touch card when the touched point is the current time">now</string>
-    <string name="graph_cursor_ago" comment="Time before now of the touched graph point. %1$s=duration. Example: −20 min">−%1$s</string>
-    <string name="graph_cursor_ahead" comment="Time after now of the touched graph point (a prediction). %1$s=duration. Example: +1 h 20 min">+%1$s</string>
-    <string name="graph_cursor_acob_shortname" comment="Short label for the absorbed carbs (aCOB) prediction in the graph touch card">aCOB</string>
-    <string name="graph_cursor_uam_shortname" comment="Short label for the unannounced meal (UAM) prediction in the graph touch card">UAM</string>
-    <string name="graph_cursor_zt_shortname" comment="Short label for the zero temp (ZT) prediction in the graph touch card">ZT</string>
-    <string name="graph_cursor_raw_shortname" comment="Short label for the raw sensor reading (before smoothing) in the graph touch card">RAW</string>
-    <string name="graph_cursor_bolus_shortname" comment="Short label for a normal bolus in the graph touch card">BOL</string>
-    <string name="graph_cursor_extended_shortname" comment="Short label for an extended bolus in the graph touch card">EXT</string>
-    <string name="graph_cursor_carbs_shortname" comment="Short label for a carbs entry in the graph touch card">CARBS</string>
-    <string name="graph_cursor_profile_shortname" comment="Short label for a profile switch in the graph touch card">PROF</string>
 
     <string name="edit_carbs">Edit carbs</string>
     <string name="meal_tray_title">Meal from NFC cards</string>
@@ -373,9 +362,7 @@
     <string name="meal_tray_not_read">This card is not an AAPS meal card, or its carbs are missing.</string>
     <string name="meal_tray_plugin_off">Turn on NFC meal cards in Config Builder (General) to use meal cards.</string>
     <string name="edit_carbs_range" comment="%1$d=the max carbs safety setting in grams. Example: Enter 1 to 48 g">Enter 1 to %1$d g</string>
-    <string name="ai_explain">Explain with AI</string>
     <string name="ai_ask_title">Ask AI</string>
-    <string name="ai_explain_title" comment="Title of the AI explanation sheet. %1$s=time on the graph, example: 19:56">AI explanation at %1$s</string>
     <string name="ai_disclaimer">AI explanation from your data. It can be wrong, and it does not give dosing advice.</string>
     <string name="ai_thinking">Thinking…</string>
     <string name="ai_error" comment="%1$s=the error message from the AI provider or the network">AI error: %1$s</string>

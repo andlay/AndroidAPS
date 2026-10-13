@@ -5,12 +5,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -151,6 +151,8 @@ fun SecondaryGraphCompose(
     activityOverlay: Boolean = false,
     onVisibleRangeChanged: ((Pair<Double, Double>?) -> Unit)? = null,
     geometryHolder: GraphGeometryHolder? = null,
+    /** While holding the BG graph, a line at the inspected time. Null turns it off. */
+    inspect: GraphInspectState? = null,
     modifier: Modifier = Modifier
 ) {
     val dateUtil = LocalDateUtil.current
@@ -590,7 +592,10 @@ fun SecondaryGraphCompose(
     val nowLineColor = MaterialTheme.colorScheme.onSurface
     val nowLine = rememberNowLine(minTimestamp, nowTimestamp, nowLineColor)
     val geometryReporter = remember(geometryHolder) { geometryHolder?.let { GraphGeometryReporter(it) } }
-    val decorations = remember(nowLine, visibleRangeReporter, geometryReporter) { listOfNotNull(nowLine, visibleRangeReporter, geometryReporter) }
+    val inspectLine = rememberInspectLine(inspect)
+    val decorations = remember(nowLine, visibleRangeReporter, geometryReporter, inspectLine) {
+        listOfNotNull(nowLine, visibleRangeReporter, geometryReporter, inspectLine)
+    }
 
     // Union of Y values across all primary-layer series (IOB, COB, simple series, DevSlope-min,
     // deviation lines), windowed to the visible scroll/zoom range — computed once here since the
