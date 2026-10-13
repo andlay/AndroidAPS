@@ -43,7 +43,6 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlin.concurrent.Volatile
 
 /**
  * ViewModel for Overview graphs (Compose/Vico version).
