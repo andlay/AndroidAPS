@@ -494,6 +494,8 @@ fun TreatmentBeltGraphCompose(
             marker = beltMarker,
             markerController = CartesianMarkerController.rememberToggleOnTap(),
             decorations = beltDecorations,
+            // Invisible, only so this graph is as wide as the ones with a right scale (GraphEndAxis.kt)
+            endAxis = rememberEndAxisSpacer(),
             startAxis = VerticalAxis.rememberStart(
                 label = rememberTextComponent(
                     style = TextStyle(color = Color.Transparent),

@@ -80,6 +80,9 @@ internal const val IOB_GRAPH_TICK_COUNT = 3
 /** Tick count for series that use the graph's full height (COB, BGI/DEV/ACTIVITY/STEPS, VAR_SENS/HEART_RATE, DEV_SLOPE). */
 internal const val SECONDARY_GRAPH_TICK_COUNT = 5
 
+/** Opacity of the area between the IOB line and zero. */
+private const val IOB_AREA_ALPHA = 0.55f
+
 /**
  * Tick count for SENSITIVITY's pivot scale specifically — lower than [SECONDARY_GRAPH_TICK_COUNT]
  * so Vico's step thinning never has anything to thin (3 ticks always fit, at any graph height),
@@ -777,8 +780,10 @@ fun SecondaryGraphCompose(
     // Basal range: 0 at top, -basalMaxY at bottom → basal occupies the top BASAL_HEIGHT_FRACTION of the height.
     // Windowed to the visible scroll/zoom range, like the primary IOB scale above, so basal doesn't
     // stay flattened/clipped when scrolled away from the loaded range's peak.
-    val basalMaxY = remember(basalData, processedBasalProfile, processedBasalActual, visibleMinX, visibleMaxX) {
-        if (basalData == null || basalData.maxBasal <= 0.0) return@remember 1.0
+    // The highest basal rate in the visible window. The basal band is twice that tall, so the rate
+    // reaches half way down; the right axis labels stop at this value.
+    val basalDataMax = remember(basalData, processedBasalProfile, processedBasalActual, visibleMinX, visibleMaxX) {
+        if (basalData == null || basalData.maxBasal <= 0.0) return@remember BASAL_HEIGHT_FRACTION
         // Profile/actual are stored sparsely (only at rate changes — see rebuildBasalGraph), so a
         // zoom window entirely inside one constant segment (e.g. an extended zero-temp) can contain
         // zero literal points for either series. Deliberately NOT using windowedY here: its own
@@ -798,8 +803,9 @@ fun SecondaryGraphCompose(
             visibleMinX?.let { stepValueAt(processedBasalActual, it) }
         )
         val windowedAbsMax = (literalWindowed + hiddenValues).map { -it }.maxOrNull()
-        (windowedAbsMax?.takeIf { it > 0.0 } ?: hiddenValues.maxOfOrNull { -it } ?: basalData.maxBasal) / BASAL_HEIGHT_FRACTION
+        windowedAbsMax?.takeIf { it > 0.0 } ?: hiddenValues.maxOfOrNull { -it } ?: basalData.maxBasal
     }
+    val basalMaxY = basalDataMax / BASAL_HEIGHT_FRACTION
     val basalRangeProvider = remember(maxX, basalMaxY) {
         CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = -basalMaxY, maxY = 0.0)
     }
@@ -921,6 +927,38 @@ fun SecondaryGraphCompose(
         guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
     )
 
+    // Right axis: the basal rate on the IOB graph, the second scale on a graph with two scales, else
+    // an invisible one that keeps this graph as wide as the others (see GraphEndAxis.kt).
+    val decimalFormatter = LocalDecimalFormatter.current
+    val endAxisStep = remember(hasBasalLayer, basalDataMax, isDualAxis, dualAxisRanges) {
+        when {
+            hasBasalLayer                        -> niceScale(0.0, basalDataMax, BASAL_AXIS_TICK_COUNT).step
+            isDualAxis && dualAxisRanges != null -> niceScale(dualAxisRanges.bMin, dualAxisRanges.bMax, SECONDARY_GRAPH_TICK_COUNT).step
+            else                                 -> null
+        }
+    }
+    val endAxisPlacer = remember(hasBasalLayer, endAxisStep, basalDataMax) {
+        val step = endAxisStep
+        when {
+            // Basal hangs down from 0 at the top: label only real rates, and leave out the 0 at the
+            // very top, where the edit button sits.
+            hasBasalLayer && step != null -> ClampedVerticalAxisItemPlacer(
+                VerticalAxis.ItemPlacer.step({ step }),
+                visibleMin = { -basalDataMax - step * 1e-6 },
+                visibleMax = { -step / 2 }
+            )
+            step != null                  -> VerticalAxis.ItemPlacer.step({ step })
+            else                          -> VerticalAxis.ItemPlacer.count({ SECONDARY_GRAPH_TICK_COUNT })
+        }
+    }
+    val endAxisFormatter = remember(hasBasalLayer, endAxisStep, decimalFormatter) {
+        CartesianValueFormatter { _, value, _ -> axisNumber(value, endAxisStep, decimalFormatter, absolute = hasBasalLayer) }
+    }
+    val endAxisColor = if (hasBasalLayer) AapsTheme.elementColors.tempBasal
+    else rightTraces.firstOrNull()?.let { lookOf(it, seriesColors).color } ?: MaterialTheme.colorScheme.onSurface
+    val endAxis = if (hasBasalLayer || isDualAxis) rememberEndAxis(endAxisColor, endAxisPlacer, endAxisFormatter)
+    else rememberEndAxisSpacer()
+
     if (hasBasalLayer) {
         val basalLayer = rememberLineCartesianLayer(
             lineProvider = LineCartesianLayer.LineProvider.series(basalLines),
@@ -931,6 +969,7 @@ fun SecondaryGraphCompose(
             chart = rememberCartesianChart(
                 primaryLayer, basalLayer,
                 startAxis = startAxis,
+                endAxis = endAxis,
                 bottomAxis = bottomAxis, decorations = decorations, getXStep = { _, _, _ -> 1.0 }
             ),
             modelProducer = modelProducer,
@@ -947,6 +986,7 @@ fun SecondaryGraphCompose(
             chart = rememberCartesianChart(
                 primaryLayer, secondaryLayer,
                 startAxis = startAxis,
+                endAxis = endAxis,
                 bottomAxis = bottomAxis, decorations = decorations, getXStep = { _, _, _ -> 1.0 }
             ),
             modelProducer = modelProducer,
@@ -958,6 +998,7 @@ fun SecondaryGraphCompose(
             chart = rememberCartesianChart(
                 primaryLayer,
                 startAxis = startAxis,
+                endAxis = endAxis,
                 bottomAxis = bottomAxis, decorations = decorations, getXStep = { _, _, _ -> 1.0 }
             ),
             modelProducer = modelProducer,
@@ -1329,9 +1370,8 @@ fun rememberIobLineStyles(): IobLineStyles {
         IobLineStyles(
             iobLine = LineCartesianLayer.Line(
                 fill = LineCartesianLayer.LineFill.single(Fill(iobColor)),
-                areaFill = LineCartesianLayer.AreaFill.single(
-                    Fill(Brush.verticalGradient(listOf(iobColor.copy(alpha = 1f), Color.Transparent)))
-                ),
+                // Solid: a gradient over the whole graph height left almost nothing near zero, where IOB is
+                areaFill = LineCartesianLayer.AreaFill.single(Fill(iobColor.copy(alpha = IOB_AREA_ALPHA))),
                 interpolator = Square
             ),
             smallSmbLine = LineCartesianLayer.Line(

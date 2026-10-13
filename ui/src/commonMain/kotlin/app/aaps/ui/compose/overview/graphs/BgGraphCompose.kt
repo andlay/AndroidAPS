@@ -617,7 +617,7 @@ fun BgGraphCompose(
                 rangeProvider = startAxisRangeProvider,
                 verticalAxisPosition = Axis.Position.Vertical.Start
             ),
-            // Layer 1: Basal (end axis, hidden — no endAxis parameter)
+            // Layer 1: Basal (end axis; its axis is the invisible spacer)
             rememberLineCartesianLayer(
                 lineProvider = LineCartesianLayer.LineProvider.series(basalLines),
                 rangeProvider = endAxisRangeProvider,
@@ -641,6 +641,8 @@ fun BgGraphCompose(
                 rangeProvider = startAxisRangeProvider,
                 verticalAxisPosition = Axis.Position.Vertical.Start
             ),
+            // Invisible, only so this graph is as wide as the ones with a right scale (GraphEndAxis.kt)
+            endAxis = rememberEndAxisSpacer(),
             startAxis = VerticalAxis.rememberStart(
                 itemPlacer = VerticalAxis.ItemPlacer.step({ startAxisRangeProvider.yStep }),
                 label = rememberTextComponent(
