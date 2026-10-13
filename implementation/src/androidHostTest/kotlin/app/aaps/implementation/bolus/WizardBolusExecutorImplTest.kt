@@ -1,5 +1,6 @@
 package app.aaps.implementation.bolus
 
+import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.iob.CobInfo
 import app.aaps.core.data.model.BCR
 import app.aaps.core.data.model.BS
@@ -435,7 +436,8 @@ class WizardBolusExecutorImplTest : TestBaseWithProfile() {
         assertThat(result).isEqualTo(WizardBolusExecutor.ConfirmResult.Delivered)
         // PS-only batch: no pump bolus, no TT — only the dialog-free profile switch applied with the parked values.
         verify(commandQueue, never()).bolus(anyOrNull())
-        verify(profileFunction).createProfileSwitch(eq(60), eq(120), eq(2), eq(Action.PROFILE_SWITCH), eq(Sources.NSClient), anyOrNull(), any())
+        // timestamp 0 = now: this batch carries no picked time, so the master stamps its own clock.
+        verify(profileFunction).createProfileSwitch(eq(60), eq(120), eq(2), eq(Action.PROFILE_SWITCH), eq(Sources.NSClient), anyOrNull(), any(), eq(0L))
     }
 
     @Test
@@ -447,7 +449,137 @@ class WizardBolusExecutorImplTest : TestBaseWithProfile() {
         val result = executor.prepareBatch(listOf(BatchAction.ProfileSwitch(percentage = 9999, timeShiftHours = 0, durationMinutes = 30)))
 
         assertThat(result).isInstanceOf(WizardBolusExecutor.PrepareResult.Error::class.java)
-        verify(profileFunction, never()).createProfileSwitch(any(), any(), any(), any(), any(), anyOrNull(), any())
+        verify(profileFunction, never()).createProfileSwitch(any(), any(), any(), any(), any(), anyOrNull(), any(), any())
+    }
+
+    // ---- prepareBatch(): the time a temp target starts ----
+
+    @Test
+    fun prepareBatch_tempTarget_startOffsetTooFarInThePast_returnsErrorAndAppliesNothing() = runTest {
+        stubPassthroughConstraints()
+        val executor = create()
+
+        // What the temp target screen produced while its activation time was stuck at the epoch: an offset of
+        // about -29.9 million minutes. It used to be stored as a target in 1970 that never became active and
+        // never reported anything, so the user's target silently did not happen.
+        val result = executor.prepareBatch(listOf(BatchAction.TempTarget(TT.Reason.EATING_SOON.text, 90.0, 90.0, 45, -29_860_000)))
+
+        assertThat(result).isInstanceOf(WizardBolusExecutor.PrepareResult.Error::class.java)
+        verify(persistenceLayer, never()).insertAndCancelCurrentTemporaryTarget(any(), any(), any(), anyOrNull(), any())
+    }
+
+    @Test
+    fun prepareBatch_tempTarget_startOffsetTooFarInTheFuture_returnsErrorAndAppliesNothing() = runTest {
+        stubPassthroughConstraints()
+        val executor = create()
+
+        val twoDaysMinutes = (T.days(2).msecs() / 60_000L).toInt()
+        val result = executor.prepareBatch(listOf(BatchAction.TempTarget(TT.Reason.ACTIVITY.text, 90.0, 90.0, 45, twoDaysMinutes)))
+
+        assertThat(result).isInstanceOf(WizardBolusExecutor.PrepareResult.Error::class.java)
+        verify(persistenceLayer, never()).insertAndCancelCurrentTemporaryTarget(any(), any(), any(), anyOrNull(), any())
+    }
+
+    @Test
+    fun prepareBatch_tempTarget_movedOffNowGainsAStartTimeLine() = runTest {
+        stubPassthroughConstraints()
+        val executor = create()
+
+        // A target the user moved 90 min back is legitimate, and the confirmation has to name the moment it
+        // starts — the screen used to change the time with nothing on the dialog mentioning it. Asserted as
+        // "one line more than the same target starting now", because the mocked rh.gs returns a fixed string,
+        // so matching the formatted date would only test the mock. Offset 0 must stay clean: a Time line there
+        // would be noise on every temp target.
+        val movedBack = executor.prepareBatch(listOf(BatchAction.TempTarget(TT.Reason.ACTIVITY.text, 90.0, 90.0, 45, -90))) as WizardBolusExecutor.PrepareResult.Preview
+        val startingNow = executor.prepareBatch(listOf(BatchAction.TempTarget(TT.Reason.ACTIVITY.text, 90.0, 90.0, 45, 0))) as WizardBolusExecutor.PrepareResult.Preview
+
+        assertThat(movedBack.lines).hasSize(startingNow.lines.size + 1)
+    }
+
+    // ---- prepareBatch(): the time the user picked for a profile switch (issue #5239) ----
+
+    @Test
+    fun prepareBatch_profileSwitch_appliesThePickedTimeInsteadOfNow() = runTest {
+        stubPassthroughConstraints()
+        val store = mock<ProfileStore>()
+        whenever(store.getSpecificProfile("Lunch")).thenReturn(mock())
+        whenever(profileRepository.profile).thenReturn(MutableStateFlow(store))
+        whenever(profileFunction.getRunningOrRequestedICfg()).thenReturn(someICfg)
+        val picked = dateUtil.now() + T.hours(2).msecs()
+        val executor = create()
+
+        val prepared = executor.prepareBatch(listOf(BatchAction.ProfileSwitch(100, 0, 0, profileName = "Lunch", timestamp = picked))) as WizardBolusExecutor.PrepareResult.Preview
+        executor.confirm(prepared.bolusId, Sources.NSClient, { })
+
+        // The switch is stored at the picked time, not at now — ProfileSwitchScheduler then arms its start.
+        verify(profileFunction).createProfileSwitch(eq(store), eq("Lunch"), eq(0), eq(100), eq(0), eq(picked), eq(Action.PROFILE_SWITCH), eq(Sources.NSClient), anyOrNull(), any(), eq(someICfg))
+    }
+
+    @Test
+    fun prepareBatch_profileSwitch_withoutAPickedTime_stampsNow() = runTest {
+        stubPassthroughConstraints()
+        val store = mock<ProfileStore>()
+        whenever(store.getSpecificProfile("Lunch")).thenReturn(mock())
+        whenever(profileRepository.profile).thenReturn(MutableStateFlow(store))
+        whenever(profileFunction.getRunningOrRequestedICfg()).thenReturn(someICfg)
+        val executor = create()
+
+        val before = dateUtil.now()
+        val prepared = executor.prepareBatch(listOf(BatchAction.ProfileSwitch(100, 0, 0, profileName = "Lunch"))) as WizardBolusExecutor.PrepareResult.Preview
+        executor.confirm(prepared.bolusId, Sources.NSClient, { })
+        val after = dateUtil.now()
+
+        val stamped = argumentCaptor<Long>()
+        verify(profileFunction).createProfileSwitch(eq(store), eq("Lunch"), eq(0), eq(100), eq(0), stamped.capture(), eq(Action.PROFILE_SWITCH), eq(Sources.NSClient), anyOrNull(), any(), eq(someICfg))
+        assertThat(stamped.firstValue).isAtLeast(before)
+        assertThat(stamped.firstValue).isAtMost(after)
+    }
+
+    @Test
+    fun prepareBatch_profileSwitch_timeTooFarInTheFuture_returnsErrorAndAppliesNothing() = runTest {
+        stubPassthroughConstraints()
+        val store = mock<ProfileStore>()
+        whenever(store.getSpecificProfile("Lunch")).thenReturn(mock())
+        whenever(profileRepository.profile).thenReturn(MutableStateFlow(store))
+        whenever(profileFunction.getRunningOrRequestedICfg()).thenReturn(someICfg)
+        val executor = create()
+
+        // Two days ahead — outside Constants.PROFILE_SWITCH_TIME_OFFSET. A client clock must not place a
+        // switch there, and it is refused rather than quietly moved to a time the user did not pick.
+        val result = executor.prepareBatch(listOf(BatchAction.ProfileSwitch(100, 0, 0, profileName = "Lunch", timestamp = dateUtil.now() + T.days(2).msecs())))
+
+        assertThat(result).isInstanceOf(WizardBolusExecutor.PrepareResult.Error::class.java)
+        verify(profileFunction, never()).createProfileSwitch(any(), any(), any(), any(), any(), any(), any(), any(), anyOrNull(), any(), any())
+    }
+
+    @Test
+    fun prepareBatch_profileSwitch_timeTooFarInThePast_returnsErrorAndAppliesNothing() = runTest {
+        stubPassthroughConstraints()
+        val store = mock<ProfileStore>()
+        whenever(store.getSpecificProfile("Lunch")).thenReturn(mock())
+        whenever(profileRepository.profile).thenReturn(MutableStateFlow(store))
+        whenever(profileFunction.getRunningOrRequestedICfg()).thenReturn(someICfg)
+        val executor = create()
+
+        val result = executor.prepareBatch(listOf(BatchAction.ProfileSwitch(100, 0, 0, profileName = "Lunch", timestamp = dateUtil.now() - T.days(2).msecs())))
+
+        assertThat(result).isInstanceOf(WizardBolusExecutor.PrepareResult.Error::class.java)
+        verify(profileFunction, never()).createProfileSwitch(any(), any(), any(), any(), any(), any(), any(), any(), anyOrNull(), any(), any())
+    }
+
+    @Test
+    fun prepareBatch_profileSwitch_timeAtTheEdgeOfTheBoundIsAccepted() = runTest {
+        stubPassthroughConstraints()
+        val store = mock<ProfileStore>()
+        whenever(store.getSpecificProfile("Lunch")).thenReturn(mock())
+        whenever(profileRepository.profile).thenReturn(MutableStateFlow(store))
+        whenever(profileFunction.getRunningOrRequestedICfg()).thenReturn(someICfg)
+        val executor = create()
+
+        // The bound is inclusive; a whole day ahead is a legitimate "tomorrow at this time".
+        val result = executor.prepareBatch(listOf(BatchAction.ProfileSwitch(100, 0, 0, profileName = "Lunch", timestamp = dateUtil.now() + Constants.PROFILE_SWITCH_TIME_OFFSET.last)))
+
+        assertThat(result).isInstanceOf(WizardBolusExecutor.PrepareResult.Preview::class.java)
     }
 
     // ---- prepareBatch(): negative carbs = COB removal (issue: was mislabeled "Bolus reported an error") ----
