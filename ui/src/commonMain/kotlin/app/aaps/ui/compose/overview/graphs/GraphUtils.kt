@@ -133,6 +133,61 @@ const val DEFAULT_GRAPH_ZOOM_MINUTES = 360.0
  */
 val GRAPH_AXIS_SIZE = BaseAxis.Size.Fixed(35.dp)
 
+// =========================================================================
+// Shapes for bars and broken lines (x in minutes, as the graphs use)
+// =========================================================================
+
+/** Usual time between points: the median gap, or 5 minutes when there are too few points. */
+internal fun typicalGap(points: List<Pair<Double, Double>>): Double {
+    val gaps = points.zipWithNext { a, b -> b.first - a.first }.filter { it > 0.0 }.sorted()
+    return if (gaps.isEmpty()) DEFAULT_GAP_MINUTES else gaps[gaps.size / 2]
+}
+
+private const val DEFAULT_GAP_MINUTES = 5.0
+
+/** A line is broken where two points are further apart than this many usual gaps... */
+private const val LINE_GAP_FACTOR = 3.0
+
+/** ...and at least this many minutes, so a line never jumps across a time with no data. */
+private const val MIN_LINE_GAP_MINUTES = 15.0
+
+/** The points as runs without a gap, so a line is not drawn across a time with no data. */
+internal fun splitAtGaps(points: List<Pair<Double, Double>>): List<List<Pair<Double, Double>>> {
+    if (points.isEmpty()) return emptyList()
+    val maxGap = maxOf(MIN_LINE_GAP_MINUTES, LINE_GAP_FACTOR * typicalGap(points))
+    val runs = mutableListOf<MutableList<Pair<Double, Double>>>(mutableListOf(points.first()))
+    for ((previous, point) in points.zipWithNext()) {
+        if (point.first - previous.first > maxGap) runs.add(mutableListOf())
+        runs.last().add(point)
+    }
+    return runs
+}
+
+/**
+ * The points as bars for a Square line with an area fill, the same shape as the DEV bars: each
+ * value is held from its point to the next one, so bars next to each other touch. Where the next
+ * point is further away than the usual gap (a gap in the data), the bar ends after the usual gap
+ * and the line drops to zero, so a bar is never stretched over a time with no data. The last bar
+ * also ends after the usual gap.
+ */
+internal fun barPoints(points: List<Pair<Double, Double>>): List<Pair<Double, Double>> {
+    // x has to grow strictly, so a second point at the same time is dropped
+    val sorted = points.sortedBy { it.first }.fold(mutableListOf<Pair<Double, Double>>()) { acc, p ->
+        if (acc.isEmpty() || p.first > acc.last().first) acc.add(p)
+        acc
+    }
+    if (sorted.isEmpty()) return emptyList()
+    val typical = typicalGap(sorted)
+    val out = ArrayList<Pair<Double, Double>>(sorted.size + 1)
+    for ((index, point) in sorted.withIndex()) {
+        out.add(point)
+        val end = point.first + typical
+        val next = sorted.getOrNull(index + 1)
+        if (next == null || next.first > end) out.add(end to 0.0)
+    }
+    return out
+}
+
 /**
  * Maximum zoom-in level — never show fewer than this many minutes.
  * Prevents Vico's internal label/constraint math from overflowing at extreme zoom

@@ -383,6 +383,10 @@ fun SecondaryGraphCompose(
         if (!hasRealTimeRange || secondaryLineData.isEmpty()) return@remember emptyList()
         processPoints(secondaryLineData, minTimestamp, minX, maxX)
     }
+    // The secondary series as drawn: steps as bars, heart rate broken where readings are missing
+    val secondaryRuns = remember(processedSecondary, secondaryType) {
+        secondaryType?.let { type -> shapedRuns(type, processedSecondary).filter { it.isNotEmpty() } }.orEmpty()
+    }
 
     // Visible-window bounds (same x-unit as processed* points — minutes from minTimestamp) for
     // windowing the Y-axis scale to only the currently scrolled/zoomed portion of this graph's
@@ -455,10 +459,12 @@ fun SecondaryGraphCompose(
                 add(PrimarySeriesSpec(failoverFiltered.map { it.first }, failoverFiltered.map { it.second }, SeriesSlot.FailoverDots))
             if (processedCarbs.isNotEmpty())
                 add(PrimarySeriesSpec(processedCarbs.map { it.first }, processedCarbs.map { it.second }, SeriesSlot.CarbsMarker))
-            // Simple line series
+            // Simple line series; steps as bars, heart rate as a line broken where readings are missing
             processedSimpleSeries.forEach { (type, pts) ->
-                if (pts.isNotEmpty())
-                    add(PrimarySeriesSpec(pts.map { it.first }, pts.map { it.second }, SeriesSlot.SimpleLine(type)))
+                for (run in shapedRuns(type, pts)) {
+                    if (run.isNotEmpty())
+                        add(PrimarySeriesSpec(run.map { it.first }, run.map { it.second }, SeriesSlot.SimpleLine(type)))
+                }
             }
             // DevSlope min (separate slot for magenta color)
             if (processedDevSlopeMin.isNotEmpty())
@@ -483,7 +489,7 @@ fun SecondaryGraphCompose(
         processedCarbs,
         processedBasalProfile,
         processedBasalActual,
-        processedSecondary,
+        secondaryRuns,
         processedActivityOverlay,
         maxX,
         visibleMinX,
@@ -518,8 +524,8 @@ fun SecondaryGraphCompose(
                 }
             } else if (isDualAxis) {
                 lineModel {
-                    if (processedSecondary.isNotEmpty()) {
-                        series(x = processedSecondary.map { it.first }, y = processedSecondary.map { it.second })
+                    if (secondaryRuns.isNotEmpty()) {
+                        secondaryRuns.forEach { run -> series(x = run.map { it.first }, y = run.map { it.second }) }
                     } else {
                         series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
                     }
@@ -817,15 +823,19 @@ fun SecondaryGraphCompose(
 
     // Secondary axis line style (colored by series type)
     val secondaryAxisColor = secondaryType?.let { seriesColors.colorFor(it) } ?: Color.Gray
-    val secondaryAxisLine = remember(secondaryAxisColor) {
-        LineCartesianLayer.Line(
+    val secondaryAxisLine = remember(secondaryAxisColor, secondaryType) {
+        if (secondaryType == SeriesType.STEPS) createBarLine(secondaryAxisColor)
+        else LineCartesianLayer.Line(
             fill = LineCartesianLayer.LineFill.single(Fill(secondaryAxisColor)),
             areaFill = LineCartesianLayer.AreaFill.single(
                 fill = Fill(Color.Transparent)
             )
         )
     }
-    val secondaryAxisLines = remember(secondaryAxisLine, normalizerLine) { listOf(secondaryAxisLine, normalizerLine) }
+    // One line style per run (a heart rate line broken at gaps is several series), then the normalizer
+    val secondaryAxisLines = remember(secondaryAxisLine, normalizerLine, secondaryRuns.size) {
+        List(secondaryRuns.size.coerceAtLeast(1)) { secondaryAxisLine } + normalizerLine
+    }
     // Secondary range: zero-aligned counterpart to primary when available, otherwise auto-range.
     val secondaryRangeProvider = remember(maxX, dualAxisRanges) {
         if (dualAxisRanges != null)
@@ -1187,6 +1197,24 @@ private fun createDevSlopeMinLine(): LineCartesianLayer.Line {
 }
 
 /** Create a line style for a given series type, matching legacy rendering */
+/**
+ * The points of [type] as the runs to draw: steps as bars ([barPoints]), heart rate as a line broken
+ * where readings are missing ([splitAtGaps]), every other series as one run.
+ */
+internal fun shapedRuns(type: SeriesType, points: List<Pair<Double, Double>>): List<List<Pair<Double, Double>>> =
+    when (type) {
+        SeriesType.STEPS      -> listOf(barPoints(points))
+        SeriesType.HEART_RATE -> splitAtGaps(points)
+        else                  -> listOf(points)
+    }
+
+/** Bars: a [Square] step line with a solid fill down to zero. */
+private fun createBarLine(color: Color): LineCartesianLayer.Line = LineCartesianLayer.Line(
+    fill = LineCartesianLayer.LineFill.single(Fill(color)),
+    areaFill = LineCartesianLayer.AreaFill.single(Fill(color.copy(alpha = 0.5f))),
+    interpolator = Square
+)
+
 fun createSeriesLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer.Line {
     val color = colors.colorFor(type)
     return when (type) {
@@ -1203,17 +1231,13 @@ fun createSeriesLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer
             fill = LineCartesianLayer.LineFill.single(Fill(color)),
             areaFill = null
         )
-        // Points/dots only — no connecting line
-        SeriesType.HEART_RATE, SeriesType.STEPS                                  -> LineCartesianLayer.Line(
-            fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
-            areaFill = null,
-            pointProvider = LineCartesianLayer.PointProvider.single(
-                LineCartesianLayer.Point(
-                    component = ShapeComponent(fill = Fill(color), shape = CircleShape),
-                    size = 4.dp
-                )
-            )
+        // A line, no fill; broken where readings are missing (see shapedRuns)
+        SeriesType.HEART_RATE                                                    -> LineCartesianLayer.Line(
+            fill = LineCartesianLayer.LineFill.single(Fill(color)),
+            areaFill = null
         )
+        // A bar per period, like the DEV bars (see barPoints)
+        SeriesType.STEPS                                                         -> createBarLine(color)
         // Default: smooth line with gradient area fill
         else                                                                     -> LineCartesianLayer.Line(
             fill = LineCartesianLayer.LineFill.single(Fill(color)),
