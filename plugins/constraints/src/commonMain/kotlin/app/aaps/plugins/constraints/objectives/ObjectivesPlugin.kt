@@ -1,5 +1,7 @@
 package app.aaps.plugins.constraints.objectives
 
+import app.aaps.core.ui.CoreUiStrings
+import app.aaps.plugins.constraints.ConstraintsStrings
 import app.aaps.core.data.plugin.PluginType
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.constraints.Constraint
@@ -13,6 +15,7 @@ import app.aaps.core.interfaces.constraints.Objectives.Companion.LGS_OBJECTIVE
 import app.aaps.core.interfaces.constraints.Objectives.Companion.SMB_OBJECTIVE
 import app.aaps.core.interfaces.constraints.PluginConstraints
 import app.aaps.core.interfaces.di.APS
+import kotlin.jvm.JvmSuppressWildcards
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.notifications.NotificationManager
 import app.aaps.core.interfaces.plugin.EnforcedState
@@ -23,9 +26,8 @@ import app.aaps.core.interfaces.resources.TextResolver
 import app.aaps.core.keys.BooleanNonKey
 import app.aaps.core.keys.IntNonKey
 import app.aaps.core.keys.interfaces.Preferences
-import app.aaps.core.ui.CoreUiStrings
+import app.aaps.core.keys.interfaces.TextRef
 import app.aaps.core.ui.compose.icons.IcPluginObjectives
-import app.aaps.plugins.constraints.ConstraintsStrings
 import app.aaps.plugins.constraints.objectives.compose.ObjectivesComposeContent
 import app.aaps.plugins.constraints.objectives.keys.ObjectivesBooleanComposedKey
 import app.aaps.plugins.constraints.objectives.keys.ObjectivesLongComposedKey
@@ -36,7 +38,6 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.IntKey
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
-import kotlin.jvm.JvmSuppressWildcards
 
 @ContributesIntoMap(AppScope::class, binding = binding<PluginBase>())
 @APS
@@ -48,8 +49,8 @@ class ObjectivesPlugin(
     override val rh: TextResolver,
     preferences: Preferences,
     config: Config,
-    val objectives: List<@JvmSuppressWildcards Objective>,
-    notificationManager: NotificationManager
+    notificationManager: NotificationManager,
+    val objectives: List<@JvmSuppressWildcards Objective>
 ) : PluginBaseWithPreferences(
     pluginDescription = PluginDescription()
         .mainType(PluginType.CONSTRAINTS)
