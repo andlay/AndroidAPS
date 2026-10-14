@@ -118,6 +118,34 @@ class DetermineBasalSMBTest : TestBaseWithProfile() {
     /** SMB logs the two min*PredBG lines to consoleLog, AutoISF to consoleError - join both. */
     private fun RT.console(): String = (consoleLog.orEmpty() + consoleError.orEmpty()).joinToString(" ")
 
+    private fun noCarbs(mealCOB: Double = 0.0) = MealData(
+        carbs = 0.0,
+        mealCOB = mealCOB,
+        slopeFromMaxDeviation = 0.0,
+        slopeFromMinDeviation = 0.0,
+        lastBolusTime = currentTime - 3600000L,
+        lastCarbTime = currentTime - 4 * 3600000L
+    )
+
+    @Test
+    fun `UAM carbs forecast is the UAM fade of the current rise as carbs per 5 minutes`() {
+        // BG rises 5 mg/dL per 5 min with no insulin activity, so the whole rise is unexplained (uci = 5).
+        // Flat deviation slopes: UAM fades it linearly to 0 over 3 hours. CSF = 50 / 10 = 5 mg/dL per g.
+        val forecast = run(noCarbs()).uamCarbsForecast
+
+        assertThat(forecast).isNotNull()
+        assertThat(forecast!!.first()).isWithin(1e-9).of(5.0 * (1 - 1 / 36.0) / 5.0)
+        assertThat(forecast).isInStrictOrder(Comparator.reverseOrder<Double>())
+        // Ends on the first 0: 3 hours of 5 minutes
+        assertThat(forecast).hasSize(36)
+        assertThat(forecast.last()).isEqualTo(0.0)
+    }
+
+    @Test
+    fun `no UAM carbs forecast while carbs are on board, it is not unannounced`() {
+        assertThat(run(noCarbs(mealCOB = 20.0)).uamCarbsForecast).isNull()
+    }
+
     @Test
     fun `COB left after carbs aged out does not poison the prediction blend`() {
         // carbs is summed over a window measured from now, mealCOB comes from the last autosens
