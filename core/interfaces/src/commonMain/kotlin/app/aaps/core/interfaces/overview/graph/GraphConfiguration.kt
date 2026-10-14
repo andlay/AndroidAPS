@@ -21,6 +21,9 @@ enum class SeriesType {
     COB,
     BGI,
     DEVIATIONS,
+
+    /** Carbs (g) per 5 minutes that a rise no logged carbs explain is worth (deviation / CSF). Display only. */
+    UAM_CARBS,
     SENSITIVITY,
     VAR_SENSITIVITY,
     DEV_SLOPE,

@@ -783,7 +783,11 @@ class PrepareGraphDataRunner(
                     autosensData.pastSensitivity == "-" -> DeviationType.NEGATIVE
                     else                                -> DeviationType.EQUAL
                 }
-                deviationsListCompose.add(DeviationDataPoint(time, glucoseChangeInUnits(autosensData.deviation), deviationType))
+                // A rise no logged carbs explain, in grams: the same formula as carb absorption (deviation / CSF)
+                val uamCarbs =
+                    if (deviationType != DeviationType.CSF && autosensData.deviation > 0 && autosensData.sens > 0) autosensData.deviation * profile.getIc(time) / autosensData.sens
+                    else 0.0
+                deviationsListCompose.add(DeviationDataPoint(time, glucoseChangeInUnits(autosensData.deviation), deviationType, uamCarbs))
 
                 ratioListCompose.add(GraphDataPoint(time, 100.0 * (autosensData.autosensResult.ratio - 1)))
 

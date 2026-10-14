@@ -78,6 +78,16 @@ class GraphInspectTest {
     }
 
     @Test
+    fun `UAM carbs show only for a rise that UAM counts`() {
+        val uam = GraphTrace(SeriesType.UAM_CARBS)
+        val points = mapOf(uam to listOf(point(0, 0.0), point(5, 2.4)))
+
+        // A UAM carbs point covers the 5 minutes after it, like a DEV bar
+        assertThat(inspectValues(listOf(uam), points, t0 + 7 * minute)).containsExactly(InspectValue(uam, 2.4))
+        assertThat(inspectValues(listOf(uam), points, t0 + 2 * minute)).isEmpty()
+    }
+
+    @Test
     fun `one line per graph, with the basal band and the activity overlay of an IOB graph`() {
         val hr = GraphTrace(SeriesType.HEART_RATE)
         val config = GraphConfig(

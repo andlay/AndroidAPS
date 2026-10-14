@@ -230,6 +230,7 @@ fun SecondaryGraphCompose(
     val stepsData = if (rawPrimaryType == SeriesType.STEPS) viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value else null
     val basalSeries = if (rawPrimaryType == SeriesType.BASAL) rememberSourcePoints(viewModel, SeriesType.BASAL) else null
     val bgSeries = if (rawPrimaryType == SeriesType.BG) rememberSourcePoints(viewModel, SeriesType.BG) else null
+    val uamCarbsSeries = if (rawPrimaryType == SeriesType.UAM_CARBS) rememberSourcePoints(viewModel, SeriesType.UAM_CARBS) else null
     // Activity data: either as primary series OR as overlay (on IOB graph)
     val needsActivity = rawPrimaryType == SeriesType.ACTIVITY || (activityOverlay && hasIob)
     val activityData = if (needsActivity) viewModel.activityGraphFlow.collectAsStateWithLifecycle().value else null
@@ -258,7 +259,7 @@ fun SecondaryGraphCompose(
     // Simple line series processing (excludes BASAL — it's a fixed flipped overlay on IOB)
     val bgiAsBars = rawLook(SeriesType.BGI).style == PlotStyle.BARS
     val processedSimpleSeries = remember(
-        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, basalSeries, bgSeries, activityData, bgiAsBars
+        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, basalSeries, bgSeries, uamCarbsSeries, activityData, bgiAsBars
     ) {
         if (!hasRealTimeRange) return@remember emptyList()
         buildList {
@@ -291,6 +292,9 @@ fun SecondaryGraphCompose(
             }
             bgSeries?.takeIf { it.isNotEmpty() }?.let {
                 add(SeriesType.BG to processPoints(it, minTimestamp, minX, maxX))
+            }
+            uamCarbsSeries?.takeIf { it.isNotEmpty() }?.let {
+                add(SeriesType.UAM_CARBS to processPoints(it, minTimestamp, minX, maxX))
             }
             if (rawPrimaryType == SeriesType.ACTIVITY) {
                 activityData?.let {
@@ -1302,7 +1306,8 @@ data class SeriesColors(
     val heartRate: Color,
     val steps: Color,
     val activity: Color,
-    val basal: Color
+    val basal: Color,
+    val uamCarbs: Color
 ) {
 
     fun colorFor(type: SeriesType): Color = when (type) {
@@ -1319,6 +1324,7 @@ data class SeriesColors(
         SeriesType.STEPS           -> steps
         SeriesType.ACTIVITY        -> activity
         SeriesType.BASAL           -> basal
+        SeriesType.UAM_CARBS       -> uamCarbs
         SeriesType.PREDICTIONS     -> activity // unused — PREDICTIONS is a BG overlay flag, not a secondary series
     }
 }
@@ -1344,7 +1350,8 @@ fun rememberSeriesColors(): SeriesColors {
             heartRate = Color(0xFFFFFF66),           // pale yellow (matches @color/heartRate #FFFFFF66)
             steps = Color(0xFF66FFB8),              // mint green (matches @color/steps)
             activity = Color(0xFFD3F166),           // lime green (matches @color/activity)
-            basal = basalColor                      // the same colour as the basal on the IOB graph
+            basal = basalColor,                     // the same colour as the basal on the IOB graph
+            uamCarbs = DEVIATION_COLOR_UAM          // the colour of the UAM bars of the DEV graph
         )
     }
 }

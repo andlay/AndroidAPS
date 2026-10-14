@@ -101,11 +101,15 @@ enum class DeviationType {
 
 /**
  * Deviation bar data point with color classification
+ *
+ * @param uamCarbs the carbs (g) this 5 minute rise is worth when no logged carbs explain it, the
+ *   rise the UAM prediction reacts to; 0 for a fall or while logged carbs are absorbing
  */
 data class DeviationDataPoint(
     val timestamp: Long,
     val value: Double,
-    val deviationType: DeviationType
+    val deviationType: DeviationType,
+    val uamCarbs: Double = 0.0
 )
 
 /**

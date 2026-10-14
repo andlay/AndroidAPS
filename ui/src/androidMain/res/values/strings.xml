@@ -380,6 +380,8 @@
     <string name="graph_axis_auto" comment="The graph finds the axis end from the data in view">Auto</string>
     <string name="graph_activity_overlay">Insulin activity over IOB</string>
     <string name="graph_bg_overlays">On the BG graph</string>
+    <string name="graph_inspect_grams" comment="Carbs in grams with one decimal in the graph pop-up. %1$s=number. Example: 2.5 g">%1$s g</string>
+    <string name="graph_uam_carbs_shortname" comment="Short label of a graph series: the carbs (grams) a glucose rise is worth when no logged carbs explain it. UAM = unannounced meal">UAM carbs</string>
     <string name="graph_inspect_heart_rate" comment="Heart rate in the graph pop-up. %1$d=beats per minute. Example: 72 bpm">%1$d bpm</string>
     <string name="graph_trace_series">Series</string>
     <string name="graph_trace_calculation">Calculation</string>

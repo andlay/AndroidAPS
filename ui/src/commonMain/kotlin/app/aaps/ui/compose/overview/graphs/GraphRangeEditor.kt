@@ -55,6 +55,7 @@ internal fun axisUnitFor(trace: GraphTrace, isMmol: Boolean): AxisUnit =
         SeriesType.IOB, SeriesType.ABS_IOB                     -> AxisUnit(0.1, 1, -50.0..100.0, 0.0, 5.0)
         SeriesType.BASAL                                       -> AxisUnit(0.1, 1, 0.0..50.0, 0.0, 3.0)
         SeriesType.COB                                         -> AxisUnit(1.0, 0, 0.0..500.0, 0.0, 60.0)
+        SeriesType.UAM_CARBS                                   -> AxisUnit(0.5, 1, 0.0..100.0, 0.0, 5.0)
         SeriesType.BGI, SeriesType.DEVIATIONS, SeriesType.DEV_SLOPE ->
             if (isMmol) AxisUnit(0.1, 1, -50.0..50.0, -1.0, 1.0) else AxisUnit(1.0, 0, -500.0..500.0, -20.0, 20.0)
 

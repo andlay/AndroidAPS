@@ -28,7 +28,7 @@ import kotlin.math.exp
  */
 internal val STYLABLE_SERIES = setOf(
     SeriesType.ABS_IOB, SeriesType.BGI, SeriesType.SENSITIVITY, SeriesType.VAR_SENSITIVITY,
-    SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.ACTIVITY, SeriesType.BASAL, SeriesType.BG
+    SeriesType.HEART_RATE, SeriesType.STEPS, SeriesType.ACTIVITY, SeriesType.BASAL, SeriesType.BG, SeriesType.UAM_CARBS
 )
 
 /** True when the user can change how this trace looks. Every derived trace can. */
@@ -49,7 +49,7 @@ internal fun defaultStyle(trace: GraphTrace): PlotStyle =
     else when (trace.type) {
         SeriesType.ABS_IOB, SeriesType.ACTIVITY, SeriesType.BASAL -> PlotStyle.AREA
         SeriesType.BGI, SeriesType.BG           -> PlotStyle.POINTS
-        SeriesType.STEPS                        -> PlotStyle.BARS
+        SeriesType.STEPS, SeriesType.UAM_CARBS  -> PlotStyle.BARS
         else                                    -> PlotStyle.LINE
     }
 
@@ -165,7 +165,7 @@ internal fun List<GraphDataPoint>.transformed(transform: TraceTransform, windowM
  * point onwards), heart rate (plotted at the start of its sampling) and sampled basal (each sample
  * holds for the next 5 minutes).
  */
-internal val PERIOD_START_SERIES = setOf(SeriesType.STEPS, SeriesType.HEART_RATE, SeriesType.BASAL, SeriesType.DEVIATIONS)
+internal val PERIOD_START_SERIES = setOf(SeriesType.STEPS, SeriesType.HEART_RATE, SeriesType.BASAL, SeriesType.DEVIATIONS, SeriesType.UAM_CARBS)
 
 /** A period longer than this is a gap in the data, not one sample. */
 private const val MAX_PERIOD_MS = 15 * 60_000L

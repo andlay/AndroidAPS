@@ -770,6 +770,7 @@ internal fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
     SeriesType.COB             -> CoreUiStrings.cob
     SeriesType.BGI             -> CoreUiStrings.bgi_shortname
     SeriesType.DEVIATIONS      -> CoreUiStrings.deviation_shortname
+    SeriesType.UAM_CARBS       -> UiStrings.graph_uam_carbs_shortname
     SeriesType.SENSITIVITY     -> CoreUiStrings.sensitivity_shortname
     SeriesType.VAR_SENSITIVITY -> CoreUiStrings.variable_sensitivity_shortname
     SeriesType.DEV_SLOPE       -> CoreUiStrings.devslope_shortname
