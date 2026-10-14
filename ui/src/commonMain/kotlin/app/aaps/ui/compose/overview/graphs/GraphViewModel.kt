@@ -114,6 +114,9 @@ class GraphViewModel(
     val bucketedDataFlow: StateFlow<List<BgDataPoint>> = cache.bucketedDataFlow
     val predictionsFlow: StateFlow<List<BgDataPoint>> = cache.predictionsFlow
 
+    /** How the last loop run expects UAM to fade, as carbs per 5 minutes. */
+    val uamCarbsForecastFlow: StateFlow<List<GraphDataPoint>> = cache.uamCarbsForecastFlow
+
     // Secondary graph flows
     val iobGraphFlow = cache.iobGraphFlow
     val absIobGraphFlow = cache.absIobGraphFlow
@@ -195,7 +198,7 @@ class GraphViewModel(
         SeriesType.BGI             -> bgiGraphFlow.map { it.bgi }
         SeriesType.DEVIATIONS      -> deviationsGraphFlow.map { data -> data.deviations.map { GraphDataPoint(it.timestamp, it.value) } }
         // The past from the deviations, then how the last loop run expects UAM to fade
-        SeriesType.UAM_CARBS       -> combine(deviationsGraphFlow, cache.uamCarbsForecastFlow) { data, forecast ->
+        SeriesType.UAM_CARBS       -> combine(deviationsGraphFlow, uamCarbsForecastFlow) { data, forecast ->
             data.deviations.map { GraphDataPoint(it.timestamp, it.uamCarbs) } + forecast
         }
         // Stored as 100*(ratio-1), shown shifted by +100 as a percentage (90%, 110%), like the graph does
