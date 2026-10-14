@@ -1174,6 +1174,7 @@
     <string name="bgi_shortname" comment="Short label for Blood Glucose Impact graph series">-BGI</string>
     <string name="abs_insulin_shortname" comment="Short label for Absolute Insulin graph series">ABS</string>
     <string name="devslope_shortname" comment="Short label for Deviation Slope graph series">DEVSLOPE</string>
+    <string name="dev_carbs_shortname" comment="Short label for the graph series that adds up deviations as grams of carbs">DEV CARBS</string>
     <string name="heartRate_shortname" comment="Short label for Heart Rate graph series">HR</string>
     <string name="sensitivity_shortname" comment="Short label for Sensitivity/Autosens graph series">SENS%</string>
     <string name="variable_sensitivity_shortname" comment="Short label for Variable Sensitivity graph series">VSENS</string>

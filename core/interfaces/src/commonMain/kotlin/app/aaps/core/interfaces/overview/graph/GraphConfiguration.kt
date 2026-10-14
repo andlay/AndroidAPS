@@ -19,6 +19,9 @@ enum class SeriesType {
     COB,
     BGI,
     DEVIATIONS,
+
+    /** Running total of the deviations in grams of carbs, without COB (see [DeviationsGraphData.devCarbs]). */
+    DEV_CARBS,
     SENSITIVITY,
     VAR_SENSITIVITY,
     DEV_SLOPE,

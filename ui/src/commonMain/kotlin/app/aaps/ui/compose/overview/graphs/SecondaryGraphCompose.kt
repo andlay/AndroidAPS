@@ -52,6 +52,7 @@ import com.patrykandpatrick.vico.compose.common.component.TextComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
 import com.patrykandpatrick.vico.compose.common.data.ExtraStore
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 /**
  * CartesianChartModelProducer.update() skips notifying receivers (and thus skips recomputing axis
@@ -205,6 +206,9 @@ fun SecondaryGraphCompose(
     val devSlopeData = if (primaryType == SeriesType.DEV_SLOPE) viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value else null
     val hrData = if (primaryType == SeriesType.HEART_RATE) viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value else null
     val stepsData = if (primaryType == SeriesType.STEPS) viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value else null
+    // DEV carbs, on either axis: one list per run, each drawn on its own
+    val devCarbsRuns = if (SeriesType.DEV_CARBS in orderedTypes) viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value.devCarbs else emptyList()
+    val devCarbsData = if (primaryType == SeriesType.DEV_CARBS) devCarbsRuns else null
     // Activity data: either as primary series OR as overlay (on IOB graph)
     val needsActivity = primaryType == SeriesType.ACTIVITY || (activityOverlay && hasIob)
     val activityData = if (needsActivity) viewModel.activityGraphFlow.collectAsStateWithLifecycle().value else null
@@ -231,6 +235,7 @@ fun SecondaryGraphCompose(
         }
         SeriesType.VAR_SENSITIVITY -> viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.varSens
         SeriesType.DEV_SLOPE       -> viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value.dsMax
+        SeriesType.DEV_CARBS       -> devCarbsRuns.flatten() // for the axis range; drawn as runs (see secondaryRuns)
         SeriesType.HEART_RATE      -> viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value.heartRates
         SeriesType.STEPS           -> viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value.steps
         SeriesType.ACTIVITY        -> viewModel.activityGraphFlow.collectAsStateWithLifecycle().value.activity
@@ -249,7 +254,7 @@ fun SecondaryGraphCompose(
 
     // Simple line series processing (excludes BASAL — it's a fixed flipped overlay on IOB)
     val processedSimpleSeries = remember(
-        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, activityData
+        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, devCarbsData, activityData
     ) {
         if (!hasRealTimeRange) return@remember emptyList()
         buildList {
@@ -278,6 +283,9 @@ fun SecondaryGraphCompose(
             }
             stepsData?.steps?.takeIf { it.isNotEmpty() }?.let {
                 add(SeriesType.STEPS to processPoints(it, minTimestamp, minX, maxX))
+            }
+            devCarbsData?.forEach { run ->
+                processPoints(run, minTimestamp, minX, maxX).takeIf { it.isNotEmpty() }?.let { add(SeriesType.DEV_CARBS to it) }
             }
             if (primaryType == SeriesType.ACTIVITY) {
                 activityData?.let {
@@ -383,9 +391,16 @@ fun SecondaryGraphCompose(
         if (!hasRealTimeRange || secondaryLineData.isEmpty()) return@remember emptyList()
         processPoints(secondaryLineData, minTimestamp, minX, maxX)
     }
-    // The secondary series as drawn: steps as bars, heart rate broken where readings are missing
-    val secondaryRuns = remember(processedSecondary, secondaryType) {
-        secondaryType?.let { type -> shapedRuns(type, processedSecondary).filter { it.isNotEmpty() } }.orEmpty()
+    // The secondary series as drawn: steps as bars, heart rate broken where readings are missing, DEV carbs by run
+    val secondaryRuns = remember(processedSecondary, secondaryType, devCarbsRuns, stableTimeRange) {
+        when (secondaryType) {
+            null                 -> emptyList()
+            SeriesType.DEV_CARBS ->
+                if (!hasRealTimeRange) emptyList()
+                else devCarbsRuns.map { processPoints(it, minTimestamp, minX, maxX) }.filter { it.isNotEmpty() }
+
+            else                 -> shapedRuns(secondaryType, processedSecondary).filter { it.isNotEmpty() }
+        }
     }
 
     // Visible-window bounds (same x-unit as processed* points — minutes from minTimestamp) for
@@ -459,11 +474,13 @@ fun SecondaryGraphCompose(
                 add(PrimarySeriesSpec(failoverFiltered.map { it.first }, failoverFiltered.map { it.second }, SeriesSlot.FailoverDots))
             if (processedCarbs.isNotEmpty())
                 add(PrimarySeriesSpec(processedCarbs.map { it.first }, processedCarbs.map { it.second }, SeriesSlot.CarbsMarker))
-            // Simple line series; steps as bars, heart rate as a line broken where readings are missing
+            // Simple line series; steps as bars, heart rate as a line broken where readings are missing,
+            // DEV carbs as one green or red area per run
             processedSimpleSeries.forEach { (type, pts) ->
                 for (run in shapedRuns(type, pts)) {
-                    if (run.isNotEmpty())
-                        add(PrimarySeriesSpec(run.map { it.first }, run.map { it.second }, SeriesSlot.SimpleLine(type)))
+                    if (run.isEmpty()) continue
+                    val slot = if (type == SeriesType.DEV_CARBS) SeriesSlot.DevCarbsRun(isPositiveRun(run)) else SeriesSlot.SimpleLine(type)
+                    add(PrimarySeriesSpec(run.map { it.first }, run.map { it.second }, slot))
                 }
             }
             // DevSlope min (separate slot for magenta color)
@@ -569,6 +586,7 @@ fun SecondaryGraphCompose(
                         SeriesSlot.DevSlopeMin      -> createDevSlopeMinLine()
                         SeriesSlot.ActivityOverlay  -> createSeriesLine(SeriesType.ACTIVITY, seriesColors)
                         is SeriesSlot.SimpleLine    -> createSeriesLine(slot.type, seriesColors)
+                        is SeriesSlot.DevCarbsRun   -> createDevCarbsLine(slot.positive)
                     }
                 )
             }
@@ -764,6 +782,8 @@ fun SecondaryGraphCompose(
         if (dualAxisRanges != null || hasBasalLayer || primaryYValues.isEmpty()) return@remember null
         when (primaryType) {
             SeriesType.COB                                    -> niceScale(0.0, primaryYValues.max().coerceAtLeast(0.0), SECONDARY_GRAPH_TICK_COUNT)
+            // Keeps 0 on the axis also when only negative runs are in view: the areas are drawn from 0
+            SeriesType.DEV_CARBS                              -> zeroFloorNiceRange(primaryYValues.min(), primaryYValues.max().coerceAtLeast(0.0), SECONDARY_GRAPH_TICK_COUNT)
             in ZERO_FLOOR_SERIES_TYPES                         -> zeroFloorNiceRange(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
             SeriesType.VAR_SENSITIVITY, SeriesType.HEART_RATE  -> niceScale(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
             SeriesType.SENSITIVITY                             -> niceScaleAroundPivot(primaryYValues.min(), primaryYValues.max(), 100.0, SENS_PIVOT_TICK_COUNT, SENS_MIN_DEVIATION)
@@ -832,9 +852,13 @@ fun SecondaryGraphCompose(
             )
         )
     }
-    // One line style per run (a heart rate line broken at gaps is several series), then the normalizer
-    val secondaryAxisLines = remember(secondaryAxisLine, normalizerLine, secondaryRuns.size) {
-        List(secondaryRuns.size.coerceAtLeast(1)) { secondaryAxisLine } + normalizerLine
+    // One line style per run (a heart rate line broken at gaps is several series), then the normalizer.
+    // DEV carbs runs are green or red, each by its own sign.
+    val secondaryAxisLines = remember(secondaryAxisLine, normalizerLine, secondaryRuns, secondaryType) {
+        val runLines =
+            if (secondaryType == SeriesType.DEV_CARBS) secondaryRuns.map { createDevCarbsLine(isPositiveRun(it)) }
+            else List(secondaryRuns.size) { secondaryAxisLine }
+        runLines.ifEmpty { listOf(secondaryAxisLine) } + normalizerLine
     }
     // Secondary range: zero-aligned counterpart to primary when available, otherwise auto-range.
     val secondaryRangeProvider = remember(maxX, dualAxisRanges) {
@@ -945,6 +969,7 @@ private sealed class SeriesSlot {
     data object FailoverDots : SeriesSlot()
     data object CarbsMarker : SeriesSlot()
     data class SimpleLine(val type: SeriesType) : SeriesSlot()
+    data class DevCarbsRun(val positive: Boolean) : SeriesSlot()
     data object DevSlopeMin : SeriesSlot()
     data object ActivityOverlay : SeriesSlot()
 }
@@ -1159,6 +1184,7 @@ data class SeriesColors(
         SeriesType.SENSITIVITY     -> sensitivity
         SeriesType.VAR_SENSITIVITY -> varSensitivity
         SeriesType.DEV_SLOPE       -> devSlope
+        SeriesType.DEV_CARBS       -> deviations
         SeriesType.HEART_RATE      -> heartRate
         SeriesType.STEPS           -> steps
         SeriesType.ACTIVITY        -> activity
@@ -1199,7 +1225,8 @@ private fun createDevSlopeMinLine(): LineCartesianLayer.Line {
 /** Create a line style for a given series type, matching legacy rendering */
 /**
  * The points of [type] as the runs to draw: steps as bars ([barPoints]), heart rate as a line broken
- * where readings are missing ([splitAtGaps]), every other series as one run.
+ * where readings are missing ([splitAtGaps]), every other series as one run. DEV carbs come as runs
+ * already.
  */
 internal fun shapedRuns(type: SeriesType, points: List<Pair<Double, Double>>): List<List<Pair<Double, Double>>> =
     when (type) {
@@ -1207,6 +1234,26 @@ internal fun shapedRuns(type: SeriesType, points: List<Pair<Double, Double>>): L
         SeriesType.HEART_RATE -> splitAtGaps(points)
         else                  -> listOf(points)
     }
+
+/**
+ * A DEV carbs run is positive (carbs that explain a rise) when its point furthest from zero is above
+ * zero. A run can go a little past zero for one reading, when a move back is not a turn yet.
+ */
+internal fun isPositiveRun(run: List<Pair<Double, Double>>): Boolean = (run.maxByOrNull { abs(it.second) }?.second ?: 0.0) > 0.0
+
+/**
+ * A DEV carbs run: the running total as a line, filled down (or up) to zero. Green for a rise the
+ * insulin does not explain, red for a drop, the same colours as the DEV bars.
+ */
+private fun createDevCarbsLine(positive: Boolean): LineCartesianLayer.Line {
+    val color = if (positive) DEVIATION_COLOR_POSITIVE else DEVIATION_COLOR_NEGATIVE
+    return LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(color)),
+        areaFill = LineCartesianLayer.AreaFill.single(Fill(color.copy(alpha = 0.3f))),
+        // Straight lines between the points: a curve could cross zero between two points of one run
+        interpolator = LineCartesianLayer.Interpolator.Sharp
+    )
+}
 
 /** Bars: a [Square] step line with a solid fill down to zero. */
 private fun createBarLine(color: Color): LineCartesianLayer.Line = LineCartesianLayer.Line(

@@ -161,10 +161,14 @@ data class BgiGraphData(
 )
 
 /**
- * Deviations graph data: deviation bars with color types
+ * Deviations graph data: deviation bars with color types, and the DEV carbs graph.
+ *
+ * @param devCarbs running total of the deviations in grams of carbs, without COB: one list per run, each
+ *   starting with a point at 0. A run is drawn on its own, green above zero and red below.
  */
 data class DeviationsGraphData(
-    val deviations: List<DeviationDataPoint>
+    val deviations: List<DeviationDataPoint>,
+    val devCarbs: List<List<GraphDataPoint>> = emptyList()
 )
 
 /**

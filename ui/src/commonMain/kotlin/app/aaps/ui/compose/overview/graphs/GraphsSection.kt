@@ -786,6 +786,7 @@ private fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
     SeriesType.SENSITIVITY     -> CoreUiStrings.sensitivity_shortname
     SeriesType.VAR_SENSITIVITY -> CoreUiStrings.variable_sensitivity_shortname
     SeriesType.DEV_SLOPE       -> CoreUiStrings.devslope_shortname
+    SeriesType.DEV_CARBS       -> CoreUiStrings.dev_carbs_shortname
     SeriesType.HEART_RATE      -> CoreUiStrings.heartRate_shortname
     SeriesType.STEPS           -> CoreUiStrings.steps_shortname
     SeriesType.ACTIVITY        -> CoreUiStrings.activity_shortname
