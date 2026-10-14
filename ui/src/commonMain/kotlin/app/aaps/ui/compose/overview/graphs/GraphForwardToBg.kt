@@ -84,7 +84,8 @@ private enum class TouchKind { UP_OR_DOWN, SIDEWAYS, PINCH, HOLD, ENDED }
  * graph's modifier: a sideways drag there scrolls BG ([bgScroll]) and a pinch zooms BG ([bgZoom]).
  * An up or down drag is left alone, so the screen still scrolls. A tap is left alone too.
  * A finger held still for a long press starts press and hold in [inspect], from graph
- * [graphIndex]; it then follows the finger until it is lifted, like on the BG graph.
+ * [graphIndex]; it then follows the finger until it is lifted, like on the BG graph. A second
+ * finger put down meanwhile marks the other end of a range.
  *
  * BG is then moved by code, which `onScrollOrZoomGesture` on the BG graph does not see, so
  * [onGesture] is called when such a drag or pinch starts and when it ends. Events are read in the
@@ -128,6 +129,9 @@ internal fun rememberForwardToBgInput(
                                 event.changes.forEach { it.consume() }
                                 if (!change.pressed) break
                                 geometry.xAt(change.position.x)?.let { inspect.targetX = it }
+                                // A second finger: the pop-up shows the range between the two
+                                val second = event.changes.firstOrNull { it.id != down.id && it.pressed }
+                                inspect.secondX = second?.let { geometry.xAt(it.position.x) }
                             }
                         } finally {
                             inspect.endHold()

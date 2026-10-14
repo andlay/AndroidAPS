@@ -434,7 +434,7 @@ fun GraphsSection(
                 modifier = Modifier
                     .offset(y = (-16).dp)
                     .inspectGraph(inspectLayout, INSPECT_SOURCE_BG)
-                    .graphInspectTouch(inspect)
+                    .graphInspectTouch(inspect, graphGeometry)
             ) {
                 BgGraphCompose(
                     viewModel = graphViewModel,

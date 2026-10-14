@@ -88,6 +88,53 @@ class GraphInspectTest {
     }
 
     @Test
+    fun `a range adds up amounts per 5 minutes and takes the change of levels`() {
+        val dev = GraphTrace(SeriesType.DEVIATIONS)
+        val bgi = GraphTrace(SeriesType.BGI)
+        val iob = GraphTrace(SeriesType.IOB)
+        val basal = GraphTrace(SeriesType.BASAL)
+        val points = mapOf(
+            // DEV and BGI: the change of the 5 minutes up to each point
+            dev to listOf(point(0, 9.0), point(5, 1.0), point(10, 2.0), point(15, 4.0)),
+            bgi to listOf(point(0, 9.0), point(5, -0.5), point(10, -0.5), point(15, -1.0)),
+            iob to listOf(point(0, 1.0), point(15, 2.5)),
+            // 1.2 U/h sampled every 5 minutes: 0.1 U per point
+            basal to listOf(point(0, 1.2), point(5, 1.2), point(10, 1.2), point(15, 1.2))
+        )
+
+        val values = inspectRangeValues(listOf(dev, bgi, iob, basal), points, from = t0, to = t0 + 15 * minute).associateBy { it.trace }
+
+        // From reading 0 to reading 15: the points at 5, 10 and 15, not the one at 0
+        assertThat(values.getValue(dev).value).isWithin(1e-9).of(7.0)
+        assertThat(values.getValue(bgi).value).isWithin(1e-9).of(-2.0)
+        assertThat(values.getValue(dev).isSum).isTrue()
+        // A level: end minus start
+        assertThat(values.getValue(iob).value).isWithin(1e-9).of(1.5)
+        assertThat(values.getValue(iob).isSum).isFalse()
+        // Basal: units delivered from 0 up to 15, three 5 minute steps of 0.1 U
+        assertThat(values.getValue(basal).value).isWithin(1e-9).of(0.3)
+    }
+
+    @Test
+    fun `a range is in time order whichever finger is left, with the treatments given in it`() {
+        val early = inspectDataAt(t0, readings, emptyList(), emptyList())
+        val late = inspectDataAt(t0 + 10 * minute, readings, emptyList(), emptyList())
+        val boluses = listOf(
+            BolusGraphPoint(t0 + 2 * minute, 1.0, BolusType.NORMAL, isValid = true, label = "1.00 U"),
+            BolusGraphPoint(t0 + 6 * minute, 0.3, BolusType.SMB, isValid = true, label = "0.30 U"),
+            BolusGraphPoint(t0 + 30 * minute, 5.0, BolusType.NORMAL, isValid = true, label = "5.00 U")
+        )
+
+        val range = inspectRangeOf(late, early, boluses, listOf(CarbsGraphPoint(t0 + minute, 20.0, isValid = true, label = "20 g")))
+
+        assertThat(range.from).isEqualTo(t0)
+        assertThat(range.to).isEqualTo(t0 + 10 * minute)
+        assertThat(range.bgTo!!.value - range.bgFrom!!.value).isWithin(1e-9).of(1.0)
+        assertThat(range.insulin).isWithin(1e-9).of(1.3)
+        assertThat(range.carbs).isEqualTo(20.0)
+    }
+
+    @Test
     fun `one line per graph, with the basal band and the activity overlay of an IOB graph`() {
         val hr = GraphTrace(SeriesType.HEART_RATE)
         val config = GraphConfig(

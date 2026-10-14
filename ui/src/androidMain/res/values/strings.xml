@@ -382,6 +382,9 @@
     <string name="graph_bg_overlays">On the BG graph</string>
     <string name="graph_inspect_grams" comment="Carbs in grams with one decimal in the graph pop-up. %1$s=number. Example: 2.5 g">%1$s g</string>
     <string name="graph_carbs_absorbed_shortname" comment="Short label of a graph series: carbs (grams) absorbed per 5 minutes, from logged carbs and from unannounced meals (UAM)">Carbs absorbed</string>
+    <string name="graph_inspect_time_range" comment="Time range in the graph pop-up when two fingers are on the graph. %1$s=start time, %2$s=end time. Example: 10:50–13:35">%1$s–%2$s</string>
+    <string name="graph_inspect_sum" comment="Total over a time range in the graph pop-up. %1$s=amount with unit. Example: Σ 12.5 g">Σ %1$s</string>
+    <string name="graph_inspect_rise" comment="A rise over a time range in the graph pop-up. %1$s=amount, may have a unit. Example: +1.2">+%1$s</string>
     <string name="graph_inspect_heart_rate" comment="Heart rate in the graph pop-up. %1$d=beats per minute. Example: 72 bpm">%1$d bpm</string>
     <string name="graph_trace_series">Series</string>
     <string name="graph_trace_calculation">Calculation</string>

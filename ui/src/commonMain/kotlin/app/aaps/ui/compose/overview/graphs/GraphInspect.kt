@@ -29,6 +29,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.layout
@@ -97,6 +99,9 @@ private const val INSPECT_MATCH_MS = 5 * 60_000L
 /** A bolus or carb entry belongs to a reading when it is within half a reading interval of it, in ms. */
 private const val INSPECT_TREATMENT_MS = 150_000L
 
+/** How strongly the band between two fingers is filled, as alpha of the line colour. */
+private const val RANGE_BAND_ALPHA = 0.12f
+
 /** [GraphInspectState.source] while the finger is on the BG graph. */
 const val INSPECT_SOURCE_BG = -1
 
@@ -139,21 +144,47 @@ class GraphInspectState {
     /** The finger on a graph under BG was lifted. */
     fun endHold() {
         fingerDown = false
+        secondX = null
     }
+
+    /**
+     * The graph x under a second finger, put down while holding: then the pop-up shows the range
+     * between the two fingers. Null with one finger.
+     */
+    var secondX by mutableStateOf<Double?>(null)
+
+    /**
+     * True once a second finger came down on the BG graph: from then on the touch layer follows the
+     * fingers itself (see [graphInspectTouch]) and Vico's marker no longer does, until all are lifted.
+     */
+    var takenOver = false
 
     /** The graph x of the reading the line and dot are drawn at. */
     var shownX by mutableStateOf<Double?>(null)
 
+    /** The graph x of the reading at the second finger. */
+    var shownSecondX by mutableStateOf<Double?>(null)
+
     /** Where the inspect line is drawn in every graph: at the reading, while the finger is down. */
     val lineX: Double? get() = if (fingerDown) shownX else null
+
+    /** Where the second line is drawn, with the band between the two, while two fingers are down. */
+    val secondLineX: Double? get() = if (fingerDown && secondX != null) shownSecondX else null
     var dotValue by mutableStateOf<Double?>(null)
     var dotColor by mutableStateOf(Color.Unspecified)
 
     val controller: CartesianMarkerController = object : CartesianMarkerController {
         override val acceptsLongPress: Boolean = true
 
-        // Only a long press starts it; after that it follows the finger until it is lifted or a zoom starts
+        // Only a long press starts it; after that it follows the finger until it is lifted or a zoom
+        // starts. With a second finger the touch layer has taken over and Vico is left out.
         override fun shouldAcceptInteraction(interaction: Interaction, targets: List<CartesianMarker.Target>): Boolean =
+            when {
+                takenOver -> false
+                else      -> acceptsWithOneFinger(interaction)
+            }
+
+        private fun acceptsWithOneFinger(interaction: Interaction): Boolean =
             when (interaction) {
                 is Interaction.LongPress                                          -> true
                 is Interaction.Move, is Interaction.Release, is Interaction.Zoom -> fingerDown
@@ -228,23 +259,34 @@ class InspectLine(
 
     override fun drawOverLayers(context: CartesianDrawingContext) {
         val x = state.lineX ?: return
+        val second = state.secondLineX
         with(context) {
             val xStep = ranges.xStep
             if (xStep == 0.0) return
             // Same x to canvas transform as NowLine
-            val canvasX = layerBounds.left +
+            fun canvasX(graphX: Double) = layerBounds.left +
                 layerDimensions.startPadding +
-                layerDimensions.xSpacing * ((x - ranges.minX) / xStep).toFloat() -
+                layerDimensions.xSpacing * ((graphX - ranges.minX) / xStep).toFloat() -
                 scroll
-            if (canvasX < layerBounds.left || canvasX > layerBounds.right) return
             with(mutableDrawScope) {
-                drawLine(
-                    color = this@InspectLine.color,
-                    start = Offset(canvasX, layerBounds.top),
-                    end = Offset(canvasX, layerBounds.bottom),
-                    strokeWidth = strokeWidthPx,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashLengthPx, gapLengthPx), 0f)
-                )
+                if (second != null) {
+                    // The range between two fingers: a light band, cut to the plot
+                    val left = minOf(canvasX(x), canvasX(second)).coerceIn(layerBounds.left, layerBounds.right)
+                    val right = maxOf(canvasX(x), canvasX(second)).coerceIn(layerBounds.left, layerBounds.right)
+                    if (right > left)
+                        drawRect(this@InspectLine.color.copy(alpha = RANGE_BAND_ALPHA), Offset(left, layerBounds.top), Size(right - left, layerBounds.height))
+                }
+                for (lineX in listOfNotNull(x, second)) {
+                    val cx = canvasX(lineX)
+                    if (cx < layerBounds.left || cx > layerBounds.right) continue
+                    drawLine(
+                        color = this@InspectLine.color,
+                        start = Offset(cx, layerBounds.top),
+                        end = Offset(cx, layerBounds.bottom),
+                        strokeWidth = strokeWidthPx,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashLengthPx, gapLengthPx), 0f)
+                    )
+                }
             }
         }
     }
@@ -262,14 +304,39 @@ fun rememberInspectLine(state: GraphInspectState?): InspectLine? {
  * only the marker follows the finger. Vico still gets the moves for the marker: its interaction
  * handler does not skip consumed events, the scrolling does.
  * Also tracks whether a finger is down, so only lifting it ends inspecting (see onHidden).
+ *
+ * A second finger put down while inspecting is not a zoom: the touch layer takes over from Vico and
+ * follows both fingers itself, turning their places into times with [geometry] (the x layout all
+ * graphs share). The first finger keeps [GraphInspectState.targetX], the second sets
+ * [GraphInspectState.secondX]. Lifting the second finger goes back to one finger.
  */
-fun Modifier.graphInspectTouch(state: GraphInspectState): Modifier = pointerInput(state) {
+fun Modifier.graphInspectTouch(state: GraphInspectState, geometry: GraphGeometryHolder): Modifier = pointerInput(state, geometry) {
     awaitPointerEventScope {
+        var firstId: PointerId? = null
         while (true) {
             val event = awaitPointerEvent(PointerEventPass.Initial)
-            state.pointerDown = event.changes.any { it.pressed }
-            if (!state.pointerDown) state.fingerDown = false
-            if (state.fingerDown && event.type == PointerEventType.Move) event.changes.forEach { it.consume() }
+            val pressed = event.changes.filter { it.pressed }
+            state.pointerDown = pressed.isNotEmpty()
+            if (!state.pointerDown) {
+                state.fingerDown = false
+                state.secondX = null
+                state.takenOver = false
+                firstId = null
+                continue
+            }
+            if (!state.fingerDown) {
+                firstId = null
+                continue
+            }
+            val first = pressed.firstOrNull { it.id == firstId } ?: pressed.first()
+            firstId = first.id
+            val second = pressed.firstOrNull { it.id != first.id }
+            if (second != null) state.takenOver = true
+            if (state.takenOver) {
+                geometry.xAt(first.position.x)?.let { state.targetX = it }
+                state.secondX = second?.let { geometry.xAt(it.position.x) }
+                event.changes.forEach { it.consume() }
+            } else if (event.type == PointerEventType.Move) event.changes.forEach { it.consume() }
         }
     }
 }
@@ -332,25 +399,32 @@ fun GraphInspectOverlay(
     modifier: Modifier = Modifier
 ) {
     var inspectData by remember { mutableStateOf<InspectData?>(null) }
+    // The reading at the second finger; null with one finger
+    var secondData by remember { mutableStateOf<InspectData?>(null) }
     val treatmentGraph by graphViewModel.treatmentGraphFlow.collectAsStateWithLifecycle()
     val currentBgReadings by rememberUpdatedState(bgReadings)
     val currentMinTimestamp by rememberUpdatedState(minTimestamp)
     val haptic = LocalHapticFeedback.current
 
     LaunchedEffect(inspect, haptic) {
-        snapshotFlow { inspect.fingerDown to inspect.targetX }.collect { (fingerDown, x) ->
+        snapshotFlow { Triple(inspect.fingerDown, inspect.targetX, inspect.secondX) }.collect { (fingerDown, x, x2) ->
             val min = currentMinTimestamp
             if (!fingerDown || x == null || min == null) return@collect
-            val data = inspectDataAt(
-                timestamp = min + (x * 60_000).toLong(),
+            fun at(graphX: Double) = inspectDataAt(
+                timestamp = min + (graphX * 60_000).toLong(),
                 bgReadings = currentBgReadings,
                 boluses = treatmentGraph.boluses,
                 carbs = treatmentGraph.carbs
             )
-            if (data.timestamp != inspectData?.timestamp) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            val data = at(x)
+            val second = x2?.let { at(it) }
+            if (data.timestamp != inspectData?.timestamp || second?.timestamp != secondData?.timestamp)
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             inspect.shownX = timestampToX(data.timestamp, min)
+            inspect.shownSecondX = second?.let { timestampToX(it.timestamp, min) }
             inspect.dotValue = data.bg?.value
             inspectData = data
+            secondData = second
         }
     }
     LaunchedEffect(inspect, haptic) {
@@ -361,6 +435,7 @@ fun GraphInspectOverlay(
             if (!fingerDown && data != null) {
                 delay(INSPECT_LINGER_MS)
                 inspectData = null
+                secondData = null
             }
         }
     }
@@ -373,7 +448,10 @@ fun GraphInspectOverlay(
     // Only collected while the pop-up shows. The graphs already hold these flows, so the values are there at once.
     val rowTraces = remember(graphConfig) { inspectRowTraces(graphConfig) }
     val points = rowTraces.flatten().distinct().associateWith { trace -> key(trace) { rememberTracePoints(graphViewModel, trace) } }
+    val second = secondData
+    val range = second?.let { inspectRangeOf(data, it, treatmentGraph.boluses, treatmentGraph.carbs) }
     val rows = rowTraces.map { traces -> inspectValues(traces, points, data.timestamp) }
+    val rangeRows = range?.let { r -> rowTraces.map { traces -> inspectRangeValues(traces, points, r.from, r.to) } }
 
     val gap = POPUP_GAP
     val sideMargin = POPUP_SIDE_MARGIN
@@ -389,9 +467,78 @@ fun GraphInspectOverlay(
                 }
             }
     ) {
-        GraphInspectPopup(data = data, rows = rows)
+        if (range != null && rangeRows != null) GraphInspectRangePopup(range = range, rows = rangeRows)
+        else GraphInspectPopup(data = data, rows = rows)
     }
 }
+
+/**
+ * The range between two fingers: from the earlier reading to the later one, the glucose at both
+ * ends, and the insulin and carbs given from [from] up to [to].
+ */
+data class InspectRange(
+    val from: Long,
+    val to: Long,
+    val bgFrom: BgDataPoint?,
+    val bgTo: BgDataPoint?,
+    val insulin: Double,
+    val carbs: Double
+)
+
+/** The range between the readings [a] and [b], in time order whichever finger is left. */
+fun inspectRangeOf(a: InspectData, b: InspectData, boluses: List<BolusGraphPoint>, carbs: List<CarbsGraphPoint>): InspectRange {
+    val (first, last) = if (a.timestamp <= b.timestamp) a to b else b to a
+    val inRange = { t: Long -> t >= first.timestamp && t < last.timestamp }
+    return InspectRange(
+        from = first.timestamp,
+        to = last.timestamp,
+        bgFrom = first.bg,
+        bgTo = last.bg,
+        insulin = boluses.filter { it.isValid && inRange(it.timestamp) }.sumOf { it.amount },
+        carbs = carbs.filter { it.isValid && inRange(it.timestamp) }.sumOf { it.amount }
+    )
+}
+
+/** One value of a range: a sum over it, or the change from its start to its end. */
+internal data class InspectRangeValue(val trace: GraphTrace, val value: Double, val isSum: Boolean)
+
+/**
+ * Series whose points are amounts per 5 minutes, so a range adds them up. A point is the amount of
+ * the 5 minutes up to it: the change from one reading to the next is the DEV and BGI points after
+ * the first reading up to and with the last (so DEV + BGI add up to the BG change).
+ */
+private val SUMMED_UP_TO_POINT = setOf(SeriesType.DEVIATIONS, SeriesType.BGI, SeriesType.CARBS_ABSORBED)
+
+/** Summed series whose point starts its 5 minutes: steps, and basal as insulin delivered. */
+private val SUMMED_FROM_POINT = setOf(SeriesType.STEPS, SeriesType.BASAL)
+
+/**
+ * The values of [traces] over the range [from]..[to]: a sum for amounts per 5 minutes (basal as
+ * units delivered), else the change, the value at [to] minus the value at [from]. A calculation over
+ * a series (EWMA, rolling sum) is a level, so it gets the change. Left out when there is no data.
+ */
+internal fun inspectRangeValues(traces: List<GraphTrace>, points: Map<GraphTrace, List<GraphDataPoint>>, from: Long, to: Long): List<InspectRangeValue> =
+    traces.mapNotNull { trace ->
+        val pts = points[trace].orEmpty()
+        when {
+            !trace.isDerived && (trace.type in SUMMED_UP_TO_POINT || trace.type in SUMMED_FROM_POINT) -> {
+                val inRange = if (trace.type in SUMMED_UP_TO_POINT) pts.filter { it.timestamp > from && it.timestamp <= to }
+                else pts.filter { it.timestamp >= from && it.timestamp < to }
+                if (inRange.isEmpty()) null
+                else {
+                    // Basal is a rate in U/h sampled every 5 minutes: units delivered
+                    val perPoint = if (trace.type == SeriesType.BASAL) BASAL_SAMPLE_MS / 3_600_000.0 else 1.0
+                    InspectRangeValue(trace, inRange.sumOf { it.value } * perPoint, isSum = true)
+                }
+            }
+
+            else -> {
+                val start = traceValueAt(pts, from, trace) ?: return@mapNotNull null
+                val end = traceValueAt(pts, to, trace) ?: return@mapNotNull null
+                InspectRangeValue(trace, end - start, isSum = false)
+            }
+        }
+    }
 
 /** The values at one reading time. Null [bg]: no reading near that time. */
 data class InspectData(
@@ -536,6 +683,63 @@ internal fun GraphInspectPopup(
     }
 }
 
+/**
+ * The pop-up for the range between two fingers, one line per graph like [GraphInspectPopup]: the
+ * times, the BG change, the insulin and carbs given, then per trace its sum or change.
+ */
+@Composable
+internal fun GraphInspectRangePopup(
+    range: InspectRange,
+    rows: List<List<InspectRangeValue>>,
+    modifier: Modifier = Modifier
+) {
+    val dateUtil = LocalDateUtil.current
+    val profileUtil = LocalProfileUtil.current
+    val decimalFormatter = LocalDecimalFormatter.current
+    val colors = rememberSeriesColors()
+    Surface(
+        shape = RoundedCornerShape(AapsSpacing.large),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+        shadowElevation = 2.dp,
+        modifier = modifier
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(AapsSpacing.extraSmall),
+            modifier = Modifier.padding(horizontal = AapsSpacing.large, vertical = AapsSpacing.small)
+        ) {
+            PopupLine {
+                PillText(
+                    stringResource(UiStrings.graph_inspect_time_range, dateUtil.timeString(range.from), dateUtil.timeString(range.to)),
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                val from = range.bgFrom
+                val to = range.bgTo
+                if (from != null && to != null) {
+                    val change = to.value - from.value
+                    val text = if (profileUtil.units == GlucoseUnit.MGDL) decimalFormatter.to0Decimal(change) else decimalFormatter.to1Decimal(change)
+                    PillText(signedText(change, text), to.range.inspectColor())
+                }
+                rows.firstOrNull()?.forEach { InspectRangeValueItem(it, colors) }
+                if (range.insulin > 0)
+                    PillItem(
+                        ElementType.INSULIN.icon(),
+                        stringResource(UiStrings.graph_inspect_sum, stringResource(InterfacesStrings.format_insulin_units, range.insulin)),
+                        ElementType.INSULIN.color()
+                    )
+                if (range.carbs > 0)
+                    PillItem(
+                        ElementType.CARBS.icon(),
+                        stringResource(UiStrings.graph_inspect_sum, stringResource(InterfacesStrings.format_carbs, range.carbs.roundToInt())),
+                        ElementType.CARBS.color()
+                    )
+            }
+            rows.drop(1).filter { it.isNotEmpty() }.forEach { values ->
+                PopupLine { values.forEach { InspectRangeValueItem(it, colors) } }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PopupLine(content: @Composable () -> Unit) {
     FlowRow(
@@ -547,10 +751,31 @@ private fun PopupLine(content: @Composable () -> Unit) {
 /** One value: the series icon, the trace name where the icon alone does not say it, and the value with its unit. */
 @Composable
 private fun InspectValueItem(item: InspectValue, colors: SeriesColors) {
+    TraceValueItem(item.trace, inspectValueText(item.trace, item.value), colors)
+}
+
+/** One value of a range: "Σ 12 g" for a sum, "+1.2" or "-0.4" for a change. */
+@Composable
+private fun InspectRangeValueItem(item: InspectRangeValue, colors: SeriesColors) {
     val trace = item.trace
+    val text = if (item.isSum) {
+        // Basal adds up to units of insulin, not a rate
+        val amount = if (trace.type == SeriesType.BASAL && !trace.isDerived) stringResource(InterfacesStrings.format_insulin_units, item.value)
+        else inspectValueText(trace, item.value)
+        stringResource(UiStrings.graph_inspect_sum, amount)
+    } else signedText(item.value, inspectValueText(trace, item.value))
+    TraceValueItem(trace, text, colors)
+}
+
+/** [text] of [value] with a plus in front when it went up; a fall already has its minus. */
+@Composable
+private fun signedText(value: Double, text: String): String =
+    if (value > 0) stringResource(UiStrings.graph_inspect_rise, text) else text
+
+@Composable
+private fun TraceValueItem(trace: GraphTrace, value: String, colors: SeriesColors) {
     val color = lookOf(trace, colors).color
     val icon = inspectIcon(trace.type)
-    val value = inspectValueText(trace, item.value)
     val text = if (trace.isDerived || icon == null || trace.type in NAMED_IN_POPUP) stringResource(InterfacesStrings.confirmation_line, traceLabel(trace), value) else value
     if (icon != null) {
         // The carbs icon fills more of its box than the others, so it is drawn smaller to look the same size
