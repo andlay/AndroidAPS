@@ -9,9 +9,10 @@ class GraphShapesTest {
 
     @Test
     fun barsTouchAndDropToZeroAtAGapAndAtTheEnd() {
-        val steps = listOf(0.0 to 100.0, 5.0 to 200.0, 30.0 to 50.0)
+        // Every 5 minutes, then 30 minutes without data
+        val steps = listOf(0.0 to 100.0, 5.0 to 200.0, 10.0 to 150.0, 40.0 to 50.0)
 
-        assertEquals(listOf(0.0 to 100.0, 5.0 to 200.0, 10.0 to 0.0, 30.0 to 50.0, 35.0 to 0.0), barPoints(steps))
+        assertEquals(listOf(0.0 to 100.0, 5.0 to 200.0, 10.0 to 150.0, 15.0 to 0.0, 40.0 to 50.0, 45.0 to 0.0), barPoints(steps))
     }
 
     @Test
@@ -23,7 +24,8 @@ class GraphShapesTest {
 
     @Test
     fun onlyStepsAndHeartRateGetTheirOwnShape() {
-        val pts = listOf(0.0 to 1.0, 60.0 to 2.0)
+        // Every 5 minutes, then 50 minutes without data
+        val pts = listOf(0.0 to 1.0, 5.0 to 2.0, 10.0 to 3.0, 60.0 to 4.0)
 
         assertEquals(listOf(barPoints(pts)), shapedRuns(SeriesType.STEPS, pts))
         assertEquals(2, shapedRuns(SeriesType.HEART_RATE, pts).size)
