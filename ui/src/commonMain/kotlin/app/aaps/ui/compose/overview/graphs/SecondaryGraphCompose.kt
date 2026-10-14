@@ -143,6 +143,8 @@ fun SecondaryGraphCompose(
     nowTimestamp: Long,
     activityOverlay: Boolean = false,
     onVisibleRangeChanged: ((Pair<Double, Double>?) -> Unit)? = null,
+    /** Gets this graph's x layout on every draw, for a pinch on another graph (see GraphForwardToBg.kt). */
+    geometryHolder: GraphGeometryHolder? = null,
     modifier: Modifier = Modifier
 ) {
     val dateUtil = LocalDateUtil.current
@@ -603,7 +605,8 @@ fun SecondaryGraphCompose(
     val bottomAxisItemPlacer = rememberBottomAxisItemPlacer(minTimestamp)
     val nowLineColor = MaterialTheme.colorScheme.onSurface
     val nowLine = rememberNowLine(minTimestamp, nowTimestamp, nowLineColor)
-    val decorations = remember(nowLine, visibleRangeReporter) { listOf(nowLine, visibleRangeReporter) }
+    val geometryReporter = remember(geometryHolder) { geometryHolder?.let { GraphGeometryReporter(it) } }
+    val decorations = remember(nowLine, visibleRangeReporter, geometryReporter) { listOfNotNull(nowLine, visibleRangeReporter, geometryReporter) }
 
     // Union of Y values across all primary-layer series (IOB, COB, simple series, DevSlope-min,
     // deviation lines), windowed to the visible scroll/zoom range — computed once here since the
@@ -855,7 +858,8 @@ fun SecondaryGraphCompose(
             style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
             minWidth = TextComponent.MinWidth.fixed(30.dp)
         ),
-        guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+        guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))),
+        size = GRAPH_AXIS_SIZE
     )
     val bottomAxis = HorizontalAxis.rememberBottom(
         valueFormatter = timeFormatter,

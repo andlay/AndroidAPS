@@ -77,12 +77,12 @@ import kotlin.math.abs
  * Pattern: Observe Primary + Sync to Secondary
  * - Each graph has its OWN VicoScrollState and VicoZoomState
  * - BG graph: Interactive - user can scroll/zoom
- * - Secondary graphs: Non-interactive - scroll/zoom disabled
+ * - Secondary graphs: scroll/zoom disabled on the chart; a sideways drag or a pinch on them is
+ *   passed on to the BG graph (see rememberForwardToBgInput)
  * - LaunchedEffect observes BG graph's state changes and syncs to secondary
  *
  * Synchronization Implementation:
- * - snapshotFlow observes scroll/zoom values from BG graph
- * - debounce(30) waits for gesture to settle
+ * - snapshotFlow observes scroll/zoom values from BG graph, every frame
  * - zoomState.zoom() and scrollState.scroll() copy state to secondary graphs
  *
  * Secondary graphs are config-driven via [GraphConfig.secondaryGraphs].
@@ -264,6 +264,10 @@ fun GraphsSection(
         }
     }
 
+    // One x layout for all graphs, reported by the fixed IOB graph. A pinch on a graph other than BG
+    // uses it to zoom BG around the fingers.
+    val graphGeometry = remember { GraphGeometryHolder() }
+
     // Treatment belt graph - non-interactive, synced from BG
     val beltScrollState = rememberVicoScrollState(
         scrollEnabled = false,
@@ -305,15 +309,21 @@ fun GraphsSection(
         // Do not report a user interaction from here: the scroll/zoom values also change without the user
         // (viewport reset on a new BG, the prediction nudge, Vico's initial scroll to the end). Real gestures
         // are reported by onScrollOrZoomGesture on the BG chart.
+        // Every change, every frame: a debounce here only fires when the finger pauses, so the other
+        // graphs stood still during a pan and jumped when it stopped. Zoom is only applied when it
+        // changed, and only then does scroll wait for it to settle.
+        var lastZoom = Float.NaN
         snapshotFlow { bgScrollState.value to bgZoomState.value }
-            .debounce(30) // Wait for gesture to settle
             .collect { (scroll, zoom) ->
                 val count = activeCount
                 // Sync zoom first, then scroll (order matters for proper positioning)
-                beltZoomState.zoom(Zoom.fixed(zoom))
-                iobZoomState.zoom(Zoom.fixed(zoom))
-                for (i in 0 until count) secZoomStates[i].zoom(Zoom.fixed(zoom))
-                delay(10)
+                if (zoom != lastZoom) {
+                    lastZoom = zoom
+                    beltZoomState.zoom(Zoom.fixed(zoom))
+                    iobZoomState.zoom(Zoom.fixed(zoom))
+                    for (i in 0 until count) secZoomStates[i].zoom(Zoom.fixed(zoom))
+                    delay(10)
+                }
                 beltScrollState.scroll(Scroll.Absolute.pixels(scroll))
                 iobScrollState.scroll(Scroll.Absolute.pixels(scroll))
                 for (i in 0 until count) secScrollStates[i].scroll(Scroll.Absolute.pixels(scroll))
@@ -559,9 +569,11 @@ fun GraphsSection(
                 nowTimestamp = nowTimestamp,
                 activityOverlay = SeriesType.ACTIVITY in graphConfig.iobOverlays,
                 onVisibleRangeChanged = { iobVisibleRange = it },
+                geometryHolder = graphGeometry,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.iobHeight.dp)
+                    .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, graphViewModel::onGraphInteraction))
             )
             Text(
                 text = stringResource(CoreUiStrings.iob) + " / " + stringResource(CoreUiStrings.basal_shortname),
@@ -614,6 +626,7 @@ fun GraphsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(secondary.height.dp)
+                        .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, graphViewModel::onGraphInteraction))
                 )
                 Text(
                     text = seriesListLabel(secondary.series),

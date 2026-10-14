@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import com.patrykandpatrick.vico.compose.cartesian.CartesianDrawingContext
+import com.patrykandpatrick.vico.compose.cartesian.axis.BaseAxis
 import com.patrykandpatrick.vico.compose.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.compose.cartesian.data.CartesianValueFormatter
 import com.patrykandpatrick.vico.compose.cartesian.decoration.Decoration
@@ -123,6 +124,14 @@ fun rememberBottomAxisItemPlacer(minTimestamp: Long): HorizontalAxis.ItemPlacer 
  * Default zoom level for graphs - shows 6 hours of data (360 minutes).
  */
 const val DEFAULT_GRAPH_ZOOM_MINUTES = 360.0
+
+/**
+ * Width of the left axis of every overview graph: the 30 dp label, the 4 dp tick and the 1 dp axis
+ * line. Fixed, not measured: a measured axis grows with its widest label (steps in the thousands,
+ * activity with three decimals), and that graph's plot then no longer lines up in time with the
+ * others, which the pixel-based scroll sync depends on. A label that is wider is drawn past the edge.
+ */
+val GRAPH_AXIS_SIZE = BaseAxis.Size.Fixed(35.dp)
 
 /**
  * Maximum zoom-in level — never show fewer than this many minutes.
