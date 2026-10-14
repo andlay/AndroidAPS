@@ -22,8 +22,11 @@ enum class SeriesType {
     BGI,
     DEVIATIONS,
 
-    /** Carbs (g) per 5 minutes that a rise no logged carbs explain is worth (deviation / CSF). Display only. */
-    UAM_CARBS,
+    /**
+     * Carbs (g) absorbed per 5 minutes: logged carbs (COB absorption) and unannounced rises (UAM,
+     * deviation / CSF), and what the last loop run expects next. Display only.
+     */
+    CARBS_ABSORBED,
     SENSITIVITY,
     VAR_SENSITIVITY,
     DEV_SLOPE,

@@ -12,6 +12,8 @@ import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgiGraphData
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
+import app.aaps.core.interfaces.overview.graph.CarbsAbsorbedPoint
+import app.aaps.core.interfaces.overview.graph.DeviationType
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
@@ -114,13 +116,22 @@ class GraphViewModel(
     val bucketedDataFlow: StateFlow<List<BgDataPoint>> = cache.bucketedDataFlow
     val predictionsFlow: StateFlow<List<BgDataPoint>> = cache.predictionsFlow
 
-    /** How the last loop run expects UAM to fade, as carbs per 5 minutes. */
-    val uamCarbsForecastFlow: StateFlow<List<GraphDataPoint>> = cache.uamCarbsForecastFlow
-
     // Secondary graph flows
     val iobGraphFlow = cache.iobGraphFlow
     val absIobGraphFlow = cache.absIobGraphFlow
     val cobGraphFlow = cache.cobGraphFlow
+
+    /**
+     * Carbs absorbed per 5 minutes, logged carbs and UAM: the past from the COB calculation (see
+     * `DeviationDataPoint.carbsAbsorbed`), then what the last loop run expects next.
+     */
+    val carbsAbsorbedFlow: StateFlow<List<CarbsAbsorbedPoint>> by lazy {
+        combine(cache.deviationsGraphFlow, cache.carbsAbsorbedForecastFlow) { data, forecast ->
+            data.deviations.map { CarbsAbsorbedPoint(it.timestamp, it.carbsAbsorbed, fromLoggedCarbs = it.deviationType == DeviationType.CSF) } + forecast
+        }
+            .flowOn(aapsBackgroundDispatcher)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
 
     /**
      * The projected insulin activity and BGI after the calculated data, on to now + DIA. Worked out
@@ -197,10 +208,7 @@ class GraphViewModel(
         SeriesType.COB             -> cobGraphFlow.map { it.cob }
         SeriesType.BGI             -> bgiGraphFlow.map { it.bgi }
         SeriesType.DEVIATIONS      -> deviationsGraphFlow.map { data -> data.deviations.map { GraphDataPoint(it.timestamp, it.value) } }
-        // The past from the deviations, then how the last loop run expects UAM to fade
-        SeriesType.UAM_CARBS       -> combine(deviationsGraphFlow, uamCarbsForecastFlow) { data, forecast ->
-            data.deviations.map { GraphDataPoint(it.timestamp, it.uamCarbs) } + forecast
-        }
+        SeriesType.CARBS_ABSORBED  -> carbsAbsorbedFlow.map { points -> points.map { GraphDataPoint(it.timestamp, it.grams) } }
         // Stored as 100*(ratio-1), shown shifted by +100 as a percentage (90%, 110%), like the graph does
         SeriesType.SENSITIVITY     -> ratioGraphFlow.map { data -> data.ratio.map { GraphDataPoint(it.timestamp, it.value + 100.0) } }
         SeriesType.VAR_SENSITIVITY -> varSensGraphFlow.map { it.varSens }

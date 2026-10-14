@@ -11,7 +11,7 @@ import app.aaps.core.interfaces.overview.graph.CobGraphData
 import app.aaps.core.interfaces.overview.graph.DevSlopeGraphData
 import app.aaps.core.interfaces.overview.graph.DeviationsGraphData
 import app.aaps.core.interfaces.overview.graph.EpsGraphPoint
-import app.aaps.core.interfaces.overview.graph.GraphDataPoint
+import app.aaps.core.interfaces.overview.graph.CarbsAbsorbedPoint
 import app.aaps.core.interfaces.overview.graph.HeartRateGraphData
 import app.aaps.core.interfaces.overview.graph.IobGraphData
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
@@ -46,7 +46,7 @@ class FakeOverviewDataCache : OverviewDataCache {
     override val bgReadingsFlow = MutableStateFlow<List<BgDataPoint>>(emptyList())
     override val bucketedDataFlow = MutableStateFlow<List<BgDataPoint>>(emptyList())
     override val predictionsFlow = MutableStateFlow<List<BgDataPoint>>(emptyList())
-    override val uamCarbsForecastFlow = MutableStateFlow<List<GraphDataPoint>>(emptyList())
+    override val carbsAbsorbedForecastFlow = MutableStateFlow<List<CarbsAbsorbedPoint>>(emptyList())
     override val bgInfoFlow = MutableStateFlow<BgInfoData?>(null)
 
     override val tempTargetFlow = MutableStateFlow<TempTargetDisplayData?>(null)
@@ -78,7 +78,7 @@ class FakeOverviewDataCache : OverviewDataCache {
     override fun updateBgReadings(data: List<BgDataPoint>) { bgReadingsFlow.value = data }
     override fun updateBucketedData(data: List<BgDataPoint>) { bucketedDataFlow.value = data }
     override fun updatePredictions(data: List<BgDataPoint>) { predictionsFlow.value = data }
-    override fun updateUamCarbsForecast(data: List<GraphDataPoint>) { uamCarbsForecastFlow.value = data }
+    override fun updateCarbsAbsorbedForecast(data: List<CarbsAbsorbedPoint>) { carbsAbsorbedForecastFlow.value = data }
     override fun updateBgInfo(data: BgInfoData?) { bgInfoFlow.value = data }
 
     override fun refreshTempTarget() = Unit

@@ -23,6 +23,7 @@ import app.aaps.core.data.configuration.Constants
 import app.aaps.core.graph.vico.AdaptiveStep
 import app.aaps.core.graph.vico.Square
 import app.aaps.core.interfaces.overview.graph.BolusType
+import app.aaps.core.interfaces.overview.graph.CarbsAbsorbedPoint
 import app.aaps.core.interfaces.overview.graph.DeviationType
 import app.aaps.core.interfaces.overview.graph.AxisRange
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
@@ -230,7 +231,9 @@ fun SecondaryGraphCompose(
     val stepsData = if (rawPrimaryType == SeriesType.STEPS) viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value else null
     val basalSeries = if (rawPrimaryType == SeriesType.BASAL) rememberSourcePoints(viewModel, SeriesType.BASAL) else null
     val bgSeries = if (rawPrimaryType == SeriesType.BG) rememberSourcePoints(viewModel, SeriesType.BG) else null
-    val uamCarbsSeries = if (rawPrimaryType == SeriesType.UAM_CARBS) rememberSourcePoints(viewModel, SeriesType.UAM_CARBS) else null
+    // Carbs absorbed has its own drawing: two colours, hanging below zero (see shapeCarbsAbsorbed)
+    val hasCarbsAbsorbed = orderedTraces.any { it.type == SeriesType.CARBS_ABSORBED && !it.isDerived }
+    val carbsAbsorbedData = if (hasCarbsAbsorbed) viewModel.carbsAbsorbedFlow.collectAsStateWithLifecycle().value else null
     // Activity data: either as primary series OR as overlay (on IOB graph)
     val needsActivity = rawPrimaryType == SeriesType.ACTIVITY || (activityOverlay && hasIob)
     val activityData = if (needsActivity) viewModel.activityGraphFlow.collectAsStateWithLifecycle().value else null
@@ -259,7 +262,7 @@ fun SecondaryGraphCompose(
     // Simple line series processing (excludes BASAL — it's a fixed flipped overlay on IOB)
     val bgiAsBars = rawLook(SeriesType.BGI).style == PlotStyle.BARS
     val processedSimpleSeries = remember(
-        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, basalSeries, bgSeries, uamCarbsSeries, activityData, bgiAsBars
+        stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, basalSeries, bgSeries, activityData, bgiAsBars
     ) {
         if (!hasRealTimeRange) return@remember emptyList()
         buildList {
@@ -293,9 +296,6 @@ fun SecondaryGraphCompose(
             bgSeries?.takeIf { it.isNotEmpty() }?.let {
                 add(SeriesType.BG to processPoints(it, minTimestamp, minX, maxX))
             }
-            uamCarbsSeries?.takeIf { it.isNotEmpty() }?.let {
-                add(SeriesType.UAM_CARBS to processPoints(it, minTimestamp, minX, maxX))
-            }
             if (rawPrimaryType == SeriesType.ACTIVITY) {
                 activityData?.let {
                     if (it.activity.isNotEmpty()) add(SeriesType.ACTIVITY to processPoints(it.activity, minTimestamp, minX, maxX))
@@ -322,8 +322,10 @@ fun SecondaryGraphCompose(
 
     // Simple series and derived traces of the left axis, shaped for their plot style (bars, a line
     // broken at gaps, dots). The shape is part of the data, so the axis range sees the bars' zero line.
-    val shapedPrimary = remember(processedSimpleSeries, processedPredictionSeries, primaryDerivedTraces, primaryDerivedPoints, stableTimeRange, orderedTraces, seriesColors) {
+    val shapedPrimary = remember(processedSimpleSeries, processedPredictionSeries, primaryDerivedTraces, primaryDerivedPoints, stableTimeRange, orderedTraces, seriesColors, carbsAbsorbedData) {
         buildList {
+            if (rawPrimaryType == SeriesType.CARBS_ABSORBED && hasRealTimeRange && carbsAbsorbedData != null)
+                addAll(shapeCarbsAbsorbed(carbsAbsorbedData, minTimestamp, minX, maxX, seriesColors))
             for ((type, pts) in processedSimpleSeries + processedPredictionSeries) {
                 val trace = orderedTraces.firstOrNull { it.type == type && !it.isDerived } ?: GraphTrace(type)
                 val look = lookOf(trace, seriesColors)
@@ -437,13 +439,20 @@ fun SecondaryGraphCompose(
 
     // Right axis traces, shaped for their plot style like the left axis ones. The flat list is what
     // the axis range uses.
-    val shapedSecondary = remember(rightTraces, rightPoints, stableTimeRange, seriesColors) {
+    val shapedSecondary = remember(rightTraces, rightPoints, stableTimeRange, seriesColors, carbsAbsorbedData) {
         if (!hasRealTimeRange) return@remember emptyList()
-        rightTraces.zip(rightPoints).map { (trace, points) ->
-            val look = lookOf(trace, seriesColors)
-            ShapedTrace(trace.type, look, shapeForStyle(processPoints(points, minTimestamp, minX, maxX), look.style))
+        rightTraces.zip(rightPoints).flatMap { (trace, points) ->
+            if (trace.type == SeriesType.CARBS_ABSORBED && !trace.isDerived)
+                shapeCarbsAbsorbed(carbsAbsorbedData.orEmpty(), minTimestamp, minX, maxX, seriesColors)
+            else {
+                val look = lookOf(trace, seriesColors)
+                listOf(ShapedTrace(trace.type, look, shapeForStyle(processPoints(points, minTimestamp, minX, maxX), look.style)))
+            }
         }
     }
+    // Carbs absorbed hangs below zero and its axis shows the grams without a minus
+    val primaryHangs = rawPrimaryType == SeriesType.CARBS_ABSORBED
+    val secondaryHangs = secondaryTrace?.let { it.type == SeriesType.CARBS_ABSORBED && !it.isDerived } == true
     val secondaryPoints = remember(shapedSecondary) { shapedSecondary.flatMap { it.runs.flatten() } }
 
     // Visible-window bounds (same x-unit as processed* points — minutes from minTimestamp) for
@@ -755,6 +764,7 @@ fun SecondaryGraphCompose(
         if (dualAxisRanges != null || hasBasalLayer || primaryYValues.isEmpty()) return@remember null
         when (primaryScaleType) {
             SeriesType.COB                                    -> niceScale(0.0, primaryYValues.max().coerceAtLeast(0.0), SECONDARY_GRAPH_TICK_COUNT)
+            SeriesType.CARBS_ABSORBED                         -> niceScale(primaryYValues.min().coerceAtMost(-0.5), 0.0, SECONDARY_GRAPH_TICK_COUNT)
             in ZERO_FLOOR_SERIES_TYPES                         -> zeroFloorNiceRange(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
             SeriesType.VAR_SENSITIVITY, SeriesType.HEART_RATE  -> niceScale(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
             SeriesType.SENSITIVITY                             -> niceScaleAroundPivot(primaryYValues.min(), primaryYValues.max(), 100.0, SENS_PIVOT_TICK_COUNT, SENS_MIN_DEVIATION)
@@ -924,19 +934,27 @@ fun SecondaryGraphCompose(
     )
 
     // Common axis components
-    val startAxisItemPlacer = remember(primaryYStep, iobDataMax, dualAxisRanges?.primaryLabelFloor, typedPrimary) {
+    val startAxisItemPlacer = remember(primaryYStep, iobDataMax, dualAxisRanges?.primaryLabelFloor, typedPrimary, primaryHangs) {
         val stepPlacer = VerticalAxis.ItemPlacer.step({ primaryYStep })
         val dataMax = iobDataMax
         // A typed min is the user's floor: no clamping to the series' own floor then
         val labelFloor = dualAxisRanges?.primaryLabelFloor?.takeIf { typedPrimary == null }
         when {
             dataMax != null   -> ClampedVerticalAxisItemPlacer(stepPlacer, visibleMax = { dataMax })
+            // Carbs absorbed hangs below zero: no labels above it
+            primaryHangs      -> ClampedVerticalAxisItemPlacer(stepPlacer, visibleMax = { (primaryYStep ?: 1.0) * 1e-6 })
             labelFloor != null -> ClampedVerticalAxisItemPlacer(stepPlacer, visibleMin = { labelFloor })
             else               -> stepPlacer
         }
     }
+    val decimalFormatter = LocalDecimalFormatter.current
+    val startAxisFormatter = remember(primaryHangs, primaryYStep, decimalFormatter) {
+        if (primaryHangs) CartesianValueFormatter { _, value, _ -> axisNumber(value, primaryYStep, decimalFormatter, absolute = true) }
+        else CartesianValueFormatter.decimal()
+    }
     val startAxis = VerticalAxis.rememberStart(
         itemPlacer = startAxisItemPlacer,
+        valueFormatter = startAxisFormatter,
         label = rememberTextComponent(
             style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
             minWidth = TextComponent.MinWidth.fixed(30.dp)
@@ -955,7 +973,6 @@ fun SecondaryGraphCompose(
 
     // Right axis: the basal rate on the IOB graph, the second scale on a graph with two scales, else
     // an invisible one that keeps this graph as wide as the others (see GraphEndAxis.kt).
-    val decimalFormatter = LocalDecimalFormatter.current
     val endAxisStep = remember(hasBasalLayer, basalShownMax, isDualAxis, dualAxisRanges, rightRange, secondaryBounds) {
         when {
             hasBasalLayer                                                     -> niceScale(0.0, basalShownMax, BASAL_AXIS_TICK_COUNT).step
@@ -964,7 +981,7 @@ fun SecondaryGraphCompose(
             else                                                              -> null
         }
     }
-    val endAxisPlacer = remember(hasBasalLayer, endAxisStep, basalShownMax) {
+    val endAxisPlacer = remember(hasBasalLayer, secondaryHangs, endAxisStep, basalShownMax) {
         val step = endAxisStep
         when {
             // Basal hangs down from 0 at the top: label only real rates, and leave out the 0 at the
@@ -974,14 +991,17 @@ fun SecondaryGraphCompose(
                 visibleMin = { -basalShownMax - step * 1e-6 },
                 visibleMax = { -step / 2 }
             )
+            // Carbs absorbed hangs down from the zero of the other axis: label only that part
+            secondaryHangs && step != null -> ClampedVerticalAxisItemPlacer(VerticalAxis.ItemPlacer.step({ step }), visibleMax = { step * 1e-6 })
             step != null                  -> VerticalAxis.ItemPlacer.step({ step })
             else                          -> VerticalAxis.ItemPlacer.count({ SECONDARY_GRAPH_TICK_COUNT })
         }
     }
-    val endAxisFormatter = remember(hasBasalLayer, endAxisStep, decimalFormatter) {
-        CartesianValueFormatter { _, value, _ -> axisNumber(value, endAxisStep, decimalFormatter, absolute = hasBasalLayer) }
+    val endAxisFormatter = remember(hasBasalLayer, secondaryHangs, endAxisStep, decimalFormatter) {
+        CartesianValueFormatter { _, value, _ -> axisNumber(value, endAxisStep, decimalFormatter, absolute = hasBasalLayer || secondaryHangs) }
     }
     val endAxisColor = if (hasBasalLayer) AapsTheme.elementColors.tempBasal
+    else if (secondaryHangs) seriesColors.carbsAbsorbed
     else rightTraces.firstOrNull()?.let { lookOf(it, seriesColors).color } ?: MaterialTheme.colorScheme.onSurface
     val endAxis = if (hasBasalLayer || isDualAxis) rememberEndAxis(endAxisColor, endAxisPlacer, endAxisFormatter)
     else rememberEndAxisSpacer()
@@ -1044,6 +1064,21 @@ fun SecondaryGraphCompose(
 
 /** A simple series or derived trace, shaped into runs for its plot style. */
 private class ShapedTrace(val type: SeriesType, val look: TraceLook, val runs: List<List<Pair<Double, Double>>>)
+
+/** Colour of carbs absorbed by an unannounced rise (UAM): the colour of the UAM bars of the DEV graph. */
+internal val CARBS_ABSORBED_UAM_COLOR = Color(0xFFC9BD60)
+
+/**
+ * Carbs absorbed as bars hanging below zero, one bar per 5 minutes: logged carbs in
+ * [SeriesColors.carbsAbsorbed], UAM in [CARBS_ABSORBED_UAM_COLOR]. Both get every time, with 0 where
+ * the other one has the bar, so a bar never stretches over the other one's time.
+ */
+private fun shapeCarbsAbsorbed(points: List<CarbsAbsorbedPoint>, minTimestamp: Long, minX: Double, maxX: Double, colors: SeriesColors): List<ShapedTrace> =
+    listOf(true to colors.carbsAbsorbed, false to CARBS_ABSORBED_UAM_COLOR).mapNotNull { (logged, color) ->
+        if (points.none { it.fromLoggedCarbs == logged && it.grams > 0.0 }) return@mapNotNull null
+        val values = points.map { GraphDataPoint(it.timestamp, if (it.fromLoggedCarbs == logged) -it.grams else 0.0) }
+        ShapedTrace(SeriesType.CARBS_ABSORBED, TraceLook(PlotStyle.BARS, color, square = false), shapeForStyle(processPoints(values, minTimestamp, minX, maxX), PlotStyle.BARS))
+    }
 
 /** One primary-layer series: its x/y data plus the slot that selects its line style. */
 private class PrimarySeriesSpec(val x: List<Double>, val y: List<Double>, val slot: SeriesSlot)
@@ -1307,7 +1342,8 @@ data class SeriesColors(
     val steps: Color,
     val activity: Color,
     val basal: Color,
-    val uamCarbs: Color
+    /** Carbs absorbed from logged carbs; UAM absorption uses [CARBS_ABSORBED_UAM_COLOR]. */
+    val carbsAbsorbed: Color
 ) {
 
     fun colorFor(type: SeriesType): Color = when (type) {
@@ -1324,7 +1360,7 @@ data class SeriesColors(
         SeriesType.STEPS           -> steps
         SeriesType.ACTIVITY        -> activity
         SeriesType.BASAL           -> basal
-        SeriesType.UAM_CARBS       -> uamCarbs
+        SeriesType.CARBS_ABSORBED  -> carbsAbsorbed
         SeriesType.PREDICTIONS     -> activity // unused — PREDICTIONS is a BG overlay flag, not a secondary series
     }
 }
@@ -1351,7 +1387,7 @@ fun rememberSeriesColors(): SeriesColors {
             steps = Color(0xFF66FFB8),              // mint green (matches @color/steps)
             activity = Color(0xFFD3F166),           // lime green (matches @color/activity)
             basal = basalColor,                     // the same colour as the basal on the IOB graph
-            uamCarbs = DEVIATION_COLOR_UAM          // the colour of the UAM bars of the DEV graph
+            carbsAbsorbed = cobColor                // the COB colour
         )
     }
 }
@@ -1530,7 +1566,7 @@ private fun formatCarbsLabel(value: Double, decimalFormatter: DecimalFormatter):
 private val DEVIATION_COLOR_POSITIVE = Color(0xC000FF00) // green (matches @color/deviationGreen)
 private val DEVIATION_COLOR_NEGATIVE = Color(0xC0FF0000) // red (matches @color/deviationRed)
 private val DEVIATION_COLOR_EQUAL = Color(0x72000000)    // black (matches @color/deviationBlack)
-private val DEVIATION_COLOR_UAM = Color(0xFFC9BD60)      // yellow (matches @color/uam)
+private val DEVIATION_COLOR_UAM = CARBS_ABSORBED_UAM_COLOR // yellow (matches @color/uam)
 private val DEVIATION_COLOR_CSF = Color(0xC8666666)      // grey (matches @color/deviationGrey)
 
 internal fun deviationColor(type: DeviationType): Color = when (type) {

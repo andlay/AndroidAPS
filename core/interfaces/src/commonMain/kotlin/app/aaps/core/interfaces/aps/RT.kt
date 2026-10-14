@@ -50,13 +50,18 @@ data class RT(
 ) {
 
     /**
-     * How the UAM prediction lets the current unexplained rise fade, as carbs (g) per 5 minutes:
-     * index 0 is 5 minutes after [timestamp]. Only set when UAM is on, no carbs are on board and BG
-     * is rising more than insulin explains. For the graphs only: not sent anywhere (not serialized)
-     * and not in [equals], so it does not change results that are compared or uploaded.
+     * The carbs (g) the predictions expect to be absorbed per 5 minutes; index 0 is 5 minutes after
+     * [timestamp]. With carbs on board it is the carb absorption of the COB prediction, else, when
+     * UAM is on and BG rises more than insulin explains, how the UAM prediction lets that rise fade.
+     * For the graphs only: not sent anywhere (not serialized) and not in [equals], so it does not
+     * change results that are compared or uploaded.
      */
     @Transient
-    var uamCarbsForecast: List<Double>? = null
+    var carbsAbsorbedForecast: List<Double>? = null
+
+    /** True when [carbsAbsorbedForecast] is about logged carbs (COB), false for UAM. */
+    @Transient
+    var carbsAbsorbedForecastFromCarbs: Boolean = false
 
     fun serialize() = Json.encodeToString(serializer(), this)
 

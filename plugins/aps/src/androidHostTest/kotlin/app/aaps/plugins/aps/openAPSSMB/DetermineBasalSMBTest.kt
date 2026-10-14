@@ -128,11 +128,13 @@ class DetermineBasalSMBTest : TestBaseWithProfile() {
     )
 
     @Test
-    fun `UAM carbs forecast is the UAM fade of the current rise as carbs per 5 minutes`() {
+    fun `without carbs the absorption forecast is the UAM fade of the current rise`() {
         // BG rises 5 mg/dL per 5 min with no insulin activity, so the whole rise is unexplained (uci = 5).
         // Flat deviation slopes: UAM fades it linearly to 0 over 3 hours. CSF = 50 / 10 = 5 mg/dL per g.
-        val forecast = run(noCarbs()).uamCarbsForecast
+        val rt = run(noCarbs())
+        val forecast = rt.carbsAbsorbedForecast
 
+        assertThat(rt.carbsAbsorbedForecastFromCarbs).isFalse()
         assertThat(forecast).isNotNull()
         assertThat(forecast!!.first()).isWithin(1e-9).of(5.0 * (1 - 1 / 36.0) / 5.0)
         assertThat(forecast).isInStrictOrder(Comparator.reverseOrder<Double>())
@@ -142,8 +144,16 @@ class DetermineBasalSMBTest : TestBaseWithProfile() {
     }
 
     @Test
-    fun `no UAM carbs forecast while carbs are on board, it is not unannounced`() {
-        assertThat(run(noCarbs(mealCOB = 20.0)).uamCarbsForecast).isNull()
+    fun `with carbs on board the absorption forecast is the carb absorption of the COB prediction`() {
+        val rt = run(noCarbs(mealCOB = 20.0))
+        val forecast = rt.carbsAbsorbedForecast
+
+        assertThat(rt.carbsAbsorbedForecastFromCarbs).isTrue()
+        assertThat(forecast).isNotNull()
+        assertThat(forecast!!.first()).isGreaterThan(0.0)
+        assertThat(forecast.all { it >= 0.0 }).isTrue()
+        // It cannot absorb more than is on board
+        assertThat(forecast.sum()).isAtMost(20.0 + 1e-6)
     }
 
     @Test

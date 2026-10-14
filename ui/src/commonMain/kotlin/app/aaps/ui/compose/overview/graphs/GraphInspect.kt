@@ -447,16 +447,16 @@ internal data class InspectValue(val trace: GraphTrace, val value: Double)
 
 /**
  * The values of [traces] at [time]. Left out: a trace with no data near that time, COB at 0 g, and
- * UAM carbs at 0 g (no rise that UAM counts at that time).
+ * carbs absorbed at 0 g.
  */
 internal fun inspectValues(traces: List<GraphTrace>, points: Map<GraphTrace, List<GraphDataPoint>>, time: Long): List<InspectValue> =
     traces.mapNotNull { trace ->
         val value = traceValueAt(points[trace].orEmpty(), time, trace) ?: return@mapNotNull null
         when {
-            trace.isDerived                                       -> InspectValue(trace, value)
+            trace.isDerived                                         -> InspectValue(trace, value)
             trace.type == SeriesType.COB && shownCob(value) == null -> null
-            trace.type == SeriesType.UAM_CARBS && value <= 0.0      -> null
-            else                                                  -> InspectValue(trace, value)
+            trace.type == SeriesType.CARBS_ABSORBED && value <= 0.0 -> null
+            else                                                    -> InspectValue(trace, value)
         }
     }
 
@@ -559,13 +559,13 @@ private fun InspectValueItem(item: InspectValue, colors: SeriesColors) {
 }
 
 /** Series that share their icon with another series, so the pop-up also names them. */
-private val NAMED_IN_POPUP = setOf(SeriesType.ABS_IOB, SeriesType.VAR_SENSITIVITY, SeriesType.UAM_CARBS)
+private val NAMED_IN_POPUP = setOf(SeriesType.ABS_IOB, SeriesType.VAR_SENSITIVITY, SeriesType.CARBS_ABSORBED)
 
 /** Icon of a series in the pop-up; null for series that are named instead (BGI, DEV, activity). */
 @Composable
 private fun inspectIcon(type: SeriesType): ImageVector? = when (type) {
     SeriesType.IOB, SeriesType.ABS_IOB                 -> ElementType.INSULIN.icon()
-    SeriesType.COB, SeriesType.UAM_CARBS               -> ElementType.COB.icon()
+    SeriesType.COB, SeriesType.CARBS_ABSORBED          -> ElementType.COB.icon()
     SeriesType.BASAL                                   -> ElementType.TEMP_BASAL.icon()
     SeriesType.SENSITIVITY, SeriesType.VAR_SENSITIVITY -> ElementType.SENSITIVITY.icon()
     SeriesType.HEART_RATE                              -> IcHeartRate
@@ -584,7 +584,7 @@ private fun inspectValueText(trace: GraphTrace, value: Double): String {
     return when (trace.type) {
         SeriesType.IOB, SeriesType.ABS_IOB -> stringResource(InterfacesStrings.format_insulin_units, value)
         SeriesType.COB                     -> stringResource(InterfacesStrings.format_carbs, value.roundToInt())
-        SeriesType.UAM_CARBS               -> stringResource(UiStrings.graph_inspect_grams, decimalFormatter.to1Decimal(value))
+        SeriesType.CARBS_ABSORBED          -> stringResource(UiStrings.graph_inspect_grams, decimalFormatter.to1Decimal(value))
         SeriesType.BASAL                   -> stringResource(CoreUiStrings.pump_base_basal_rate, value)
         SeriesType.SENSITIVITY             -> stringResource(CoreUiStrings.units_format_percent, value.roundToInt())
         SeriesType.HEART_RATE              -> stringResource(UiStrings.graph_inspect_heart_rate, value.roundToInt())

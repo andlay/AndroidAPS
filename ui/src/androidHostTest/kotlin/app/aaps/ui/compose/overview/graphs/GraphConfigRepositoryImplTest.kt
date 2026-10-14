@@ -64,6 +64,13 @@ class GraphConfigRepositoryImplTest {
     }
 
     @Test
+    fun `a graph saved with the old UAM carbs series gets carbs absorbed`() {
+        val restored = GraphConfigRepositoryImpl.fromJson("""{"secondaryGraphs":[{"series":["COB","UAM_CARBS"]}]}""")
+
+        assertThat(restored.secondaryGraphs.last().series).containsExactly(SeriesType.COB, SeriesType.CARBS_ABSORBED).inOrder()
+    }
+
+    @Test
     fun `an old config without iob overlays keeps the activity overlay on`() {
         val restored = GraphConfigRepositoryImpl.fromJson("{}")
 

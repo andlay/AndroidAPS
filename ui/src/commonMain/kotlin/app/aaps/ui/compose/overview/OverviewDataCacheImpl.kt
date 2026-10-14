@@ -47,6 +47,7 @@ import app.aaps.core.interfaces.overview.graph.DeviationsGraphData
 import app.aaps.core.interfaces.overview.graph.EpsGraphPoint
 import app.aaps.core.interfaces.overview.graph.ExtendedBolusGraphPoint
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
+import app.aaps.core.interfaces.overview.graph.CarbsAbsorbedPoint
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.HeartRateGraphData
 import app.aaps.core.interfaces.overview.graph.IobGraphData
@@ -212,8 +213,8 @@ class OverviewDataCacheImpl(
     override val bucketedDataFlow: StateFlow<List<BgDataPoint>> = _bucketedDataFlow.asStateFlow()
     private val _predictionsFlow = MutableStateFlow<List<BgDataPoint>>(emptyList())
     override val predictionsFlow: StateFlow<List<BgDataPoint>> = _predictionsFlow.asStateFlow()
-    private val _uamCarbsForecastFlow = MutableStateFlow<List<GraphDataPoint>>(emptyList())
-    override val uamCarbsForecastFlow: StateFlow<List<GraphDataPoint>> = _uamCarbsForecastFlow.asStateFlow()
+    private val _carbsAbsorbedForecastFlow = MutableStateFlow<List<CarbsAbsorbedPoint>>(emptyList())
+    override val carbsAbsorbedForecastFlow: StateFlow<List<CarbsAbsorbedPoint>> = _carbsAbsorbedForecastFlow.asStateFlow()
     private val _bgInfoFlow = MutableStateFlow<BgInfoData?>(null)
     override val bgInfoFlow: StateFlow<BgInfoData?> = _bgInfoFlow.asStateFlow()
 
@@ -782,8 +783,8 @@ class OverviewDataCacheImpl(
         _predictionsFlow.value = data
     }
 
-    override fun updateUamCarbsForecast(data: List<GraphDataPoint>) {
-        _uamCarbsForecastFlow.value = data
+    override fun updateCarbsAbsorbedForecast(data: List<CarbsAbsorbedPoint>) {
+        _carbsAbsorbedForecastFlow.value = data
     }
 
     override fun updateBgInfo(data: BgInfoData?) {
@@ -1251,7 +1252,7 @@ class OverviewDataCacheImpl(
         _bgReadingsFlow.value = emptyList()
         _bucketedDataFlow.value = emptyList()
         _predictionsFlow.value = emptyList()
-        _uamCarbsForecastFlow.value = emptyList()
+        _carbsAbsorbedForecastFlow.value = emptyList()
         _bgInfoFlow.value = null
         _tempTargetFlow.value = null
         _profileFlow.value = null

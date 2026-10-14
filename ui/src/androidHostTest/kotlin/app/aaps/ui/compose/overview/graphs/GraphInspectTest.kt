@@ -78,13 +78,13 @@ class GraphInspectTest {
     }
 
     @Test
-    fun `UAM carbs show only for a rise that UAM counts`() {
-        val uam = GraphTrace(SeriesType.UAM_CARBS)
-        val points = mapOf(uam to listOf(point(0, 0.0), point(5, 2.4)))
+    fun `carbs absorbed show only when something was absorbed`() {
+        val absorbed = GraphTrace(SeriesType.CARBS_ABSORBED)
+        val points = mapOf(absorbed to listOf(point(0, 0.0), point(5, 2.4)))
 
-        // A UAM carbs point covers the 5 minutes after it, like a DEV bar
-        assertThat(inspectValues(listOf(uam), points, t0 + 7 * minute)).containsExactly(InspectValue(uam, 2.4))
-        assertThat(inspectValues(listOf(uam), points, t0 + 2 * minute)).isEmpty()
+        // A carbs absorbed point covers the 5 minutes after it, like a DEV bar
+        assertThat(inspectValues(listOf(absorbed), points, t0 + 7 * minute)).containsExactly(InspectValue(absorbed, 2.4))
+        assertThat(inspectValues(listOf(absorbed), points, t0 + 2 * minute)).isEmpty()
     }
 
     @Test

@@ -33,14 +33,14 @@ interface OverviewDataCache {
     val bucketedDataFlow: StateFlow<List<BgDataPoint>>
     val predictionsFlow: StateFlow<List<BgDataPoint>>
 
-    /** How the last loop run expects UAM to fade, as carbs (g) per 5 minutes (see `RT.uamCarbsForecast`). */
-    val uamCarbsForecastFlow: StateFlow<List<GraphDataPoint>>
+    /** The carbs the last loop run expects to be absorbed per 5 minutes (see `RT.carbsAbsorbedForecast`). */
+    val carbsAbsorbedForecastFlow: StateFlow<List<CarbsAbsorbedPoint>>
     val bgInfoFlow: StateFlow<BgInfoData?>
 
     fun updateBgReadings(data: List<BgDataPoint>)
     fun updateBucketedData(data: List<BgDataPoint>)
     fun updatePredictions(data: List<BgDataPoint>)
-    fun updateUamCarbsForecast(data: List<GraphDataPoint>)
+    fun updateCarbsAbsorbedForecast(data: List<CarbsAbsorbedPoint>)
     fun updateBgInfo(data: BgInfoData?)
 
     // =========================================================================

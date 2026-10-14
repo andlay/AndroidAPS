@@ -122,6 +122,12 @@ class DetermineBasalSMB(
         return false
     }
 
+    /** [values] up to and with the first 0 of the zeros at the end, so bars end where absorption stops; null when all are 0. */
+    private fun withoutZeroTail(values: List<Double>): List<Double>? {
+        val last = values.indexOfLast { it > 0.0 }
+        return if (last < 0) null else values.take(minOf(last + 2, values.size))
+    }
+
     fun reason(rT: RT, msg: String) {
         if (rT.reason.toString().isNotEmpty()) rT.reason.append(". ")
         rT.reason.append(msg)
@@ -585,7 +591,8 @@ class DetermineBasalSMB(
         var lastUAMpredBG: Double? = null
         //var lastZTpredBG: Int
         var UAMduration = 0.0
-        // For the graphs only: the predicted UAM carb impact as carbs per 5 minutes (see RT.uamCarbsForecast)
+        // For the graphs only: the predicted carb impact of COB and of UAM as carbs per 5 minutes (see RT.carbsAbsorbedForecast)
+        val cobCarbsForecast = mutableListOf<Double>()
         val uamCarbsForecast = mutableListOf<Double>()
         var remainingCItotal = 0.0
         val remainingCIs = mutableListOf<Int>()
@@ -669,6 +676,7 @@ class DetermineBasalSMB(
             if (IOBpredBGs.size < 48) IOBpredBGs.add(IOBpredBG)
             if (COBpredBGs.size < 48) COBpredBGs.add(COBpredBG)
             if (aCOBpredBGs.size < 48) aCOBpredBGs.add(aCOBpredBG)
+            if (COBpredBGs.size < 48) cobCarbsForecast.add((predCI + remainingCI) / csf)
             if (UAMpredBGs.size < 48) {
                 uamCarbsForecast.add(predUCI / csf)
                 UAMpredBGs.add(UAMpredBG)
@@ -751,10 +759,11 @@ class DetermineBasalSMB(
         }
 
         consoleError.add("UAM Impact: $uci mg/dL per 5m; UAM Duration: $UAMduration hours")
-        if (enableUAM && meal_data.mealCOB == 0.0 && uci > 0) {
-            // Up to and with the first 0, so the bars end on the time the rise is gone
-            val firstZero = uamCarbsForecast.indexOfFirst { it <= 0.0 }
-            rT.uamCarbsForecast = if (firstZero >= 0) uamCarbsForecast.take(firstZero + 1) else uamCarbsForecast
+        if (meal_data.mealCOB > 0.0) {
+            rT.carbsAbsorbedForecast = withoutZeroTail(cobCarbsForecast)
+            rT.carbsAbsorbedForecastFromCarbs = true
+        } else if (enableUAM && uci > 0) {
+            rT.carbsAbsorbedForecast = withoutZeroTail(uamCarbsForecast)
         }
         consoleLog.add("EventualBG is $eventualBG ;")
 

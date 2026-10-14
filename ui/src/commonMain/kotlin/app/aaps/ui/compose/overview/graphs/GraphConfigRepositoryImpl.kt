@@ -279,6 +279,9 @@ class GraphConfigRepositoryImpl(
         /** The series this element names, or null if it is not a name this version knows. */
         private fun JsonElement.seriesTypeOrNull(): SeriesType? =
             (this as? JsonPrimitive)?.takeIf { it.isString }?.content
-                ?.let { name -> SeriesType.entries.firstOrNull { it.name == name } }
+                ?.let { name -> SeriesType.entries.firstOrNull { it.name == (RENAMED_SERIES[name] ?: name) } }
+
+        /** Series that were renamed: old stored name to new name. */
+        private val RENAMED_SERIES = mapOf("UAM_CARBS" to "CARBS_ABSORBED")
     }
 }

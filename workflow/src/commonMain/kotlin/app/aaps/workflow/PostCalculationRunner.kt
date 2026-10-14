@@ -12,7 +12,7 @@ import app.aaps.core.interfaces.nsclient.ProcessedDeviceStatusData
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgRange
 import app.aaps.core.interfaces.overview.graph.BgType
-import app.aaps.core.interfaces.overview.graph.GraphDataPoint
+import app.aaps.core.interfaces.overview.graph.CarbsAbsorbedPoint
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.widget.WidgetUpdater
 import app.aaps.core.interfaces.workflow.CalculationWorkflow
@@ -139,11 +139,12 @@ class PostCalculationRunner(
 
         data.cache.updatePredictions(predictionDataPoints)
 
-        // How UAM expects the current rise to fade, per 5 minutes from the loop run on
-        val uamCarbsForecast = (apsResult?.rawData() as? RT)?.uamCarbsForecast
-            ?.mapIndexed { i, grams -> GraphDataPoint(apsResult.date + (i + 1) * 5 * 60 * 1000L, grams) }
+        // The carbs the predictions expect to be absorbed, per 5 minutes from the loop run on
+        val rt = apsResult?.rawData() as? RT
+        val carbsAbsorbedForecast = rt?.carbsAbsorbedForecast
+            ?.mapIndexed { i, grams -> CarbsAbsorbedPoint(apsResult.date + (i + 1) * 5 * 60 * 1000L, grams, rt.carbsAbsorbedForecastFromCarbs) }
             ?: emptyList()
-        data.cache.updateUamCarbsForecast(uamCarbsForecast)
+        data.cache.updateCarbsAbsorbedForecast(carbsAbsorbedForecast)
 
         // Extend cached time range to include prediction horizon
         data.cache.timeRangeFlow.value?.let { current ->
