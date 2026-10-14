@@ -717,12 +717,10 @@ fun SecondaryGraphCompose(
 
         val sharedFraction = (primaryFraction + secondaryFraction) / 2.0
 
-        val (aMin, aMax) = fractionAlignedNiceRange(primaryNice.min, primaryNice.max, sharedFraction)
-        val (bMin, bMax) = fractionAlignedRange(secondaryY.min(), secondaryMax, sharedFraction)
         // primaryNice.min is primary's own real floor (0 unless it has a genuine negative sliver);
         // aMin can be pushed below that purely to align zero with secondary — clamp labels back to
         // primary's own floor so its axis never shows a fake negative tick.
-        AlignedRanges(aMin, aMax, bMin, bMax, primaryLabelFloor = primaryNice.min)
+        alignedToNicePrimary(primaryNice.min, primaryNice.max, secondaryY.min(), secondaryMax, sharedFraction, primaryLabelFloor = primaryNice.min)
     }
 
     // Empty graph (only the normalizer series at y=0) would auto-range to a degenerate [0,0]
@@ -1699,6 +1697,21 @@ internal fun fractionAlignedRange(dataMin: Double, dataMax: Double, targetFracti
  * [targetFraction] is rounded to a nice value too — used for the primary axis, which must stay
  * nice-scaled even when its range is widened to align with a secondary axis' zero.
  */
+/**
+ * The primary range widened to [targetFraction] and rounded to nice values, and the secondary range
+ * built for where zero REALLY is on the primary axis after that rounding. Built for [targetFraction]
+ * instead, the secondary zero drifts away from the primary zero by however much the rounding moved
+ * it: with COB 0..16 and bars hanging below 0, the bars started well under the COB zero line.
+ */
+internal fun alignedToNicePrimary(
+    niceMin: Double, niceMax: Double, secondaryMin: Double, secondaryMax: Double, targetFraction: Double, primaryLabelFloor: Double? = null
+): AlignedRanges {
+    val (aMin, aMax) = fractionAlignedNiceRange(niceMin, niceMax, targetFraction)
+    val zeroFraction = if (aMax > aMin) (-aMin / (aMax - aMin)).coerceIn(0.0, 0.9) else 0.0
+    val (bMin, bMax) = fractionAlignedRange(secondaryMin, secondaryMax, zeroFraction)
+    return AlignedRanges(aMin, aMax, bMin, bMax, primaryLabelFloor = primaryLabelFloor)
+}
+
 internal fun fractionAlignedNiceRange(niceMin: Double, niceMax: Double, targetFraction: Double): Pair<Double, Double> {
     val fraction = targetFraction.coerceIn(0.0, 0.9)
     if (fraction <= 0.0) return niceMin to niceMax

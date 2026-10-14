@@ -127,7 +127,8 @@ class GraphViewModel(
      */
     val carbsAbsorbedFlow: StateFlow<List<CarbsAbsorbedPoint>> by lazy {
         combine(cache.deviationsGraphFlow, cache.carbsAbsorbedForecastFlow) { data, forecast ->
-            data.deviations.map { CarbsAbsorbedPoint(it.timestamp, it.carbsAbsorbed, fromLoggedCarbs = it.deviationType == DeviationType.CSF) } + forecast
+            val past = data.deviations.map { CarbsAbsorbedPoint(it.timestamp, it.carbsAbsorbed, fromLoggedCarbs = it.deviationType == DeviationType.CSF) }
+            past + forecastAfter(past.maxOfOrNull { it.timestamp }, forecast)
         }
             .flowOn(aapsBackgroundDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -367,4 +368,16 @@ class GraphViewModel(
         super.onCleared()
         aapsLogger.debug(LTag.UI, "GraphViewModel cleared")
     }
+}
+
+/**
+ * [forecast] timed on from the newest past point [lastPast], so the bars join up at now. The loop
+ * runs a little after the reading it works from, and the forecast is timed from the run, which left a
+ * gap of up to a few minutes between the last past bar and the first future one. Only re-timed
+ * when the forecast starts within 15 minutes of the last past point, i.e. it belongs to that reading.
+ */
+internal fun forecastAfter(lastPast: Long?, forecast: List<CarbsAbsorbedPoint>): List<CarbsAbsorbedPoint> {
+    val first = forecast.firstOrNull() ?: return forecast
+    if (lastPast == null || first.timestamp - lastPast !in 0..15 * 60_000L) return forecast
+    return forecast.mapIndexed { i, p -> p.copy(timestamp = lastPast + (i + 1) * 5 * 60_000L) }
 }
