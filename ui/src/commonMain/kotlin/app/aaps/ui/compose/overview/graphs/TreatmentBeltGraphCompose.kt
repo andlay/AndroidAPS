@@ -525,7 +525,8 @@ fun TreatmentBeltGraphCompose(
                     minWidth = TextComponent.MinWidth.fixed(30.dp)
                 ),
                 tick = rememberAxisTickComponent(fill = Fill(Color.Transparent)),
-                itemPlacer = remember { VerticalAxis.ItemPlacer.count({ 2 }) }
+                itemPlacer = remember { VerticalAxis.ItemPlacer.count({ 2 }) },
+                size = GRAPH_AXIS_SIZE
             ),
             bottomAxis = HorizontalAxis.rememberBottom(
                 valueFormatter = timeFormatter,

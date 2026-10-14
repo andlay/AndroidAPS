@@ -380,6 +380,7 @@
     <string name="graph_axis_auto" comment="The graph finds the axis end from the data in view">Auto</string>
     <string name="graph_activity_overlay">Insulin activity over IOB</string>
     <string name="graph_bg_overlays">On the BG graph</string>
+    <string name="graph_inspect_heart_rate" comment="Heart rate in the graph pop-up. %1$d=beats per minute. Example: 72 bpm">%1$d bpm</string>
     <string name="graph_trace_series">Series</string>
     <string name="graph_trace_calculation">Calculation</string>
     <string name="graph_trace_window">Window</string>

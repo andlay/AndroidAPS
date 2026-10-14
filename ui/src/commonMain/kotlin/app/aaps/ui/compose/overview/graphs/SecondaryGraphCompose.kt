@@ -157,8 +157,7 @@ fun SecondaryGraphCompose(
     leftRange: AxisRange = AxisRange.AUTO,
     /** Range of the right axis: its traces, or the basal rate of an IOB graph (max only). */
     rightRange: AxisRange = AxisRange.AUTO,
-    geometryHolder: GraphGeometryHolder? = null,
-    /** While holding the BG graph, a line at the inspected time. Null turns it off. */
+    /** While holding a graph, a line at the inspected time. Null turns it off. */
     inspect: GraphInspectState? = null,
     modifier: Modifier = Modifier
 ) {
@@ -594,10 +593,9 @@ fun SecondaryGraphCompose(
     val bottomAxisItemPlacer = rememberBottomAxisItemPlacer(minTimestamp)
     val nowLineColor = MaterialTheme.colorScheme.onSurface
     val nowLine = rememberNowLine(minTimestamp, nowTimestamp, nowLineColor)
-    val geometryReporter = remember(geometryHolder) { geometryHolder?.let { GraphGeometryReporter(it) } }
     val inspectLine = rememberInspectLine(inspect)
-    val decorations = remember(nowLine, visibleRangeReporter, geometryReporter, inspectLine) {
-        listOfNotNull(nowLine, visibleRangeReporter, geometryReporter, inspectLine)
+    val decorations = remember(nowLine, visibleRangeReporter, inspectLine) {
+        listOfNotNull(nowLine, visibleRangeReporter, inspectLine)
     }
 
     // Union of Y values across all primary-layer series (IOB, COB, simple series, DevSlope-min,
@@ -939,7 +937,8 @@ fun SecondaryGraphCompose(
             style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
             minWidth = TextComponent.MinWidth.fixed(30.dp)
         ),
-        guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+        guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))),
+        size = GRAPH_AXIS_SIZE
     )
     val bottomAxis = HorizontalAxis.rememberBottom(
         valueFormatter = timeFormatter,
