@@ -102,15 +102,17 @@ enum class DeviationType {
 /**
  * Deviation bar data point with color classification
  *
- * @param carbsAbsorbed the carbs (g) absorbed in these 5 minutes: while logged carbs absorb
- *   ([deviationType] is [DeviationType.CSF]) the carb absorption of the COB calculation, else the
- *   carbs the rise is worth (deviation / CSF), the rise the UAM prediction reacts to; 0 for a fall
+ * @param carbsAbsorbed the carbs (g) absorbed in these 5 minutes: the carb absorption of the COB
+ *   calculation when it absorbed logged carbs ([carbsFromLog]), else the carbs the rise is worth
+ *   (deviation / CSF), the rise the UAM prediction reacts to; 0 for a fall
+ * @param carbsFromLog true when [carbsAbsorbed] is logged carbs, false for an unannounced rise
  */
 data class DeviationDataPoint(
     val timestamp: Long,
     val value: Double,
     val deviationType: DeviationType,
-    val carbsAbsorbed: Double = 0.0
+    val carbsAbsorbed: Double = 0.0,
+    val carbsFromLog: Boolean = false
 )
 
 /**

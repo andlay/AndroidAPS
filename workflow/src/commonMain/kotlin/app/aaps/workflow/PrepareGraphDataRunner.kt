@@ -783,14 +783,17 @@ class PrepareGraphDataRunner(
                     autosensData.pastSensitivity == "-" -> DeviationType.NEGATIVE
                     else                                -> DeviationType.EQUAL
                 }
-                // Carbs absorbed in these 5 minutes: the COB absorption while logged carbs absorb, else what
-                // a rise no logged carbs explain is worth, with the same formula (deviation / CSF)
+                // Carbs absorbed in these 5 minutes: the COB absorption when it absorbed logged carbs, else
+                // what a rise no logged carbs explain is worth, with the same formula (deviation / CSF).
+                // In the step carbs are entered the COB calculation absorbs nothing yet, so a rise there
+                // counts as unannounced; it is not left out as a gap.
+                val fromLog = deviationType == DeviationType.CSF && autosensData.this5MinAbsorption > 0
                 val carbsAbsorbed = when {
-                    deviationType == DeviationType.CSF                          -> autosensData.this5MinAbsorption
+                    fromLog                                             -> autosensData.this5MinAbsorption
                     autosensData.deviation > 0 && autosensData.sens > 0 -> autosensData.deviation * profile.getIc(time) / autosensData.sens
-                    else                                                        -> 0.0
+                    else                                                -> 0.0
                 }
-                deviationsListCompose.add(DeviationDataPoint(time, glucoseChangeInUnits(autosensData.deviation), deviationType, carbsAbsorbed))
+                deviationsListCompose.add(DeviationDataPoint(time, glucoseChangeInUnits(autosensData.deviation), deviationType, carbsAbsorbed, fromLog))
 
                 ratioListCompose.add(GraphDataPoint(time, 100.0 * (autosensData.autosensResult.ratio - 1)))
 

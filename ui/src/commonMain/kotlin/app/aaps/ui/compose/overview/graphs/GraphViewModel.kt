@@ -13,7 +13,6 @@ import app.aaps.core.interfaces.overview.graph.BgiGraphData
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
 import app.aaps.core.interfaces.overview.graph.CarbsAbsorbedPoint
-import app.aaps.core.interfaces.overview.graph.DeviationType
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.GraphTrace
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
@@ -127,7 +126,7 @@ class GraphViewModel(
      */
     val carbsAbsorbedFlow: StateFlow<List<CarbsAbsorbedPoint>> by lazy {
         combine(cache.deviationsGraphFlow, cache.carbsAbsorbedForecastFlow) { data, forecast ->
-            val past = data.deviations.map { CarbsAbsorbedPoint(it.timestamp, it.carbsAbsorbed, fromLoggedCarbs = it.deviationType == DeviationType.CSF) }
+            val past = data.deviations.map { CarbsAbsorbedPoint(it.timestamp, it.carbsAbsorbed, fromLoggedCarbs = it.carbsFromLog) }
             past + forecastAfter(past.maxOfOrNull { it.timestamp }, forecast)
         }
             .flowOn(aapsBackgroundDispatcher)
