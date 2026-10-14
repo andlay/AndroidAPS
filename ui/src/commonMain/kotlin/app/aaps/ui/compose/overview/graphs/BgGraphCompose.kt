@@ -85,6 +85,33 @@ private val BG_VISIBLE_RANGE_KEY = ExtraStore.Key<Pair<Long?, Long?>>()
  * the chart itself is never rebuilt mid-gesture. Private to this file: BG is the only graph that
  * needs this (secondary graphs are non-interactive, so `.fixed(...)` churn never affected them).
  */
+/**
+ * The BG axis range: the readings and predictions in the visible window (all of them when the window
+ * has none), rounded to clean numbers.
+ *
+ * At the default zoom or wider the range is widened to at least the low and high marks, so the
+ * target range is always in view. When the user zooms in further, the range fits the visible
+ * readings instead, so small changes can be seen. It is never smaller than a quarter of the target range
+ * (1.5 mmol/L or 27 mg/dL for 4-10), so noise of a few tenths does not fill the whole graph.
+ */
+internal fun bgAxisScale(points: List<BgDataPoint>, window: Pair<Long, Long>?, lowMark: Double, highMark: Double): NiceScale {
+    val windowed = points.filter { window == null || it.timestamp in window.first..window.second }.ifEmpty { points }.map { it.value }
+    val zoomedIn = window != null && window.second - window.first < ZOOMED_IN_WINDOW_MS
+    if (zoomedIn && windowed.isNotEmpty()) {
+        val dataMin = windowed.min()
+        val dataMax = windowed.max()
+        val halfSpan = maxOf(dataMax - dataMin, (highMark - lowMark) / 4.0) / 2.0
+        val middle = (dataMin + dataMax) / 2.0
+        return niceScale((middle - halfSpan).coerceAtLeast(0.0), middle + halfSpan)
+    }
+    val dataMax = maxOf(windowed.maxOrNull() ?: highMark, highMark)
+    val dataMin = minOf(windowed.minOrNull() ?: lowMark, lowMark)
+    return niceScale(dataMin, dataMax)
+}
+
+/** A visible window shorter than this is zoomed in past the default (with a small margin for rounding). */
+private const val ZOOMED_IN_WINDOW_MS = (DEFAULT_GRAPH_ZOOM_MINUTES * 0.95 * 60_000).toLong()
+
 private class MutableYRangeProvider(
     @Volatile var maxX: Double,
     @Volatile var minY: Double,
@@ -371,13 +398,8 @@ fun BgGraphCompose(
         // Includes predictions (when shown) — otherwise scrolling into a region with only future
         // prediction data (no real BG readings) makes the windowed set empty, falling back to the
         // full unwindowed history's max instead of the actually-visible prediction values.
-        fun inWindow(timestamp: Long) = visibleTimeRange == null || timestamp in visibleTimeRange.first..visibleTimeRange.second
-        val allBgAndPredictionValues = (bgReadings + bucketedData + predictions).map { it.value }
-        val windowedValues = (bgReadings + bucketedData + predictions).filter { inWindow(it.timestamp) }.map { it.value }
-        val windowedOrFull = windowedValues.ifEmpty { allBgAndPredictionValues }
-        val dataMax = maxOf(windowedOrFull.maxOrNull() ?: chartConfig.highMark, chartConfig.highMark)
-        val dataMin = minOf(windowedOrFull.minOrNull() ?: chartConfig.lowMark, chartConfig.lowMark)
-        val niceBgScale = niceScale(dataMin, dataMax)
+        // Zoomed in past the default, the axis fits the visible readings instead (see bgAxisScale).
+        val niceBgScale = bgAxisScale(bgReadings + bucketedData + predictions, visibleTimeRange, chartConfig.lowMark, chartConfig.highMark)
         startAxisRangeProvider.maxX = maxX
         startAxisRangeProvider.minY = niceBgScale.min
         startAxisRangeProvider.maxY = niceBgScale.max
@@ -568,7 +590,12 @@ fun BgGraphCompose(
     val highMark = chartConfig.highMark
     val inRangeBox = remember(lowMark, highMark, inRangeColor) {
         HorizontalBox(
-            y = { lowMark..highMark },
+            // Kept inside the axis: when zoomed in, the axis can be narrower than the target range
+            y = {
+                val low = lowMark.coerceIn(startAxisRangeProvider.minY, startAxisRangeProvider.maxY)
+                val high = highMark.coerceIn(startAxisRangeProvider.minY, startAxisRangeProvider.maxY)
+                low..high
+            },
             box = ShapeComponent(fill = Fill(inRangeColor.copy(alpha = 0.2f))),
             verticalAxisPosition = Axis.Position.Vertical.Start
         )
@@ -628,7 +655,8 @@ fun BgGraphCompose(
                     style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
                     minWidth = TextComponent.MinWidth.fixed(30.dp)
                 ),
-                guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+                guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))),
+                size = GRAPH_AXIS_SIZE
             ),
             bottomAxis = HorizontalAxis.rememberBottom(
                 valueFormatter = timeFormatter,
