@@ -585,6 +585,8 @@ class DetermineBasalSMB(
         var lastUAMpredBG: Double? = null
         //var lastZTpredBG: Int
         var UAMduration = 0.0
+        // For the graphs only: the predicted UAM carb impact as carbs per 5 minutes (see RT.uamCarbsForecast)
+        val uamCarbsForecast = mutableListOf<Double>()
         var remainingCItotal = 0.0
         val remainingCIs = mutableListOf<Int>()
         val predCIs = mutableListOf<Int>()
@@ -667,7 +669,10 @@ class DetermineBasalSMB(
             if (IOBpredBGs.size < 48) IOBpredBGs.add(IOBpredBG)
             if (COBpredBGs.size < 48) COBpredBGs.add(COBpredBG)
             if (aCOBpredBGs.size < 48) aCOBpredBGs.add(aCOBpredBG)
-            if (UAMpredBGs.size < 48) UAMpredBGs.add(UAMpredBG)
+            if (UAMpredBGs.size < 48) {
+                uamCarbsForecast.add(predUCI / csf)
+                UAMpredBGs.add(UAMpredBG)
+            }
             if (ZTpredBGs.size < 48) ZTpredBGs.add(ZTpredBG)
             // calculate minGuardBGs without a wait from COB, UAM, IOB predBGs
             if (COBpredBG < minCOBGuardBG) minCOBGuardBG = round(COBpredBG).toDouble()
@@ -746,6 +751,11 @@ class DetermineBasalSMB(
         }
 
         consoleError.add("UAM Impact: $uci mg/dL per 5m; UAM Duration: $UAMduration hours")
+        if (enableUAM && meal_data.mealCOB == 0.0 && uci > 0) {
+            // Up to and with the first 0, so the bars end on the time the rise is gone
+            val firstZero = uamCarbsForecast.indexOfFirst { it <= 0.0 }
+            rT.uamCarbsForecast = if (firstZero >= 0) uamCarbsForecast.take(firstZero + 1) else uamCarbsForecast
+        }
         consoleLog.add("EventualBG is $eventualBG ;")
 
         // The predictions above are clamped to [39, 401], but a non-finite tick escapes that clamp and

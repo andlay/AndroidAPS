@@ -7,6 +7,7 @@ import kotlinx.datetime.format.char
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -47,6 +48,15 @@ data class RT(
     var consoleLog: MutableList<String>? = null,
     var consoleError: MutableList<String>? = null
 ) {
+
+    /**
+     * How the UAM prediction lets the current unexplained rise fade, as carbs (g) per 5 minutes:
+     * index 0 is 5 minutes after [timestamp]. Only set when UAM is on, no carbs are on board and BG
+     * is rising more than insulin explains. For the graphs only: not sent anywhere (not serialized)
+     * and not in [equals], so it does not change results that are compared or uploaded.
+     */
+    @Transient
+    var uamCarbsForecast: List<Double>? = null
 
     fun serialize() = Json.encodeToString(serializer(), this)
 

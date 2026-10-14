@@ -4,6 +4,7 @@ import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.SourceSensor
 import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.aps.Loop
+import app.aaps.core.interfaces.aps.RT
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.iob.IobCobCalculator
 import app.aaps.core.interfaces.logging.AAPSLogger
@@ -11,6 +12,7 @@ import app.aaps.core.interfaces.nsclient.ProcessedDeviceStatusData
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgRange
 import app.aaps.core.interfaces.overview.graph.BgType
+import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.widget.WidgetUpdater
 import app.aaps.core.interfaces.workflow.CalculationWorkflow
@@ -136,6 +138,12 @@ class PostCalculationRunner(
             ?: emptyList()
 
         data.cache.updatePredictions(predictionDataPoints)
+
+        // How UAM expects the current rise to fade, per 5 minutes from the loop run on
+        val uamCarbsForecast = (apsResult?.rawData() as? RT)?.uamCarbsForecast
+            ?.mapIndexed { i, grams -> GraphDataPoint(apsResult.date + (i + 1) * 5 * 60 * 1000L, grams) }
+            ?: emptyList()
+        data.cache.updateUamCarbsForecast(uamCarbsForecast)
 
         // Extend cached time range to include prediction horizon
         data.cache.timeRangeFlow.value?.let { current ->

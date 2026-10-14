@@ -194,7 +194,10 @@ class GraphViewModel(
         SeriesType.COB             -> cobGraphFlow.map { it.cob }
         SeriesType.BGI             -> bgiGraphFlow.map { it.bgi }
         SeriesType.DEVIATIONS      -> deviationsGraphFlow.map { data -> data.deviations.map { GraphDataPoint(it.timestamp, it.value) } }
-        SeriesType.UAM_CARBS       -> deviationsGraphFlow.map { data -> data.deviations.map { GraphDataPoint(it.timestamp, it.uamCarbs) } }
+        // The past from the deviations, then how the last loop run expects UAM to fade
+        SeriesType.UAM_CARBS       -> combine(deviationsGraphFlow, cache.uamCarbsForecastFlow) { data, forecast ->
+            data.deviations.map { GraphDataPoint(it.timestamp, it.uamCarbs) } + forecast
+        }
         // Stored as 100*(ratio-1), shown shifted by +100 as a percentage (90%, 110%), like the graph does
         SeriesType.SENSITIVITY     -> ratioGraphFlow.map { data -> data.ratio.map { GraphDataPoint(it.timestamp, it.value + 100.0) } }
         SeriesType.VAR_SENSITIVITY -> varSensGraphFlow.map { it.varSens }
