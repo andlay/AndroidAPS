@@ -708,7 +708,7 @@ class O5PumpPluginTest : TestBaseWithProfile() {
         whenever(podStateManager.suspendAlertsEnabled).thenAnswer { suspendAlertsEnabled }
         doAnswer { suspendAlertsEnabled = it.getArgument(0); null }.whenever(podStateManager).suspendAlertsEnabled = any()
 
-        plugin.executeCustomCommand(CommandDisableSuspendAlerts())
+        plugin.executeCustomCommand(CommandDisableSuspendAlerts(rh))
 
         // One command, and it set the alert (the pod id is stored), not only cleared the slot
         verify(bleManager, times(1)).sendCommand(any(), any())
