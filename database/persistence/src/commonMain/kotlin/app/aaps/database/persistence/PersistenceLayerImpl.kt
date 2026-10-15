@@ -2598,6 +2598,13 @@ class PersistenceLayerImpl(
         repository.getApsResultVariableSens(start, end).mapNotNull { row -> row.variableSens?.let { PersistenceLayer.VariableSensitivity(row.timestamp, it) } }
     }
 
+    override suspend fun getAutoIsfFactors(start: Long, end: Long): List<PersistenceLayer.AutoIsfFactorsAt> = withContext(aapsIoDispatcher) {
+        repository.getApsResultAutoIsfFactors(start, end).mapNotNull { row ->
+            val applied = row.applied ?: return@mapNotNull null
+            PersistenceLayer.AutoIsfFactorsAt(row.timestamp, row.acce ?: 1.0, row.bg ?: 1.0, row.pp ?: 1.0, row.dura ?: 1.0, applied)
+        }
+    }
+
     private val nonFiniteFieldRegex = Regex("(\\w+)=(NaN|Infinity|-Infinity)\\b")
 
     // Diagnostic only — must never let a reporting failure block persistence of the APSResult, so the whole

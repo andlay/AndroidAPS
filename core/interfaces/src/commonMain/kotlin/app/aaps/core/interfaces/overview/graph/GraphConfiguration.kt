@@ -24,6 +24,9 @@ enum class SeriesType {
     DEV_CARBS,
     SENSITIVITY,
     VAR_SENSITIVITY,
+
+    /** AutoISF factors of each loop run, and the factor that was applied (see [VarSensGraphData.autoIsf]). */
+    AUTOISF,
     DEV_SLOPE,
     HEART_RATE,
     STEPS,

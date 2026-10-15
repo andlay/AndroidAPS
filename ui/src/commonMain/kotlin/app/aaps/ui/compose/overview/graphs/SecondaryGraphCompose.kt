@@ -21,6 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.graph.vico.AdaptiveStep
 import app.aaps.core.graph.vico.Square
+import app.aaps.core.interfaces.overview.graph.AutoIsfFactorPoint
 import app.aaps.core.interfaces.overview.graph.BolusType
 import app.aaps.core.interfaces.overview.graph.DeviationType
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
@@ -163,7 +164,7 @@ fun SecondaryGraphCompose(
 
     // Ensure DEV_SLOPE is always primary — it needs primary to render both dsMax and dsMin lines
     val orderedTypes = remember(seriesTypes) {
-        val mustBePrimary = setOf(SeriesType.DEV_SLOPE, SeriesType.DEVIATIONS)
+        val mustBePrimary = setOf(SeriesType.DEV_SLOPE, SeriesType.DEVIATIONS, SeriesType.AUTOISF)
         if (seriesTypes.size >= 2 && seriesTypes[0] !in mustBePrimary && seriesTypes[1] in mustBePrimary)
             listOf(seriesTypes[1], seriesTypes[0])
         else
@@ -219,6 +220,8 @@ fun SecondaryGraphCompose(
     // DEV carbs, on either axis: one list per run, each drawn on its own
     val devCarbsRuns = if (SeriesType.DEV_CARBS in orderedTypes) viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value.devCarbs else emptyList()
     val devCarbsData = if (primaryType == SeriesType.DEV_CARBS) devCarbsRuns else null
+    // AutoISF factors: several lines, so always on the left axis (see mustBePrimary)
+    val autoIsfData = if (primaryType == SeriesType.AUTOISF) viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.autoIsf else null
     // Activity data: either as primary series OR as overlay (on IOB graph)
     val needsActivity = primaryType == SeriesType.ACTIVITY || (activityOverlay && hasIob)
     val activityData = if (needsActivity) viewModel.activityGraphFlow.collectAsStateWithLifecycle().value else null
@@ -246,6 +249,8 @@ fun SecondaryGraphCompose(
         SeriesType.VAR_SENSITIVITY -> viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.varSens
         SeriesType.DEV_SLOPE       -> viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value.dsMax
         SeriesType.DEV_CARBS       -> devCarbsRuns.flatten() // for the axis range; drawn as runs (see secondaryRuns)
+        // Only when both series must be on the left axis: then the applied factor alone
+        SeriesType.AUTOISF         -> viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.autoIsf.map { GraphDataPoint(it.timestamp, it.applied) }
         SeriesType.HEART_RATE      -> viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value.heartRates
         SeriesType.STEPS           -> viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value.steps
         SeriesType.ACTIVITY        -> viewModel.activityGraphFlow.collectAsStateWithLifecycle().value.activity
@@ -304,6 +309,15 @@ fun SecondaryGraphCompose(
                 }
             }
         }
+    }
+
+    // AutoISF: one line per factor. The applied factor first, so the factors and their dots stay
+    // visible where they run along it.
+    val processedAutoIsf = remember(autoIsfData, stableTimeRange) {
+        if (!hasRealTimeRange || autoIsfData.isNullOrEmpty()) return@remember emptyList()
+        AutoIsfLine.entries.sortedBy { it != AutoIsfLine.APPLIED }.map { line ->
+            line to processPoints(autoIsfData.map { GraphDataPoint(it.timestamp, line.valueAt(it)) }, minTimestamp, minX, maxX)
+        }.filter { it.second.isNotEmpty() }
     }
 
     // DevSlope min line — separate from simple series for distinct color
@@ -454,7 +468,7 @@ fun SecondaryGraphCompose(
     // stale 0..1 axis until the next recomposition ("renders wrong, then fixes itself").
     val primarySeries = remember(
         processedDeviationLines, processedIob, processedIobTreatments, processedCob,
-        processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedActivityOverlay
+        processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedActivityOverlay, processedAutoIsf
     ) {
         buildList {
             // Deviation lines (per-type step lines) — first so other series draw on top
@@ -493,6 +507,9 @@ fun SecondaryGraphCompose(
                     add(PrimarySeriesSpec(run.map { it.first }, run.map { it.second }, slot))
                 }
             }
+            processedAutoIsf.forEach { (line, pts) ->
+                add(PrimarySeriesSpec(pts.map { it.first }, pts.map { it.second }, SeriesSlot.AutoIsfFactor(line)))
+            }
             // DevSlope min (separate slot for magenta color)
             if (processedDevSlopeMin.isNotEmpty())
                 add(PrimarySeriesSpec(processedDevSlopeMin.map { it.first }, processedDevSlopeMin.map { it.second }, SeriesSlot.DevSlopeMin))
@@ -515,7 +532,9 @@ fun SecondaryGraphCompose(
     val cobLineStyle = rememberCobLineStyles()
     val normalizerLine = remember { createNormalizerLine() }
 
-    val lines = remember(primarySeries, seriesColors, iobLineStyle, cobLineStyle, normalizerLine) {
+    // The applied AutoISF factor: white on the dark theme, as the text it is drawn over
+    val autoIsfAppliedColor = MaterialTheme.colorScheme.onSurface
+    val lines = remember(primarySeries, seriesColors, iobLineStyle, cobLineStyle, normalizerLine, autoIsfAppliedColor) {
         buildList {
             for (spec in primarySeries) {
                 add(
@@ -534,6 +553,7 @@ fun SecondaryGraphCompose(
                         SeriesSlot.ActivityOverlay  -> createSeriesLine(SeriesType.ACTIVITY, seriesColors)
                         is SeriesSlot.SimpleLine    -> createSeriesLine(slot.type, seriesColors)
                         is SeriesSlot.DevCarbsRun   -> createDevCarbsLine(slot.positive)
+                        is SeriesSlot.AutoIsfFactor -> createAutoIsfLine(slot.line, autoIsfAppliedColor)
                     }
                 )
             }
@@ -595,9 +615,10 @@ fun SecondaryGraphCompose(
     // `primaryY=[null..null] n=0` against `modelY=[0.0..43.0] slots=[CarbsMarker]`, giving an axis of
     // 0..44 that a COB curve reaching 148 was drawn straight through.
     val primaryYValues = remember(
-        processedIob, processedCob, processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedDeviationLines, visibleMinX, visibleMaxX
+        processedIob, processedCob, processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedDeviationLines, processedAutoIsf, visibleMinX, visibleMaxX
     ) {
-        windowedPrimaryY(visibleMinX, visibleMaxX, processedIob, processedCob.first, processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedDeviationLines)
+        val simpleAndAutoIsf = processedSimpleSeries + processedAutoIsf.map { (_, pts) -> SeriesType.AUTOISF to pts }
+        windowedPrimaryY(visibleMinX, visibleMaxX, processedIob, processedCob.first, processedCarbs, simpleAndAutoIsf, processedDevSlopeMin, processedDeviationLines)
     }
 
     // IOB (with basal overlay active): zero-floor nice range — 0 if the visible window has no
@@ -637,15 +658,15 @@ fun SecondaryGraphCompose(
         val secondaryY = windowedY(processedSecondary, visibleMinX, visibleMaxX)
         if (primaryYValues.isEmpty() || secondaryY.isEmpty()) return@remember null
 
-        val primaryIsPivot = primaryType == SeriesType.SENSITIVITY || primaryType == SeriesType.DEV_SLOPE
-        val secondaryIsPivot = secondaryType == SeriesType.SENSITIVITY || secondaryType == SeriesType.DEV_SLOPE
+        val primaryIsPivot = pivotOf(primaryType) != null
+        val secondaryIsPivot = pivotOf(secondaryType) != null
         if (primaryIsPivot != secondaryIsPivot) {
             // Exactly one side is pivot-centered (SENS/DEV_SLOPE), the other zero-floor-style
             // (e.g. COB, BGI) — see [pivotZeroFloorPairing] for how each side's range is built.
-            val isSensPivot = primaryType == SeriesType.SENSITIVITY || secondaryType == SeriesType.SENSITIVITY
-            val pivot = if (isSensPivot) 100.0 else 0.0
-            val pivotMinDeviation = if (isSensPivot) SENS_MIN_DEVIATION else 0.0
-            val pivotTickCount = if (isSensPivot) SENS_PIVOT_TICK_COUNT else SECONDARY_GRAPH_TICK_COUNT
+            val pivotType = if (primaryIsPivot) primaryType else secondaryType
+            val pivot = pivotOf(pivotType) ?: 0.0
+            val pivotMinDeviation = pivotMinDeviationOf(pivotType)
+            val pivotTickCount = if (pivotType == SeriesType.SENSITIVITY) SENS_PIVOT_TICK_COUNT else SECONDARY_GRAPH_TICK_COUNT
             return@remember if (primaryIsPivot) {
                 val pairing = pivotZeroFloorPairing(primaryYValues, secondaryY, pivot, pivotMinDeviation, pivotTickCount)
                 // Primary is the pivot itself here — its own axis is fully meaningful in both
@@ -664,8 +685,8 @@ fun SecondaryGraphCompose(
             // Both sides pivot-centered (SENS + DEV_SLOPE together — unusual but possible): keep
             // the existing pivot-aware zero alignment, both are symmetric around their own pivot
             // anyway so the old mechanism is adequate here.
-            val primaryPivot = if (primaryType == SeriesType.SENSITIVITY) 100.0 else 0.0
-            val secondaryPivot = if (secondaryType == SeriesType.SENSITIVITY) 100.0 else 0.0
+            val primaryPivot = pivotOf(primaryType) ?: 0.0
+            val secondaryPivot = pivotOf(secondaryType) ?: 0.0
             return@remember alignZeros(primaryYValues.min(), primaryYValues.max(), secondaryY.min(), secondaryY.max(), primaryPivot, secondaryPivot)
         }
 
@@ -736,6 +757,7 @@ fun SecondaryGraphCompose(
             in ZERO_FLOOR_SERIES_TYPES                         -> zeroFloorNiceRange(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
             SeriesType.VAR_SENSITIVITY, SeriesType.HEART_RATE  -> niceScale(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
             SeriesType.SENSITIVITY                             -> niceScaleAroundPivot(primaryYValues.min(), primaryYValues.max(), 100.0, SENS_PIVOT_TICK_COUNT, SENS_MIN_DEVIATION)
+            SeriesType.AUTOISF                                 -> niceScaleAroundPivot(primaryYValues.min(), primaryYValues.max(), 1.0, SECONDARY_GRAPH_TICK_COUNT, AUTOISF_MIN_DEVIATION)
             SeriesType.DEV_SLOPE                               -> niceScaleAroundPivot(primaryYValues.min(), primaryYValues.max(), 0.0, SECONDARY_GRAPH_TICK_COUNT)
             else                                               -> null
         }
@@ -850,6 +872,7 @@ fun SecondaryGraphCompose(
         processedBasalActual,
         secondaryRuns,
         processedActivityOverlay,
+        processedAutoIsf,
         maxX,
         axisScale
     ) {
@@ -984,6 +1007,7 @@ private sealed class SeriesSlot {
     data object CarbsMarker : SeriesSlot()
     data class SimpleLine(val type: SeriesType) : SeriesSlot()
     data class DevCarbsRun(val positive: Boolean) : SeriesSlot()
+    data class AutoIsfFactor(val line: AutoIsfLine) : SeriesSlot()
     data object DevSlopeMin : SeriesSlot()
     data object ActivityOverlay : SeriesSlot()
 }
@@ -1199,6 +1223,7 @@ data class SeriesColors(
         SeriesType.VAR_SENSITIVITY -> varSensitivity
         SeriesType.DEV_SLOPE       -> devSlope
         SeriesType.DEV_CARBS       -> deviations
+        SeriesType.AUTOISF         -> varSensitivity
         SeriesType.HEART_RATE      -> heartRate
         SeriesType.STEPS           -> steps
         SeriesType.ACTIVITY        -> activity
@@ -1231,10 +1256,17 @@ fun rememberSeriesColors(): SeriesColors {
 /** DevSlope min line — magenta, no fill (matches @color/devSlopeNeg #FF00FF) */
 private fun createDevSlopeMinLine(): LineCartesianLayer.Line {
     return LineCartesianLayer.Line(
-        fill = LineCartesianLayer.LineFill.single(Fill(Color(0xFFFF00FF))),
+        fill = LineCartesianLayer.LineFill.single(Fill(devSlopeMinColor())),
         areaFill = null
     )
 }
+
+/** The falling DEVSLOPE line (magenta), also used for its value in the pop-up. */
+internal fun devSlopeMinColor(): Color = Color(0xFFFF00FF)
+
+/** The colours of the DEV carbs runs, also used for their value in the pop-up. */
+internal fun devCarbsPositiveColor(): Color = DEVIATION_COLOR_POSITIVE
+internal fun devCarbsNegativeColor(): Color = DEVIATION_COLOR_NEGATIVE
 
 /** Create a line style for a given series type, matching legacy rendering */
 /**
@@ -1268,6 +1300,64 @@ private fun createDevCarbsLine(positive: Boolean): LineCartesianLayer.Line {
         interpolator = LineCartesianLayer.Interpolator.Sharp
     )
 }
+
+/** The value the axis of a series is centred on, or null for a series that is not centred. */
+internal fun pivotOf(type: SeriesType?): Double? = when (type) {
+    SeriesType.SENSITIVITY -> 100.0
+    SeriesType.DEV_SLOPE   -> 0.0
+    SeriesType.AUTOISF     -> 1.0
+    else                   -> null
+}
+
+/** How far a centred axis reaches at least on each side of [pivotOf], so a flat series is not blown up. */
+internal fun pivotMinDeviationOf(type: SeriesType?): Double = when (type) {
+    SeriesType.SENSITIVITY -> SENS_MIN_DEVIATION
+    SeriesType.AUTOISF     -> AUTOISF_MIN_DEVIATION
+    else                   -> 0.0
+}
+
+/** The AutoISF axis shows at least 0.9 to 1.1. */
+internal const val AUTOISF_MIN_DEVIATION = 0.1
+
+/**
+ * One line of the AutoISF graph: each factor in its own colour with a small dot at each loop run, and
+ * the factor that was applied in bold in the text colour, under the others. The emojis are used in the
+ * values pop-up.
+ */
+internal enum class AutoIsfLine(val color: Color?, val emoji: String) {
+    ACCE(Color(0xFFFFA726), "⤴️"),   // acceleration of BG: speeding up or braking
+    BG(Color(0xFF29B6F6), "🎚️"),     // how far BG is from the target (🎯 below target, see emojiAt)
+    PP(Color(0xFF66BB6A), "📈"),     // rise after a meal
+    DURA(Color(0xFFEC407A), "🔝"),   // stuck high
+    APPLIED(null, "⭐");             // the factor that was used
+
+    /** The emoji for this factor at [point]: the BG factor below 1.0 means BG is below the target. */
+    fun emojiAt(point: AutoIsfFactorPoint): String = if (this == BG && point.bg < 1.0) "🎯" else emoji
+
+    fun valueAt(point: AutoIsfFactorPoint): Double = when (this) {
+        ACCE    -> point.acce
+        BG      -> point.bg
+        PP      -> point.pp
+        DURA    -> point.dura
+        APPLIED -> point.applied
+    }
+}
+
+private fun createAutoIsfLine(line: AutoIsfLine, appliedColor: Color): LineCartesianLayer.Line {
+    val color = line.color ?: appliedColor
+    return LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(color)),
+        stroke = LineCartesianLayer.LineStroke.Continuous(thickness = if (line == AutoIsfLine.APPLIED) 3.dp else 1.5.dp),
+        areaFill = null,
+        // A small dot per loop run on the factors, so a factor that equals the applied one is still seen
+        pointProvider = if (line == AutoIsfLine.APPLIED) null else LineCartesianLayer.PointProvider.single(
+            LineCartesianLayer.Point(component = ShapeComponent(fill = Fill(color), shape = CircleShape), size = AUTOISF_DOT_SIZE)
+        )
+    )
+}
+
+/** The dots on the AutoISF factor lines. */
+private val AUTOISF_DOT_SIZE = 4.dp
 
 /** Bars: a [Square] step line with a solid fill down to zero. */
 private fun createBarLine(color: Color): LineCartesianLayer.Line = LineCartesianLayer.Line(

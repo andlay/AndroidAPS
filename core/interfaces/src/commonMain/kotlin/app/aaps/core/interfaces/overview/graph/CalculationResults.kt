@@ -188,9 +188,22 @@ data class DevSlopeGraphData(
 
 /**
  * Variable sensitivity graph data: sensitivity line from APS results
+ *
+ * @param autoIsf the AutoISF factors of each loop run that has them (AutoISF with the weights on)
  */
 data class VarSensGraphData(
-    val varSens: List<GraphDataPoint>
+    val varSens: List<GraphDataPoint>,
+    val autoIsf: List<AutoIsfFactorPoint> = emptyList()
+)
+
+/** The AutoISF factors of one loop run. 1.0 is no change, above 1.0 is a stronger ISF. */
+data class AutoIsfFactorPoint(
+    val timestamp: Long,
+    val acce: Double,
+    val bg: Double,
+    val pp: Double,
+    val dura: Double,
+    val applied: Double
 )
 
 /**

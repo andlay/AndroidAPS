@@ -1695,6 +1695,22 @@ interface PersistenceLayer {
     )
 
     /**
+     * Get the AutoISF factors of every APSResult in an interval that has them, oldest first.
+     * Read like [getVariableSensitivities]. Only AutoISF runs with the weights on have factors.
+     */
+    suspend fun getAutoIsfFactors(start: Long, end: Long): List<AutoIsfFactorsAt> = emptyList()
+
+    /** The AutoISF factors of one loop run. 1.0 is no change; see `AutoIsfFactors`. */
+    data class AutoIsfFactorsAt(
+        val timestamp: Long,
+        val acce: Double,
+        val bg: Double,
+        val pp: Double,
+        val dura: Double,
+        val applied: Double
+    )
+
+    /**
      * Insert or update ApsResult record
      *
      * @param apsResult record

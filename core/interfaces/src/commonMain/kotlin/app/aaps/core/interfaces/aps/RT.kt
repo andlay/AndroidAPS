@@ -45,7 +45,9 @@ data class RT(
     var isfMgdlForCarbs: Double? = null, // used to pass to AAPS client
 
     var consoleLog: MutableList<String>? = null,
-    var consoleError: MutableList<String>? = null
+    var consoleError: MutableList<String>? = null,
+    /** AutoISF only: the ISF factors of this run, for the AutoISF graph. Null for other algorithms. */
+    var autoIsfFactors: AutoIsfFactors? = null
 ) {
 
     fun serialize() = Json.encodeToString(serializer(), this)

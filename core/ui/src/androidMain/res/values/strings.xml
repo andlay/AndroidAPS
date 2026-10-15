@@ -1178,6 +1178,7 @@
     <string name="heartRate_shortname" comment="Short label for Heart Rate graph series">HR</string>
     <string name="sensitivity_shortname" comment="Short label for Sensitivity/Autosens graph series">SENS%</string>
     <string name="variable_sensitivity_shortname" comment="Short label for Variable Sensitivity graph series">VSENS</string>
+    <string name="autoisf_shortname" comment="Short label for the graph series with the AutoISF factors">AUTOISF</string>
     <string name="steps_shortname" comment="Short label for Steps graph series">STEPS</string>
 
 

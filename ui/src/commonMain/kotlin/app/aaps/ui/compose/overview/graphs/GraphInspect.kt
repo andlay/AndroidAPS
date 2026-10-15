@@ -42,12 +42,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.aaps.core.data.model.GlucoseUnit
 import app.aaps.core.interfaces.InterfacesStrings
 import app.aaps.core.interfaces.navigation.ElementType
+import app.aaps.core.interfaces.overview.graph.AutoIsfFactorPoint
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgRange
 import app.aaps.core.interfaces.overview.graph.BolusGraphPoint
 import app.aaps.core.interfaces.overview.graph.BolusType
 import app.aaps.core.interfaces.overview.graph.CarbsGraphPoint
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
+import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.overview.graph.TbrState
 import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.compose.AapsSpacing
@@ -73,7 +75,8 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
-// Press and hold on the BG graph: a dot on the reading, a line in every graph and a pill with the values.
+// Press and hold on any graph: a line in every graph and a pill with the values (a dot on the reading
+// when held on the BG graph). The pill also has the values of the extra graphs that are shown.
 
 /** Max distance from the finger's time for a reading or value, in ms. */
 private const val INSPECT_MATCH_MS = 5 * 60_000L
@@ -243,6 +246,8 @@ fun GraphInspectOverlay(
     graphViewModel: GraphViewModel,
     bgReadings: List<BgDataPoint>,
     minTimestamp: Long?,
+    /** The series of the extra graphs that are shown; their values are added to the pill. */
+    extraSeries: List<SeriesType> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     var inspectData by remember { mutableStateOf<InspectData?>(null) }
@@ -250,8 +255,18 @@ fun GraphInspectOverlay(
     val cobGraph by graphViewModel.cobGraphFlow.collectAsStateWithLifecycle()
     val basalGraph by graphViewModel.basalGraphFlow.collectAsStateWithLifecycle()
     val treatmentGraph by graphViewModel.treatmentGraphFlow.collectAsStateWithLifecycle()
+    val absIobGraph by graphViewModel.absIobGraphFlow.collectAsStateWithLifecycle()
+    val activityGraph by graphViewModel.activityGraphFlow.collectAsStateWithLifecycle()
+    val bgiGraph by graphViewModel.bgiGraphFlow.collectAsStateWithLifecycle()
+    val deviationsGraph by graphViewModel.deviationsGraphFlow.collectAsStateWithLifecycle()
+    val ratioGraph by graphViewModel.ratioGraphFlow.collectAsStateWithLifecycle()
+    val devSlopeGraph by graphViewModel.devSlopeGraphFlow.collectAsStateWithLifecycle()
+    val varSensGraph by graphViewModel.varSensGraphFlow.collectAsStateWithLifecycle()
+    val heartRateGraph by graphViewModel.heartRateGraphFlow.collectAsStateWithLifecycle()
+    val stepsGraph by graphViewModel.stepsGraphFlow.collectAsStateWithLifecycle()
     val currentBgReadings by rememberUpdatedState(bgReadings)
     val currentMinTimestamp by rememberUpdatedState(minTimestamp)
+    val currentExtraSeries by rememberUpdatedState(extraSeries)
     val haptic = LocalHapticFeedback.current
 
     LaunchedEffect(inspect, haptic) {
@@ -267,7 +282,28 @@ fun GraphInspectOverlay(
                 profileBasal = basalGraph.profileBasal,
                 boluses = treatmentGraph.boluses,
                 carbs = treatmentGraph.carbs
-            )
+            ).let { at ->
+                at.copy(
+                    extras = inspectExtrasAt(
+                        timestamp = at.timestamp,
+                        series = currentExtraSeries,
+                        sources = InspectSources(
+                            absIob = absIobGraph.absIob,
+                            activity = activityGraph.activity + activityGraph.activityPrediction,
+                            bgi = bgiGraph.bgi + bgiGraph.bgiPrediction,
+                            deviations = deviationsGraph.deviations.map { GraphDataPoint(it.timestamp, it.value) },
+                            devCarbs = deviationsGraph.devCarbs.flatten(),
+                            ratio = ratioGraph.ratio,
+                            dsMax = devSlopeGraph.dsMax,
+                            dsMin = devSlopeGraph.dsMin,
+                            varSens = varSensGraph.varSens,
+                            autoIsf = varSensGraph.autoIsf,
+                            heartRate = heartRateGraph.heartRates,
+                            steps = stepsGraph.steps
+                        )
+                    )
+                )
+            }
             if (data.timestamp != inspectData?.timestamp) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             inspect.shownX = timestampToX(data.timestamp, min)
             inspect.dotValue = data.bg?.value
@@ -301,8 +337,82 @@ data class InspectData(
     val basal: Double?,
     val tbrState: TbrState,
     val boluses: List<BolusGraphPoint>,
-    val carbs: List<CarbsGraphPoint>
+    val carbs: List<CarbsGraphPoint>,
+    /** Values of the extra graphs at this time, in the order of the graphs. */
+    val extras: List<InspectExtra> = emptyList()
 )
+
+/** A value of an extra graph at the shown time. */
+sealed interface InspectExtra {
+
+    /** One value of [type]. For DEVSLOPE there are two: [isMin] marks the falling slope. */
+    data class Value(val type: SeriesType, val value: Double, val isMin: Boolean = false) : InspectExtra
+
+    /** The AutoISF factors of the loop run nearest to the shown time. */
+    data class AutoIsf(val point: AutoIsfFactorPoint) : InspectExtra
+}
+
+/** The data of the extra graphs, as the graphs have it. */
+class InspectSources(
+    val absIob: List<GraphDataPoint>,
+    val activity: List<GraphDataPoint>,
+    val bgi: List<GraphDataPoint>,
+    val deviations: List<GraphDataPoint>,
+    val devCarbs: List<GraphDataPoint>,
+    val ratio: List<GraphDataPoint>,
+    val dsMax: List<GraphDataPoint>,
+    val dsMin: List<GraphDataPoint>,
+    val varSens: List<GraphDataPoint>,
+    val autoIsf: List<AutoIsfFactorPoint>,
+    val heartRate: List<GraphDataPoint>,
+    val steps: List<GraphDataPoint>
+)
+
+/**
+ * The values of [series] at [timestamp], each series once, in the order given. IOB, COB and basal
+ * are in the pill already. A series with no value near that time is left out.
+ */
+internal fun inspectExtrasAt(timestamp: Long, series: List<SeriesType>, sources: InspectSources): List<InspectExtra> = buildList {
+    fun value(type: SeriesType, points: List<GraphDataPoint>, isMin: Boolean = false) {
+        points.nearest(timestamp) { it.timestamp }?.let { add(InspectExtra.Value(type, it.value, isMin)) }
+    }
+    for (type in series.distinct()) when (type) {
+        SeriesType.ABS_IOB         -> value(type, sources.absIob)
+        SeriesType.ACTIVITY        -> value(type, sources.activity)
+        SeriesType.BGI             -> value(type, sources.bgi)
+        SeriesType.DEVIATIONS      -> value(type, sources.deviations)
+        SeriesType.DEV_CARBS       -> value(type, sources.devCarbs)
+        // Stored as 100 * (ratio - 1), shown like the graph as a percentage
+        SeriesType.SENSITIVITY     -> sources.ratio.nearest(timestamp) { it.timestamp }?.let { add(InspectExtra.Value(type, it.value + 100.0)) }
+        SeriesType.DEV_SLOPE       -> {
+            value(type, sources.dsMax)
+            value(type, sources.dsMin, isMin = true)
+        }
+
+        // Stored at each loop run: the run at or before the time
+        SeriesType.VAR_SENSITIVITY -> sources.varSens.lastOrNull { it.timestamp <= timestamp + INSPECT_TREATMENT_MS }?.let { add(InspectExtra.Value(type, it.value)) }
+        SeriesType.AUTOISF         -> sources.autoIsf.nearest(timestamp) { it.timestamp }?.let { add(InspectExtra.AutoIsf(it)) }
+        SeriesType.HEART_RATE      -> value(type, sources.heartRate)
+        SeriesType.STEPS           -> value(type, sources.steps)
+        SeriesType.IOB, SeriesType.COB, SeriesType.PREDICTIONS -> Unit
+    }
+}
+
+/** The emoji that names the value of [type] in the pill. IOB, COB and basal have their own icons. */
+internal fun inspectEmoji(type: SeriesType, isMin: Boolean = false): String = when (type) {
+    SeriesType.ABS_IOB         -> "🧪"
+    SeriesType.ACTIVITY        -> "⚡"
+    SeriesType.BGI             -> "📉"
+    SeriesType.DEVIATIONS      -> "📊"
+    SeriesType.DEV_CARBS       -> "🍞"
+    SeriesType.SENSITIVITY     -> "⚖️"
+    SeriesType.VAR_SENSITIVITY -> "🧭"
+    SeriesType.DEV_SLOPE       -> if (isMin) "↘️" else "↗️"
+    SeriesType.HEART_RATE      -> "❤️"
+    SeriesType.STEPS           -> "👣"
+    SeriesType.AUTOISF         -> AutoIsfLine.APPLIED.emoji
+    SeriesType.IOB, SeriesType.COB, SeriesType.PREDICTIONS -> ""
+}
 
 /** The nearest reading to [timestamp], with the values and treatments at its time. */
 fun inspectDataAt(
@@ -396,6 +506,7 @@ fun GraphInspectPill(
                     PillTriangleItem(pointsUp = bolus.bolusType == BolusType.SMB, text = bolus.label, color = ElementType.INSULIN.color())
                 }
                 data.carbs.forEach { carbs -> PillTriangleItem(pointsUp = false, text = carbs.label, color = ElementType.CARBS.color()) }
+                data.extras.forEach { extra -> PillExtra(extra) }
             }
         }
     }
@@ -404,6 +515,55 @@ fun GraphInspectPill(
 @Composable
 private fun PillText(text: String, color: Color) {
     Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = color)
+}
+
+/** A value of an extra graph: its emoji and the value in the colour of its graph. */
+@Composable
+private fun PillExtra(extra: InspectExtra) {
+    val decimalFormatter = LocalDecimalFormatter.current
+    val profileUtil = LocalProfileUtil.current
+    val colors = rememberSeriesColors()
+    val mgdl = profileUtil.units == GlucoseUnit.MGDL
+    when (extra) {
+        is InspectExtra.AutoIsf -> {
+            // The factors in their line colours, the applied one in bold in the text colour
+            AutoIsfLine.entries.forEach { line ->
+                PillEmojiItem(
+                    emoji = line.emojiAt(extra.point),
+                    text = decimalFormatter.to2Decimal(line.valueAt(extra.point)),
+                    color = line.color ?: MaterialTheme.colorScheme.onSurface,
+                    bold = line == AutoIsfLine.APPLIED
+                )
+            }
+        }
+
+        is InspectExtra.Value   -> {
+            val v = extra.value
+            val text = when (extra.type) {
+                SeriesType.ABS_IOB                           -> stringResource(InterfacesStrings.format_insulin_units, v)
+                SeriesType.DEV_CARBS                         -> stringResource(InterfacesStrings.format_carbs, v.roundToInt())
+                SeriesType.SENSITIVITY                       -> stringResource(CoreUiStrings.format_percent, v.roundToInt())
+                SeriesType.ACTIVITY                          -> decimalFormatter.to3Decimal(v)
+                SeriesType.HEART_RATE, SeriesType.STEPS      -> decimalFormatter.to0Decimal(v)
+                // BG changes per 5 minutes and ISF are in the user's units
+                else                                         -> if (mgdl) decimalFormatter.to0Decimal(v) else decimalFormatter.to1Decimal(v)
+            }
+            val color = when {
+                extra.type == SeriesType.DEV_CARBS -> if (v >= 0) devCarbsPositiveColor() else devCarbsNegativeColor()
+                extra.type == SeriesType.DEV_SLOPE && extra.isMin -> devSlopeMinColor()
+                else                               -> colors.colorFor(extra.type)
+            }
+            PillEmojiItem(emoji = inspectEmoji(extra.type, extra.isMin), text = text, color = color, bold = false)
+        }
+    }
+}
+
+@Composable
+private fun PillEmojiItem(emoji: String, text: String, color: Color, bold: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AapsSpacing.extraSmall)) {
+        Text(emoji, style = MaterialTheme.typography.labelMedium)
+        Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = if (bold) FontWeight.ExtraBold else FontWeight.Bold, color = color)
+    }
 }
 
 @Composable

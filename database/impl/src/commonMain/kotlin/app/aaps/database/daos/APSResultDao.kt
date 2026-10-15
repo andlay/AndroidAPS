@@ -39,10 +39,33 @@ internal interface APSResultDao : TraceableDao<APSResult> {
      */
     @Query("SELECT timestamp, json_extract(resultJson, '\$.variable_sens') AS variableSens FROM $TABLE_APS_RESULTS WHERE timestamp >= :start AND timestamp <= :end ORDER BY timestamp ASC")
     suspend fun getVariableSens(start: Long, end: Long): List<ApsResultVariableSens>
+
+    /** Only the time and the AutoISF factors of each result that has them, for the graph. Read like [getVariableSens]. */
+    @Query(
+        "SELECT timestamp, " +
+            "json_extract(resultJson, '\$.autoIsfFactors.acce') AS acce, " +
+            "json_extract(resultJson, '\$.autoIsfFactors.bg') AS bg, " +
+            "json_extract(resultJson, '\$.autoIsfFactors.pp') AS pp, " +
+            "json_extract(resultJson, '\$.autoIsfFactors.dura') AS dura, " +
+            "json_extract(resultJson, '\$.autoIsfFactors.applied') AS applied " +
+            "FROM $TABLE_APS_RESULTS WHERE timestamp >= :start AND timestamp <= :end " +
+            "AND json_extract(resultJson, '\$.autoIsfFactors.applied') IS NOT NULL ORDER BY timestamp ASC"
+    )
+    suspend fun getAutoIsfFactors(start: Long, end: Long): List<ApsResultAutoIsfFactors>
 }
 
 /** One row of [APSResultDao.getVariableSens]. [variableSens] is in mg/dL, null when the result has no value. */
 data class ApsResultVariableSens(
     val timestamp: Long,
     val variableSens: Double?
+)
+
+/** One row of [APSResultDao.getAutoIsfFactors]. A factor is null when the result has no value for it. */
+data class ApsResultAutoIsfFactors(
+    val timestamp: Long,
+    val acce: Double?,
+    val bg: Double?,
+    val pp: Double?,
+    val dura: Double?,
+    val applied: Double?
 )

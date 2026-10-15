@@ -461,8 +461,12 @@ fun GraphsSection(
     }
 
 
-    // Set by the BG graph, read by every graph
+    // Set by the graph that is held, read by every graph
     val inspect = remember { GraphInspectState() }
+    // The series of the graphs below BG, for their values in the pop-up
+    val shownExtraSeries = remember(graphConfig, activeCount) {
+        (graphConfig.iobOverlays + graphConfig.secondaryGraphs.take(activeCount).flatMap { it.series }).distinct()
+    }
 
     Column(
         modifier = modifier
@@ -477,7 +481,9 @@ fun GraphsSection(
             zoomState = beltZoomState,
             derivedTimeRange = derivedTimeRange,
             nowTimestamp = nowTimestamp,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, inspect, graphViewModel::onGraphInteraction))
         )
         // BG Graph - primary interactive graph
         var editingBgOverlays by remember { mutableStateOf(false) }
@@ -594,6 +600,7 @@ fun GraphsSection(
                 graphViewModel = graphViewModel,
                 bgReadings = bgReadings,
                 minTimestamp = derivedTimeRange?.first,
+                extraSeries = shownExtraSeries,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .offset(y = INSPECT_PILL_OFFSET)
@@ -646,7 +653,7 @@ fun GraphsSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.iobHeight.dp - REMOVED_TIME_LABELS_HEIGHT)
-                    .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, graphViewModel::onGraphInteraction))
+                    .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, inspect, graphViewModel::onGraphInteraction))
             )
             GraphNameRow(
                 name = stringResource(CoreUiStrings.iob) + " / " + stringResource(CoreUiStrings.basal_shortname),
@@ -691,7 +698,7 @@ fun GraphsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(secondary.height.dp - REMOVED_TIME_LABELS_HEIGHT)
-                        .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, graphViewModel::onGraphInteraction))
+                        .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, inspect, graphViewModel::onGraphInteraction))
                 )
                 GraphNameRow(
                     name = seriesListLabel(secondary.series),
@@ -841,6 +848,7 @@ private fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
     SeriesType.DEVIATIONS      -> CoreUiStrings.deviation_shortname
     SeriesType.SENSITIVITY     -> CoreUiStrings.sensitivity_shortname
     SeriesType.VAR_SENSITIVITY -> CoreUiStrings.variable_sensitivity_shortname
+    SeriesType.AUTOISF         -> CoreUiStrings.autoisf_shortname
     SeriesType.DEV_SLOPE       -> CoreUiStrings.devslope_shortname
     SeriesType.DEV_CARBS       -> CoreUiStrings.dev_carbs_shortname
     SeriesType.HEART_RATE      -> CoreUiStrings.heartRate_shortname

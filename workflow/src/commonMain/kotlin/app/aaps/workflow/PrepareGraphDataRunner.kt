@@ -17,6 +17,7 @@ import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.nsclient.ProcessedDeviceStatusData
 import app.aaps.core.interfaces.overview.graph.AbsIobGraphData
+import app.aaps.core.interfaces.overview.graph.AutoIsfFactorPoint
 import app.aaps.core.interfaces.overview.graph.ActivityGraphData
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgRange
@@ -835,7 +836,9 @@ class PrepareGraphDataRunner(
         data.cache.updateDeviationsGraph(DeviationsGraphData(deviations = deviationsListCompose, devCarbs = devCarbsRuns(devCarbsSteps)))
         data.cache.updateRatioGraph(RatioGraphData(ratio = ratioListCompose))
         data.cache.updateDevSlopeGraph(DevSlopeGraphData(dsMax = dsMaxListCompose, dsMin = dsMinListCompose))
-        data.cache.updateVarSensGraph(VarSensGraphData(varSens = varSensListCompose))
+        val autoIsfListCompose = persistenceLayer.getAutoIsfFactors(fromTime, endTime)
+            .map { AutoIsfFactorPoint(it.timestamp, it.acce, it.bg, it.pp, it.dura, it.applied) }
+        data.cache.updateVarSensGraph(VarSensGraphData(varSens = varSensListCompose, autoIsf = autoIsfListCompose))
 
         data.signals.emitProgress(CalculationWorkflow.ProgressData.PREPARE_IOB_AUTOSENS_DATA, 100)
     }
