@@ -416,6 +416,8 @@ resistance_lowers_target|BooleanKey|true
 rs_last_clear_key_request|DanaLongKey|true
 rs_logcanulachange|DanaBooleanKey|true
 rs_loginsulinchange|DanaBooleanKey|true
+safety_smb_min_bg|UnitDoubleKey|true
+safety_smb_min_percent_of_target|IntKey|true
 scan_on_connection_error|MedtrumBooleanKey|true
 scene_definitions|StringNonKey|true
 sensitivity_raises_target|BooleanKey|true

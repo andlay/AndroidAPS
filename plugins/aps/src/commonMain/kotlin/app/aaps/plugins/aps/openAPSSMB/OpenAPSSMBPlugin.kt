@@ -63,6 +63,7 @@ import app.aaps.core.ui.compose.icons.IcPluginOpenAPS
 import app.aaps.core.ui.compose.preference.PreferenceSubScreenDef
 import app.aaps.core.utils.MidnightUtils
 import app.aaps.plugins.aps.ApsStrings
+import app.aaps.plugins.aps.openAPS.applySmbMinBg
 import app.aaps.plugins.aps.events.EventOpenAPSUpdateGui
 import app.aaps.plugins.aps.events.EventResetOpenAPSGui
 import app.aaps.plugins.aps.keys.ApsIntentKey
@@ -447,7 +448,8 @@ open class OpenAPSSMBPlugin(
             insulinDivisor = dynIsfResult.insulinDivisor,
             TDD = dynIsfResult.tdd ?: 0.0
         )
-        val microBolusAllowed = constraintsChecker.isSMBModeEnabled(ConstraintObject(tempBasalFallback.not(), aapsLogger)).also { inputConstraints.copyReasons(it) }.value()
+        var microBolusAllowed = constraintsChecker.isSMBModeEnabled(ConstraintObject(tempBasalFallback.not(), aapsLogger)).also { inputConstraints.copyReasons(it) }.value()
+        microBolusAllowed = applySmbMinBg(microBolusAllowed, glucoseStatus.glucose, targetBg, preferences, profileUtil, rh, aapsLogger, inputConstraints, this)
         val flatBGsDetected = bgQualityCheck.state == BgQualityCheck.State.FLAT
         val effectiveDynIsfMode = dynIsfMode && dynIsfResult.tddPartsCalculated()
 
@@ -600,6 +602,8 @@ open class OpenAPSSMBPlugin(
             BooleanKey.ApsUseSmbWithCob,
             BooleanKey.ApsUseSmbWithLowTt,
             BooleanKey.ApsUseSmbAfterCarbs,
+            UnitDoubleKey.ApsSmbMinBg,
+            IntKey.ApsSmbMinPercentOfTarget,
             IntKey.ApsMaxSmbFrequency,
             IntKey.ApsMaxMinutesOfBasalToLimitSmb,
             IntKey.ApsUamMaxMinutesOfBasalToLimitSmb,

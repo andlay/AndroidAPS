@@ -63,6 +63,7 @@ import app.aaps.core.ui.compose.icons.IcPluginOpenAPS
 import app.aaps.core.ui.compose.preference.PreferenceSubScreenDef
 import app.aaps.core.utils.MidnightUtils
 import app.aaps.plugins.aps.ApsStrings
+import app.aaps.plugins.aps.openAPS.applySmbMinBg
 import app.aaps.plugins.aps.events.EventOpenAPSUpdateGui
 import app.aaps.plugins.aps.events.EventResetOpenAPSGui
 import app.aaps.plugins.aps.keys.ApsIntentKey
@@ -310,7 +311,8 @@ open class OpenAPSAutoISFPlugin(
         val mealData = iobCobCalculator.getMealDataWithWaitingForCalculationFinish()
         val iobData = iobArray[0]
         val profile_percentage = if (profile is ProfileSealed.EPS) profile.value.originalPercentage else 100
-        val microBolusAllowed = constraintsChecker.isSMBModeEnabled(ConstraintObject(tempBasalFallback.not(), aapsLogger)).also { inputConstraints.copyReasons(it) }.value()
+        var microBolusAllowed = constraintsChecker.isSMBModeEnabled(ConstraintObject(tempBasalFallback.not(), aapsLogger)).also { inputConstraints.copyReasons(it) }.value()
+        microBolusAllowed = applySmbMinBg(microBolusAllowed, glucoseStatus.glucose, targetBg, preferences, profileUtil, rh, aapsLogger, inputConstraints, this)
 
         var runAutoIsfFactors: AutoIsfFactors? = null
         if (autoIsfMode) {
@@ -961,6 +963,8 @@ open class OpenAPSAutoISFPlugin(
             BooleanKey.ApsUseSmbWithCob,
             BooleanKey.ApsUseSmbWithLowTt,
             BooleanKey.ApsUseSmbAfterCarbs,
+            UnitDoubleKey.ApsSmbMinBg,
+            IntKey.ApsSmbMinPercentOfTarget,
             BooleanKey.ApsUseUam,
             IntKey.ApsMaxSmbFrequency,
             IntKey.ApsMaxMinutesOfBasalToLimitSmb,
