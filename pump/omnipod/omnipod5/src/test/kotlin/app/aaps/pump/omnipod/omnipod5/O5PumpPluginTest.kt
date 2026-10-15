@@ -42,6 +42,10 @@ import app.aaps.pump.omnipod.common.queue.command.CommandSilenceAlerts
 import app.aaps.pump.omnipod.common.queue.command.CommandSuspendDelivery
 import app.aaps.pump.omnipod.common.queue.command.CommandUpdateAlertConfiguration
 import app.aaps.pump.omnipod.omnipod5.history.O5History
+import app.aaps.pump.omnipod.omnipod5.keys.O5BooleanPreferenceKey
+import app.aaps.pump.omnipod.omnipod5.keys.O5IntPreferenceKey
+import app.aaps.pump.omnipod.omnipod5.keys.O5LongNonPreferenceKey
+import app.aaps.pump.omnipod.omnipod5.queue.command.CommandUpdateOutOfReachAlert
 import app.aaps.shared.tests.TestBaseWithProfile
 import com.google.common.truth.Truth.assertThat
 import io.reactivex.rxjava3.core.Completable
@@ -64,6 +68,7 @@ import org.mockito.kotlin.never
 import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import java.util.EnumSet
 
 /**
  * Covers the safety-relevant gating logic and simple property surface of [O5PumpPlugin] -
@@ -616,6 +621,128 @@ class O5PumpPluginTest : TestBaseWithProfile() {
             verify(pumpSync).insertAnnouncement(any<String>(), any<Long>(), eq(PumpType.OMNIPOD_5), eq("9999"))
         }
         verify(podStateManager).alarmSynced = true
+    }
+
+    private fun stubOutOfReach(enabled: Boolean, armedPodId: Long, alerts: EnumSet<AlertType>? = null) {
+        whenever(podStateManager.activationProgress).thenReturn(ActivationProgress.COMPLETED)
+        whenever(podStateManager.isPodRunning).thenReturn(true)
+        whenever(podStateManager.podId).thenReturn(12345L)
+        whenever(podStateManager.activeAlerts).thenReturn(alerts)
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.BASAL_ACTIVE)
+        whenever(preferences.get(O5BooleanPreferenceKey.OutOfReachBeep)).thenReturn(enabled)
+        whenever(preferences.get(O5IntPreferenceKey.OutOfReachBeepMinutes)).thenReturn(10)
+        whenever(preferences.get(O5LongNonPreferenceKey.OutOfReachAlertPodId)).thenReturn(armedPodId)
+        whenever(bleManager.sendCommand(any(), any())).thenReturn(Observable.empty())
+        whenever(rh.gs(R.string.omnipod_5_out_of_reach_beeped)).thenReturn("beeped")
+    }
+
+    private fun verifyBeepedNotification(mode: VerificationMode) =
+        verify(notificationManager, mode).post(
+            eq(NotificationId.OMNIPOD_POD_ALERTS), eq("beeped"), level = any(), validMinutes = any(),
+            sound = anyOrNull(), actions = any(), validityCheck = anyOrNull()
+        )
+
+    @Test
+    fun `out-of-reach alert off and never set - no pod command`() {
+        stubOutOfReach(enabled = false, armedPodId = 0L)
+
+        plugin.updateOutOfReachAlert()
+
+        verify(bleManager, never()).sendCommand(any(), any())
+        assertThat(plugin.queueOutOfReachAlertIfDue()).isFalse()
+    }
+
+    @Test
+    fun `out-of-reach alert on - set once, not sent again before it is due`() {
+        stubOutOfReach(enabled = true, armedPodId = 0L)
+
+        plugin.updateOutOfReachAlert()
+        whenever(preferences.get(O5LongNonPreferenceKey.OutOfReachAlertPodId)).thenReturn(12345L)
+        plugin.updateOutOfReachAlert()
+
+        verify(bleManager, times(1)).sendCommand(argThat { this is ProgramAlertsCommand }, any())
+        verify(preferences).put(O5LongNonPreferenceKey.OutOfReachAlertPodId, 12345L)
+        verify(podStateManager).suspendAlertsEnabled = false
+        // Just set: the timer has nothing to queue
+        assertThat(plugin.queueOutOfReachAlertIfDue()).isFalse()
+    }
+
+    @Test
+    fun `out-of-reach alert that went off is silenced, reported and set again`() {
+        stubOutOfReach(enabled = true, armedPodId = 12345L, alerts = EnumSet.of(AlertType.SUSPEND_ENDED))
+
+        plugin.updateOutOfReachAlert()
+
+        // One silence command and one new alert
+        verify(bleManager, times(2)).sendCommand(any(), any())
+        verifyBeepedNotification(times(1))
+    }
+
+    @Test
+    fun `a suspend alert left over after a resume is silenced without the lost-phone message`() {
+        stubOutOfReach(enabled = true, armedPodId = 12345L, alerts = EnumSet.of(AlertType.SUSPEND_ENDED))
+        whenever(podStateManager.suspendAlertsEnabled).thenReturn(true)
+
+        plugin.updateOutOfReachAlert()
+
+        verify(bleManager, times(2)).sendCommand(any(), any())
+        verifyBeepedNotification(never())
+    }
+
+    @Test
+    fun `while delivery is suspended the slot is left to the suspend reminder`() {
+        stubOutOfReach(enabled = true, armedPodId = 0L, alerts = EnumSet.of(AlertType.SUSPEND_ENDED))
+        whenever(podStateManager.deliveryStatus).thenReturn(DeliveryStatus.SUSPENDED)
+
+        plugin.updateOutOfReachAlert()
+
+        verify(bleManager, never()).sendCommand(any(), any())
+        assertThat(plugin.queueOutOfReachAlertIfDue()).isFalse()
+    }
+
+    @Test
+    fun `after a resume the out-of-reach alert replaces the suspend reminder`() {
+        stubOutOfReach(enabled = true, armedPodId = 12345L)
+        // The flag behaves like the real pod state: setting the new alert clears it
+        var suspendAlertsEnabled = true
+        whenever(podStateManager.suspendAlertsEnabled).thenAnswer { suspendAlertsEnabled }
+        doAnswer { suspendAlertsEnabled = it.getArgument(0); null }.whenever(podStateManager).suspendAlertsEnabled = any()
+
+        plugin.executeCustomCommand(CommandDisableSuspendAlerts())
+
+        // One command, and it set the alert (the pod id is stored), not only cleared the slot
+        verify(bleManager, times(1)).sendCommand(any(), any())
+        verify(preferences).put(O5LongNonPreferenceKey.OutOfReachAlertPodId, 12345L)
+    }
+
+    @Test
+    fun `turning the out-of-reach alert off clears it on the pod once`() {
+        stubOutOfReach(enabled = false, armedPodId = 12345L)
+
+        plugin.updateOutOfReachAlert()
+        whenever(preferences.get(O5LongNonPreferenceKey.OutOfReachAlertPodId)).thenReturn(0L)
+        plugin.updateOutOfReachAlert()
+
+        verify(bleManager, times(1)).sendCommand(any(), any())
+        verify(preferences).put(O5LongNonPreferenceKey.OutOfReachAlertPodId, 0L)
+    }
+
+    @Test
+    fun `the timer queues an update when one is due and the queue is idle, then waits`() {
+        stubOutOfReach(enabled = true, armedPodId = 0L)
+
+        assertThat(plugin.queueOutOfReachAlertIfDue()).isTrue()
+        // The update has not run yet, but a second one is not queued a minute later
+        assertThat(plugin.queueOutOfReachAlertIfDue()).isFalse()
+    }
+
+    @Test
+    fun `the timer does not queue an update while other pod commands are waiting`() {
+        stubOutOfReach(enabled = true, armedPodId = 0L)
+        whenever(commandQueue.size()).thenReturn(1)
+
+        assertThat(plugin.queueOutOfReachAlertIfDue()).isFalse()
+        verify(commandQueue, never()).isCustomCommandInQueue(CommandUpdateOutOfReachAlert::class)
     }
 
 
