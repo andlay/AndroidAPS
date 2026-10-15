@@ -57,11 +57,19 @@ import kotlin.math.abs
 /**
  * CartesianChartModelProducer.update() skips notifying receivers (and thus skips recomputing axis
  * ranges) when a transaction's partials AND extraStore are both unchanged from the last one. Since
- * scrolling/zooming re-submits identical series data (only the visible window changed), stashing
- * the visible window here forces the extraStore to differ, so Vico actually reprocesses the
+ * scrolling/zooming re-submits identical series data (only the axis ranges changed), stashing
+ * the axis setup here forces the extraStore to differ, so Vico actually reprocesses the
  * transaction instead of silently dropping it.
  */
-private val VISIBLE_RANGE_KEY = ExtraStore.Key<Pair<Double?, Double?>>()
+private val AXIS_SCALE_KEY = ExtraStore.Key<AxisScale>()
+
+/** The axis setup that a scroll or zoom can change. Equal values mean the axes did not change. */
+private data class AxisScale(
+    val primary: CartesianLayerRangeProvider,
+    val secondary: CartesianLayerRangeProvider,
+    val basal: CartesianLayerRangeProvider,
+    val startAxisItemPlacer: VerticalAxis.ItemPlacer
+)
 
 /**
  * Secondary graphs are much shorter than the BG graph, so Vico's ItemPlacer thins out a denser
@@ -144,6 +152,8 @@ fun SecondaryGraphCompose(
     nowTimestamp: Long,
     activityOverlay: Boolean = false,
     onVisibleRangeChanged: ((Pair<Double, Double>?) -> Unit)? = null,
+    /** While holding the BG graph, a line at the inspected time. Null turns it off. */
+    inspect: GraphInspectState? = null,
     /** Gets this graph's x layout on every draw, for a pinch on another graph (see GraphForwardToBg.kt). */
     geometryHolder: GraphGeometryHolder? = null,
     modifier: Modifier = Modifier
@@ -408,9 +418,9 @@ fun SecondaryGraphCompose(
     // own chart, instead of the full loaded time range.
     // The reporter writes into a StateFlow holder (not Compose state) on every draw pass — see
     // VisibleRangeHolder — and we collect it here, keeping Compose state writes off the draw path.
-    // Computed here (before the model-rebuild LaunchedEffect below) so visibleMinX/visibleMaxX can
-    // be included in that effect's keys — Vico only reliably re-applies axis ranges via a real
-    // modelProducer.runTransaction, not merely by swapping the CartesianLayerRangeProvider instance.
+    // The axis ranges below are windowed to it, and the model is rebuilt when they change — Vico
+    // only reliably re-applies axis ranges via a real modelProducer.runTransaction, not merely by
+    // swapping the CartesianLayerRangeProvider instance.
     val visibleRangeHolder = remember { VisibleRangeHolder() }
     val visibleRangeReporter = rememberVisibleRangeReporter(visibleRangeHolder)
 
@@ -496,69 +506,6 @@ fun SecondaryGraphCompose(
     }
     val hasPrimaryData = primarySeries.isNotEmpty()
 
-    LaunchedEffect(
-        processedSimpleSeries,
-        processedDevSlopeMin,
-        processedDeviationLines,
-        processedIob,
-        processedIobTreatments,
-        processedCob,
-        processedCarbs,
-        processedBasalProfile,
-        processedBasalActual,
-        secondaryRuns,
-        processedActivityOverlay,
-        maxX,
-        visibleMinX,
-        visibleMaxX
-    ) {
-        // Always populate the model — even with no data / no real time range — so the chart frame
-        // (axes, grid, now-line) renders the empty-state normalizer series instead of staying blank.
-        // (Matches TreatmentBeltGraphCompose.) When data is absent the processed* lists are empty,
-        // so only the normalizer is emitted; the primary range provider anchors an empty 0..1 axis.
-        modelProducer.runTransaction {
-            // Primary line layer — emit in the exact order of `primarySeries` so the line styles
-            // (built from the same list) map 1:1 to the series.
-            lineModel {
-                primarySeries.forEach { spec -> series(x = spec.x, y = spec.y) }
-                // Normalizer — ensures identical maxPointSize across all charts
-                series(x = normalizerX(maxX), y = NORMALIZER_Y)
-            }
-
-            // Block 2 → Basal layer (end axis, flipped) OR secondary series layer (end axis)
-            if (hasBasalLayer) {
-                lineModel {
-                    if (processedBasalActual.size >= 2) {
-                        series(x = processedBasalActual.map { it.first }, y = processedBasalActual.map { it.second })
-                    } else {
-                        series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
-                    }
-                    if (processedBasalProfile.size >= 2) {
-                        series(x = processedBasalProfile.map { it.first }, y = processedBasalProfile.map { it.second })
-                    } else {
-                        series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
-                    }
-                }
-            } else if (isDualAxis) {
-                lineModel {
-                    if (secondaryRuns.isNotEmpty()) {
-                        secondaryRuns.forEach { run -> series(x = run.map { it.first }, y = run.map { it.second }) }
-                    } else {
-                        series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
-                    }
-                    // Normalizer for end axis layer
-                    series(x = normalizerX(maxX), y = NORMALIZER_Y)
-                }
-            }
-
-            // Forces Vico to reprocess this transaction even when the series data above is
-            // identical to last time (see VISIBLE_RANGE_KEY doc) — otherwise scrolling/zooming
-            // would re-submit the same partials and get silently skipped, never picking up the
-            // updated primaryRangeProvider.
-            extras { it[VISIBLE_RANGE_KEY] = visibleMinX to visibleMaxX }
-        }
-    }
-
     // =========================================================================
     // Line styles
     // =========================================================================
@@ -625,12 +572,14 @@ fun SecondaryGraphCompose(
     // Chart rendering
     // =========================================================================
 
-    val timeFormatter = rememberTimeFormatter(minTimestamp)
     val bottomAxisItemPlacer = rememberBottomAxisItemPlacer(minTimestamp)
     val nowLineColor = MaterialTheme.colorScheme.onSurface
     val nowLine = rememberNowLine(minTimestamp, nowTimestamp, nowLineColor)
+    val inspectLine = rememberInspectLine(inspect)
     val geometryReporter = remember(geometryHolder) { geometryHolder?.let { GraphGeometryReporter(it) } }
-    val decorations = remember(nowLine, visibleRangeReporter, geometryReporter) { listOfNotNull(nowLine, visibleRangeReporter, geometryReporter) }
+    val decorations = remember(nowLine, visibleRangeReporter, inspectLine, geometryReporter) {
+        listOfNotNull(nowLine, visibleRangeReporter, inspectLine, geometryReporter)
+    }
 
     // Union of Y values across all primary-layer series (IOB, COB, simple series, DevSlope-min,
     // deviation lines), windowed to the visible scroll/zoom range — computed once here since the
@@ -886,6 +835,71 @@ fun SecondaryGraphCompose(
             else               -> stepPlacer
         }
     }
+
+    // Rebuilt only when the data or the axes change, not on every scroll step
+    val axisScale = AxisScale(primaryRangeProvider, secondaryRangeProvider, basalRangeProvider, startAxisItemPlacer)
+    LaunchedEffect(
+        processedSimpleSeries,
+        processedDevSlopeMin,
+        processedDeviationLines,
+        processedIob,
+        processedIobTreatments,
+        processedCob,
+        processedCarbs,
+        processedBasalProfile,
+        processedBasalActual,
+        secondaryRuns,
+        processedActivityOverlay,
+        maxX,
+        axisScale
+    ) {
+        // Always populate the model — even with no data / no real time range — so the chart frame
+        // (axes, grid, now-line) renders the empty-state normalizer series instead of staying blank.
+        // (Matches TreatmentBeltGraphCompose.) When data is absent the processed* lists are empty,
+        // so only the normalizer is emitted; the primary range provider anchors an empty 0..1 axis.
+        modelProducer.runTransaction {
+            // Primary line layer — emit in the exact order of `primarySeries` so the line styles
+            // (built from the same list) map 1:1 to the series.
+            lineModel {
+                primarySeries.forEach { spec -> series(x = spec.x, y = spec.y) }
+                // Normalizer — ensures identical maxPointSize across all charts
+                series(x = normalizerX(maxX), y = NORMALIZER_Y)
+            }
+
+            // Block 2 → Basal layer (end axis, flipped) OR secondary series layer (end axis)
+            if (hasBasalLayer) {
+                lineModel {
+                    if (processedBasalActual.size >= 2) {
+                        series(x = processedBasalActual.map { it.first }, y = processedBasalActual.map { it.second })
+                    } else {
+                        series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
+                    }
+                    if (processedBasalProfile.size >= 2) {
+                        series(x = processedBasalProfile.map { it.first }, y = processedBasalProfile.map { it.second })
+                    } else {
+                        series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
+                    }
+                }
+            } else if (isDualAxis) {
+                lineModel {
+                    if (secondaryRuns.isNotEmpty()) {
+                        secondaryRuns.forEach { run -> series(x = run.map { it.first }, y = run.map { it.second }) }
+                    } else {
+                        series(x = listOf(0.0, 1.0), y = listOf(0.0, 0.0))
+                    }
+                    // Normalizer for end axis layer
+                    series(x = normalizerX(maxX), y = NORMALIZER_Y)
+                }
+            }
+
+            // Forces Vico to reprocess this transaction even when the series data above is
+            // identical to last time (see AXIS_SCALE_KEY doc) — otherwise scrolling/zooming
+            // would re-submit the same partials and get silently skipped, never picking up the
+            // updated primaryRangeProvider.
+            extras { it[AXIS_SCALE_KEY] = axisScale }
+        }
+    }
+
     val startAxis = VerticalAxis.rememberStart(
         itemPlacer = startAxisItemPlacer,
         label = rememberTextComponent(
@@ -895,12 +909,12 @@ fun SecondaryGraphCompose(
         guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))),
         size = GRAPH_AXIS_SIZE
     )
+    // No time labels: the BG graph above shows them, and the hour lines stay aligned with it.
+    // This keeps the graphs below BG compact.
     val bottomAxis = HorizontalAxis.rememberBottom(
-        valueFormatter = timeFormatter,
         itemPlacer = bottomAxisItemPlacer,
-        label = rememberTextComponent(
-            style = TextStyle(color = MaterialTheme.colorScheme.onSurface)
-        ),
+        label = null,
+        tick = null,
         guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
     )
 
