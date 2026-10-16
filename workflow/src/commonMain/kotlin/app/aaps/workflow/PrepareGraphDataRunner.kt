@@ -747,10 +747,12 @@ class PrepareGraphDataRunner(
         val dsMinListCompose: MutableList<GraphDataPoint> = ArrayList()
 
         val adsData = data.iobCobCalculator.ads.clone()
+        val bucketed = adsData.getBucketedDataTableCopy().orEmpty()
         // Readings AAPS made up to fill a gap: the DEV carbs total must not count a long gap
-        val filledTimes = adsData.getBucketedDataTableCopy().orEmpty()
+        val filledTimes = bucketed
             .filter { it.filledGap }
             .mapTo(HashSet()) { adsData.roundUpTime(it.timestamp) }
+        time = gridStartThrough(fromTime, endTime, bucketed.firstOrNull()?.timestamp)
 
         while (time <= endTime) {
             if (isStopped()) return

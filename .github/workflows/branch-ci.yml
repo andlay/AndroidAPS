@@ -224,7 +224,9 @@ jobs:
             filter="${entry##*:}"
             args+=("$task" "--tests" "$filter")
           done
-          ./gradlew "${args[@]}" --continue \
+          # Two workers: compiling every module in parallel for the app tests ran the runner out
+          # of memory (OutOfMemoryError, or a compile that hangs until the job is cancelled)
+          ./gradlew "${args[@]}" --continue --max-workers=2 \
             -Dorg.gradle.jvmargs="-Xmx8g -XX:+UseParallelGC -Xss4m" \
             -Dkotlin.daemon.jvm.options="-Xmx2g"
 
