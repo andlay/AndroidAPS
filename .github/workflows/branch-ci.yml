@@ -225,10 +225,12 @@ jobs:
             args+=("$task" "--tests" "$filter")
           done
           # Two workers: compiling every module in parallel for the app tests ran the runner out
-          # of memory (OutOfMemoryError, or a compile that hangs until the job is cancelled)
+          # of memory (OutOfMemoryError, or a compile that hangs until the job is cancelled).
+          # Compile in the Gradle process (8 GB), as the APK step does. A separate Kotlin daemon
+          # with 2 GB ran out of memory on the large DetermineBasalSMB method.
           ./gradlew "${args[@]}" --continue --max-workers=2 \
             -Dorg.gradle.jvmargs="-Xmx8g -XX:+UseParallelGC -Xss4m" \
-            -Dkotlin.daemon.jvm.options="-Xmx2g"
+            -Dkotlin.compiler.execution.strategy="in-process"
 
       - name: Unit test summary
         if: ${{ always() && inputs.unitTests != '' }}
