@@ -85,10 +85,23 @@ internal fun SensitivityChip(
                     modifier = Modifier.padding(start = AapsSpacing.medium)
                 )
             }
-            if (state.asText.isNotEmpty() && state.isfFrom.isNotEmpty()) {
+            if (state.asText.isNotEmpty() && (state.isfFrom.isNotEmpty() || state.factorText.isNotEmpty())) {
                 Spacer(Modifier.width(AapsSpacing.medium))
             }
-            if (state.isfFrom.isNotEmpty()) {
+            if (state.factorText.isNotEmpty()) {
+                // How much more insulin than the profile: the arrow points up for more insulin
+                Icon(
+                    imageVector = selectIsfArrow(state.factorStep),
+                    contentDescription = stringResourceOrNull(selectIsfArrowLabel(state.factorStep)),
+                    tint = ElementType.SENSITIVITY.color(),
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = state.factorText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = textColor
+                )
+            } else if (state.isfFrom.isNotEmpty()) {
                 Text(
                     text = state.isfFrom,
                     style = MaterialTheme.typography.bodyMedium,

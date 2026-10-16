@@ -28,6 +28,9 @@ data class SensitivityUiState(
     val isfFrom: String = "",
     val isfTo: String = "",
     val isfStep: IsfStep = IsfStep.SAME,
+    /** Profile ISF / ISF in use: "1.50" is 50% more insulin. When set, the chip shows it in place of the two ISF values. */
+    val factorText: String = "",
+    val factorStep: IsfStep = IsfStep.SAME,
     val dialogText: String = "",
     val ratio: Double = 1.0,
     val isEnabled: Boolean = true,
