@@ -11,16 +11,20 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import app.aaps.core.data.format.NumberFormat
+import app.aaps.core.data.model.GlucoseUnit
+import app.aaps.core.keys.UnitType
 import app.aaps.core.keys.interfaces.IntPreferenceKey
 import app.aaps.core.keys.interfaces.TextRef
 import app.aaps.core.keys.interfaces.VisibilityContext
 import app.aaps.core.ui.CoreUiStrings
+import app.aaps.core.ui.compose.LocalProfileUtil
 import app.aaps.core.ui.compose.isDuration
 import app.aaps.core.ui.compose.rangeText
 import app.aaps.core.ui.compose.stringResource
 import app.aaps.core.ui.compose.stringResourceOrNull
 import app.aaps.core.ui.compose.unitLabel
 import app.aaps.core.ui.compose.valueFormat
+import kotlin.math.roundToInt
 
 /**
  * Composable int preference for use inside card sections.
@@ -85,6 +89,29 @@ fun AdaptiveIntPreferenceItem(
                     style = theme.summaryTextStyle,
                     color = theme.summaryColor.let { if (visibility.enabled) it else it.copy(alpha = theme.disabledOpacity) }
                 )
+            }
+            // A glucose value is stored as whole mg/dL. Users of mmol/L see and edit it in mmol/L,
+            // and the value is rounded back to mg/dL when it is saved.
+            // Only glucose keys read ProfileUtil, so other settings work without one provided.
+            val profileUtil = if (unitType == UnitType.MGDL) LocalProfileUtil.current else null
+            if (profileUtil != null && profileUtil.units == GlucoseUnit.MMOL) {
+                PreferenceSliderWithButtons(
+                    value = profileUtil.fromMgdlToUnits(value.toDouble()),
+                    onValueChange = { newValue ->
+                        if (visibility.enabled) {
+                            state.value = profileUtil.convertToMgdl(newValue, GlucoseUnit.MMOL).roundToInt().coerceIn(intKey.min, intKey.max)
+                        }
+                    },
+                    valueRange = profileUtil.fromMgdlToUnits(intKey.min.toDouble())..profileUtil.fromMgdlToUnits(intKey.max.toDouble()),
+                    step = 0.1,
+                    showValue = true,
+                    valueFormat = NumberFormat.DECIMAL_1,
+                    unitLabel = CoreUiStrings.mmol,
+                    dialogLabel = stringResource(effectiveTitle),
+                    dialogSummary = summary,
+                    enabled = visibility.enabled
+                )
+                return@Column
             }
             PreferenceSliderWithButtons(
                 value = value.toDouble(),

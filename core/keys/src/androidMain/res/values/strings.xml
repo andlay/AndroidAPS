@@ -226,7 +226,7 @@
     <string name="pref_title_carbs_request_threshold">Carbs required threshold</string>
     <string name="carbs_req_threshold_summary">Minimum grams of carbs to display a carbs suggestion alert. Carbs suggestions below this number will not trigger a notification.</string>
     <string name="pref_title_half_basal_exercise_target">Half basal exercise target</string>
-    <string name="half_basal_exercise_target_summary">Set to a number, e.g. 160, which means when temp target is 160 mg/dL and High temptarget raises sensitivity=true, run 50%% basal at this level (120 = 75%%; 140 = 60%%).</string>
+    <string name="half_basal_exercise_target_summary">For example 160 mg/dL (8.9 mmol/L): when the temp target is at this level and High temptarget raises sensitivity is on, run 50%% basal. A temp target of 120 mg/dL (6.7 mmol/L) gives 75%%, 140 mg/dL (7.8 mmol/L) gives 60%%.</string>
     <string name="pref_title_iob_threshold_percent">IOB threshold percent</string>
     <string name="openapsama_iob_threshold_percent_summary" formatted="false">Percentage of maxIOB above which SMBs are disabled.\nDefault value: 100%\nWith 100% this feature is effectively disabled.</string>
     <string name="pref_title_dynisf_adjustment_factor">DynamicISF adjustment factor</string>
