@@ -459,7 +459,8 @@ open class OpenAPSAutoISFPlugin(
             smb_max_range_extension = smbMaxRangeExtension,
             iob_threshold_percent = iobThresholdPercent,
             auto_isf_consoleError = consoleError,
-            auto_isf_consoleLog = consoleLog
+            auto_isf_consoleLog = consoleLog,
+            dosingOnly = preferences.get(BooleanKey.ApsAutoIsfDosingOnly)
         ).also {
             it.autoIsfFactors = runAutoIsfFactors
             val determineBasalResult = apsResultProvider().with(it)
@@ -985,6 +986,7 @@ open class OpenAPSAutoISFPlugin(
                 title = ApsStrings.autoISF_settings_title,
                 items = listOf(
                     BooleanKey.ApsUseAutoIsfWeights,
+                    BooleanKey.ApsAutoIsfDosingOnly,
                     DoubleKey.ApsAutoIsfMin,
                     DoubleKey.ApsAutoIsfMax,
                     DoubleKey.ApsAutoIsfBgAccelWeight,

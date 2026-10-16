@@ -221,6 +221,77 @@ class DetermineBasalAutoISFTest : TestBaseWithProfile() {
         assertThat(rT.duration).isEqualTo(30)
     }
 
+    /**
+     * AutoISF mode, BG 150 and rising, 1.3 U on board whose action fades out over the next hour, so the
+     * predictions stay above target and a dose is wanted. Profile ISF 50; [variableSens] is the AutoISF ISF.
+     */
+    private fun runAutoIsf(variableSens: Double, dosingOnly: Boolean): RT {
+        val iobs = Array(48) { i ->
+            val time = currentTime + i * 5 * 60000L
+            val left = (1.0 - i / 12.0).coerceAtLeast(0.0)
+            IobTotal(
+                time = time, iob = 1.3 * left, activity = 0.0105 * left, lastBolusTime = currentTime - 3600000L,
+                iobWithZeroTemp = IobTotal(time = time, iob = 1.3 * left, activity = 0.0105 * left)
+            )
+        }
+        return sut.determine_basal(
+            glucose_status = glucoseStatus(),
+            currenttemp = CurrentTemp(0, 0.0, null),
+            iob_data_array = iobs,
+            profile = profile().copy(variable_sens = variableSens),
+            autosens_data = AutosensResult(ratio = 1.0),
+            meal_data = MealData(
+                carbs = 0.0, mealCOB = 0.0, slopeFromMaxDeviation = 0.0, slopeFromMinDeviation = 0.0,
+                lastBolusTime = currentTime - 3600000L, lastCarbTime = currentTime - 4 * 3600000L
+            ),
+            microBolusAllowed = false,
+            currentTime = currentTime,
+            flatBGsDetected = false,
+            autoIsfMode = true,
+            loop_wanted_smb = "AAPS",
+            profile_percentage = 100,
+            smb_ratio = 0.5,
+            smb_max_range_extension = 1.0,
+            iob_threshold_percent = 100,
+            auto_isf_consoleError = mutableListOf(),
+            auto_isf_consoleLog = mutableListOf(),
+            dosingOnly = dosingOnly
+        )
+    }
+
+    @Test
+    fun `with dosing only an AutoISF brake does not lower the prediction`() {
+        // Brake: AutoISF ISF 60 against a profile ISF of 50
+        val shared = runAutoIsf(variableSens = 60.0, dosingOnly = false)
+        val dosingOnly = runAutoIsf(variableSens = 60.0, dosingOnly = true)
+        val noAutoIsf = runAutoIsf(variableSens = 50.0, dosingOnly = false)
+
+        // The shared ISF predicts that the insulin on board will do more than it does
+        assertThat(shared.eventualBG!!).isLessThan(noAutoIsf.eventualBG!!)
+        // With dosing only the prediction is the one of the profile ISF
+        assertThat(dosingOnly.eventualBG).isEqualTo(noAutoIsf.eventualBG)
+        assertThat(dosingOnly.reason.toString()).contains("dosing ISF")
+    }
+
+    @Test
+    fun `with dosing only an AutoISF boost still asks for more insulin`() {
+        val boost = runAutoIsf(variableSens = 40.0, dosingOnly = true)
+        val neutral = runAutoIsf(variableSens = 50.0, dosingOnly = true)
+
+        assertThat(boost.eventualBG).isEqualTo(neutral.eventualBG)
+        assertThat(boost.insulinReq!!).isGreaterThan(neutral.insulinReq!!)
+    }
+
+    @Test
+    fun `dosing only changes nothing when AutoISF leaves the ISF alone`() {
+        val off = runAutoIsf(variableSens = 50.0, dosingOnly = false)
+        val on = runAutoIsf(variableSens = 50.0, dosingOnly = true)
+
+        assertThat(on.eventualBG).isEqualTo(off.eventualBG)
+        assertThat(on.insulinReq).isEqualTo(off.insulinReq)
+        assertThat(on.reason.toString()).doesNotContain("dosing ISF")
+    }
+
     /** BG high and rising so a bolus is wanted, with enough insulin acting that the worst case lands below target. */
     private fun runWithSmb(): RT {
         val iobs = Array(48) { i ->

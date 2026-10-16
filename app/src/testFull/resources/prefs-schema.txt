@@ -90,6 +90,7 @@ application_password|StringKey|true
 application_pin|StringKey|true
 application_protection|IntKey|true
 appwidget_%d|IntComposedKey|true
+aps_autoisf_dosing_only|BooleanKey|true
 aps_incarnation_no|DiaconnIntNonKey|true
 aps_link_to_docs|ApsIntentKey|false
 autoISF_max|DoubleKey|true
