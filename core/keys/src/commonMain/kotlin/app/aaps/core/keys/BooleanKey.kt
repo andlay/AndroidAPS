@@ -192,11 +192,6 @@ enum class BooleanKey(
         sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)
     ),
     ApsUseAutoIsfWeights("openapsama_enable_autoISF", false, KeysStrings.pref_title_aps_use_autoisf_weights, KeysStrings.pref_summary_aps_use_autoisf_weights, defaultedBySM = true, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
-    /** The AutoISF factor changes only how much extra insulin is given; the predictions keep the profile ISF (with autosens). */
-    ApsAutoIsfDosingOnly(
-        "aps_autoisf_dosing_only", true, KeysStrings.pref_title_aps_autoisf_dosing_only, KeysStrings.pref_summary_aps_autoisf_dosing_only,
-        dependency = ApsUseAutoIsfWeights, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)
-    ),
     ApsAutoIsfSmbOnEvenTarget(
         "Enable alternative activation of SMB always",
         false,

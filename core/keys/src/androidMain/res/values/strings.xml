@@ -76,8 +76,6 @@
     <string name="pref_summary_aps_low_tt_lowers_sensitivity">Low temporary targets will decrease insulin sensitivity.</string>
     <string name="pref_title_aps_use_autoisf_weights">Enable AutoISF</string>
     <string name="pref_summary_aps_use_autoisf_weights">Enable AutoISF weight-based ISF adjustments.</string>
-    <string name="pref_title_aps_autoisf_dosing_only">AutoISF changes the dose only</string>
-    <string name="pref_summary_aps_autoisf_dosing_only">The AutoISF factors change only how much extra insulin is given. The predictions, zero temps and carbs required use your profile ISF with autosens, so a brake does not make the loop think your insulin will do more than it does.</string>
     <string name="pref_title_aps_smb_on_even_target">Enable SMB on even target</string>
     <string name="pref_summary_aps_smb_on_even_target">Alternative activation of SMB always based on target glucose value.</string>
 

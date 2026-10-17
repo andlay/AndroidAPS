@@ -209,8 +209,7 @@ class DetermineBasalAutoISF(
     fun determine_basal(
         glucose_status: GlucoseStatus, currenttemp: CurrentTemp, iob_data_array: Array<IobTotal>, profile: OapsProfileAutoIsf, autosens_data: AutosensResult, meal_data: MealData,
         microBolusAllowed: Boolean, currentTime: Long, flatBGsDetected: Boolean, autoIsfMode: Boolean, loop_wanted_smb: String, profile_percentage: Int, smb_ratio: Double,
-        smb_max_range_extension: Double, iob_threshold_percent: Int, auto_isf_consoleError: MutableList<String>, auto_isf_consoleLog: MutableList<String>,
-        dosingOnly: Boolean = false
+        smb_max_range_extension: Double, iob_threshold_percent: Int, auto_isf_consoleError: MutableList<String>, auto_isf_consoleLog: MutableList<String>
     ): RT {
         consoleError = mutableListOf()
         consoleLog = mutableListOf()
@@ -358,13 +357,13 @@ class DetermineBasalAutoISF(
         } else {
             consoleError.add("ISF unchanged: $adjusted_sens")
         }
-        // dosingSens: the AutoISF ISF, used for how much extra insulin to give. sens: the ISF of the
-        // physics (BGI, deviation, predictions, zero temps, carbs required). Normally the same; with
-        // dosingOnly the physics keeps the profile ISF with autosens, so an AutoISF brake or boost
-        // changes the dose but not what the loop thinks the insulin on board will do.
-        val dosingSens = if (autoIsfMode) profile.variable_sens else adjusted_sens
-        val sens = if (autoIsfMode && !dosingOnly) profile.variable_sens else adjusted_sens
-        if (sens != dosingSens) consoleError.add("AutoISF changes the dose only: predictions use ISF $sens, dosing uses ISF $dosingSens")
+        val sens =
+            if (autoIsfMode) {
+                profile.variable_sens
+            } else {
+                adjusted_sens
+                //console.log(" (autosens ratio "+sensitivityRatio+")");
+            }
         consoleError.add("CR: ${profile.carb_ratio}")
 
         if (autoIsfMode) {
@@ -858,7 +857,7 @@ class DetermineBasalAutoISF(
         rT.COB = meal_data.mealCOB
         rT.IOB = iob_data.iob
         rT.reason.append(
-            "COB: ${round(meal_data.mealCOB, 1).withoutZeros()}, Dev: ${convert_bg(deviation.toDouble())}, BGI: ${convert_bg(bgi)}, ISF: ${convert_bg(sens)}${if (dosingSens != sens) ", dosing ISF: ${convert_bg(dosingSens)}" else ""}, CR: ${
+            "COB: ${round(meal_data.mealCOB, 1).withoutZeros()}, Dev: ${convert_bg(deviation.toDouble())}, BGI: ${convert_bg(bgi)}, ISF: ${convert_bg(sens)}, CR: ${
                 round(profile.carb_ratio, 2)
                     .withoutZeros()
             }, Target: ${convert_bg(target_bg)}, minPredBG ${convert_bg(minPredBG)}, minGuardBG ${convert_bg(minGuardBG)}, IOBpredBG ${convert_bg(lastIOBpredBG)}"
@@ -1103,7 +1102,7 @@ class DetermineBasalAutoISF(
             //console.error(minPredBG,eventualBG);
             var insulinReq =
                 // if (dynIsfMode) round((min(minPredBG, eventualBG) - target_bg) / future_sens, 2)
-                round((min(minPredBG, eventualBG) - target_bg) / dosingSens, 2)
+                round((min(minPredBG, eventualBG) - target_bg) / sens, 2)
             // if that would put us over max_iob, then reduce accordingly
             if (insulinReq > max_iob - iob_data.iob) {
                 rT.reason.append("max_iob $max_iob, ")
