@@ -13,6 +13,7 @@ import app.aaps.core.interfaces.aps.Predictions
 import app.aaps.core.interfaces.aps.RT
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.utils.fabric.FabricPrivacy
+import app.aaps.plugins.aps.openAPS.smbDecisionLine
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -463,6 +464,7 @@ class DetermineBasalSMB(
 
         var enableSMB = enable_smb(profile, microBolusAllowed, meal_data, target_bg)
         rT.smbEnabled = enableSMB // before the per-run checks below can stop SMBs
+        rT.smbReason = smbDecisionLine(consoleError)
 
         // enable UAM (if enabled in preferences)
         val enableUAM = profile.enableUAM

@@ -189,10 +189,13 @@ data class DevSlopeGraphData(
  * Variable sensitivity graph data: sensitivity line from APS results
  *
  * @param autoIsf the AutoISF factors of each loop run that has them (AutoISF with the weights on)
+ * @param profileIsf the ISF of the running profile now, in the user's units, before autosens, dynamic
+ *   ISF or AutoISF change it. Null when there is no profile.
  */
 data class VarSensGraphData(
     val varSens: List<GraphDataPoint>,
-    val autoIsf: List<AutoIsfFactorPoint> = emptyList()
+    val autoIsf: List<AutoIsfFactorPoint> = emptyList(),
+    val profileIsf: Double? = null
 )
 
 /** The AutoISF factors of one loop run. 1.0 is no change, above 1.0 is a stronger ISF. */

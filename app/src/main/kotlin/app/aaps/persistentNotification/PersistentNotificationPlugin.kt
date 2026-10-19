@@ -42,6 +42,7 @@ import app.aaps.core.interfaces.rx.bus.RxBus
 import app.aaps.core.interfaces.rx.collectResilient
 import app.aaps.core.interfaces.rx.events.EventAutosensCalculationFinished
 import app.aaps.core.interfaces.rx.events.EventInitializationChanged
+import app.aaps.core.interfaces.rx.events.EventLoopUpdateGui
 import app.aaps.core.interfaces.rx.events.EventRefreshOverview
 import app.aaps.core.interfaces.ui.IconsProvider
 import app.aaps.core.interfaces.utils.DateUtil
@@ -186,6 +187,9 @@ class PersistentNotificationPlugin(
         // Switching the setting off removes the icon at once, on again shows it at once
         preferences.observe(BooleanKey.OverviewShowSmbStatusIcon)
             .collectResilient(newScope, aapsLogger, LTag.CORE) { updateSmbStatusNotification() }
+        // The loop runs after the calculation events above, so its new result needs its own update
+        rxBus.toFlow(EventLoopUpdateGui::class)
+            .collectResilient(newScope, aapsLogger, LTag.CORE) { updateSmbStatusNotification() }
     }
 
     /**
@@ -258,29 +262,35 @@ class PersistentNotificationPlugin(
         }
         if (!config.appInitialized) return
         val lastRun = loop.lastRun
-        val on = smbOn(
-            mode = loop.runningMode(),
-            smbEnabled = (lastRun?.request?.rawData() as? RT)?.smbEnabled,
-            lastRunAt = lastRun?.lastAPSRun,
-            now = dateUtil.now()
-        )
+        val rt = lastRun?.request?.rawData() as? RT
+        val mode = loop.runningMode()
+        val now = dateUtil.now()
+        val on = smbOn(mode = mode, smbEnabled = rt?.smbEnabled, lastRunAt = lastRun?.lastAPSRun, now = now)
+        val reason = when {
+            mode != RM.Mode.CLOSED_LOOP              -> rh.gs(R.string.smb_status_loop_not_closed)
+            !isRecent(lastRun?.lastAPSRun, now)      -> rh.gs(R.string.smb_status_no_recent_run)
+            else                                     -> rt?.smbReason
+        }
         val mNotificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
-        val channel = NotificationChannel(SMB_STATUS_CHANNEL_ID, rh.gs(R.string.smb_status_channel_name), AndroidNotificationManager.IMPORTANCE_LOW)
+        // Normal importance, not low: Android hides the status bar icon of a silent (low importance)
+        // notification, and that icon is the whole point. It still makes no sound and no vibration.
+        mNotificationManager.deleteNotificationChannel(OLD_SMB_STATUS_CHANNEL_ID)
+        val channel = NotificationChannel(SMB_STATUS_CHANNEL_ID, rh.gs(R.string.smb_status_channel_name), AndroidNotificationManager.IMPORTANCE_DEFAULT)
         channel.setShowBadge(false)
         channel.setSound(null, null)
         channel.enableVibration(false)
         mNotificationManager.createNotificationChannel(channel)
-        val notification = NotificationCompat.Builder(context, SMB_STATUS_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, SMB_STATUS_CHANNEL_ID)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setShowWhen(false)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
             .setSmallIcon(if (on) R.drawable.ic_notif_smb_on else R.drawable.ic_notif_smb_off)
             .setContentTitle(rh.gs(if (on) R.string.smb_status_on else R.string.smb_status_off))
             .setContentIntent(notificationHolder.openAppIntent())
-            .build()
+        if (!reason.isNullOrBlank()) builder.setContentText(reason)
+        val notification = builder.build()
         mNotificationManager.notify(SMB_STATUS_NOTIFICATION_ID, notification)
     }
 
@@ -531,7 +541,9 @@ class PersistentNotificationPlugin(
         /** Short, so the notification shows a new BG at once, but long enough for one BG's burst. */
         val UPDATE_DEBOUNCE = 1.seconds
 
-        private const val SMB_STATUS_CHANNEL_ID = "AndroidAPS-SmbStatus"
+        // A new id because Android does not let an app raise the importance of an existing channel
+        private const val SMB_STATUS_CHANNEL_ID = "AndroidAPS-SmbStatusIcon"
+        private const val OLD_SMB_STATUS_CHANNEL_ID = "AndroidAPS-SmbStatus"
 
         // 4711 is the main notification, 4712 the full screen alarm
         private const val SMB_STATUS_NOTIFICATION_ID = 4720
@@ -549,8 +561,11 @@ class PersistentNotificationPlugin(
          * stop one SMB (a low prediction, a fast rise) do not count as off.
          */
         fun smbOn(mode: RM.Mode, smbEnabled: Boolean?, lastRunAt: Long?, now: Long): Boolean =
-            mode == RM.Mode.CLOSED_LOOP && smbEnabled == true &&
-                lastRunAt != null && now - lastRunAt <= SMB_STATUS_MAX_AGE.inWholeMilliseconds
+            mode == RM.Mode.CLOSED_LOOP && smbEnabled == true && isRecent(lastRunAt, now)
+
+        /** Whether a loop run at [lastRunAt] still tells what the loop does now. */
+        fun isRecent(lastRunAt: Long?, now: Long): Boolean =
+            lastRunAt != null && now - lastRunAt <= SMB_STATUS_MAX_AGE.inWholeMilliseconds
 
         /**
          * Splits the notification content between the drawer and the Now Bar on a Samsung phone.

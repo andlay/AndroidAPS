@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import com.patrykandpatrick.vico.compose.cartesian.CartesianDrawingContext
+import com.patrykandpatrick.vico.compose.cartesian.axis.Axis
 import com.patrykandpatrick.vico.compose.cartesian.axis.BaseAxis
 import com.patrykandpatrick.vico.compose.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.compose.cartesian.data.CartesianValueFormatter
@@ -381,6 +382,54 @@ fun createPredictionLine(color: Color): LineCartesianLayer.Line =
  * @param dashLengthPx Dash segment length in pixels
  * @param gapLengthPx Gap between dashes in pixels
  */
+/**
+ * Variable sensitivity is drawn upside down: a lower ISF means more insulin for the same BG, so it is
+ * drawn higher. The values are negated before drawing and the axis labels negate them back.
+ */
+fun invertIsf(points: List<GraphDataPoint>): List<GraphDataPoint> = points.map { GraphDataPoint(it.timestamp, -it.value) }
+
+/**
+ * A dashed horizontal line across the whole graph at [y], on the axis at [axisPosition]. Nothing is
+ * drawn when [y] is outside that axis' range.
+ */
+class HorizontalDashedLine(
+    private val y: Double,
+    private val color: Color,
+    private val axisPosition: Axis.Position.Vertical = Axis.Position.Vertical.Start,
+    private val strokeWidthPx: Float = 2f,
+    private val dashLengthPx: Float = 6f,
+    private val gapLengthPx: Float = 4f
+) : Decoration {
+
+    override fun drawOverLayers(context: CartesianDrawingContext) {
+        with(context) {
+            val yRange = ranges.getYRange(axisPosition)
+            if (yRange.length == 0.0 || y < yRange.minY || y > yRange.maxY) return
+            val canvasY = layerBounds.bottom - ((y - yRange.minY) / yRange.length).toFloat() * layerBounds.height
+            with(mutableDrawScope) {
+                drawLine(
+                    color = this@HorizontalDashedLine.color,
+                    start = Offset(layerBounds.left, canvasY),
+                    end = Offset(layerBounds.right, canvasY),
+                    strokeWidth = strokeWidthPx,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashLengthPx, gapLengthPx), 0f)
+                )
+            }
+        }
+    }
+
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            other is HorizontalDashedLine && y == other.y && color == other.color && axisPosition == other.axisPosition
+
+    override fun hashCode(): Int {
+        var result = y.hashCode()
+        result = 31 * result + color.hashCode()
+        result = 31 * result + axisPosition.hashCode()
+        return result
+    }
+}
+
 class NowLine(
     private val nowX: Double,
     private val color: Color,

@@ -842,7 +842,8 @@ class PrepareGraphDataRunner(
         data.cache.updateDevSlopeGraph(DevSlopeGraphData(dsMax = dsMaxListCompose, dsMin = dsMinListCompose))
         val autoIsfListCompose = persistenceLayer.getAutoIsfFactors(fromTime, endTime)
             .map { AutoIsfFactorPoint(it.timestamp, it.acce, it.bg, it.pp, it.dura, it.applied) }
-        data.cache.updateVarSensGraph(VarSensGraphData(varSens = varSensListCompose, autoIsf = autoIsfListCompose))
+        val profileIsf = profileFunction.getProfile()?.let { profileUtil.fromMgdlToUnits(it.getProfileIsfMgdl()) }
+        data.cache.updateVarSensGraph(VarSensGraphData(varSens = varSensListCompose, autoIsf = autoIsfListCompose, profileIsf = profileIsf))
 
         data.signals.emitProgress(CalculationWorkflow.ProgressData.PREPARE_IOB_AUTOSENS_DATA, 100)
     }

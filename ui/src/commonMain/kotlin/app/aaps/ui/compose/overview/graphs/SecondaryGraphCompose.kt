@@ -222,6 +222,9 @@ fun SecondaryGraphCompose(
     val devCarbsData = if (primaryType == SeriesType.DEV_CARBS) devCarbsRuns else null
     // AutoISF factors: several lines, so always on the left axis (see mustBePrimary)
     val autoIsfData = if (primaryType == SeriesType.AUTOISF) viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.autoIsf else null
+    // Profile ISF, drawn as a dashed line wherever variable sensitivity is drawn
+    val varSensOnSecondary = isDualAxis && secondaryType == SeriesType.VAR_SENSITIVITY
+    val profileIsf = if (primaryType == SeriesType.VAR_SENSITIVITY || varSensOnSecondary) viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.profileIsf else null
     // Activity data: either as primary series OR as overlay (on IOB graph)
     val needsActivity = primaryType == SeriesType.ACTIVITY || (activityOverlay && hasIob)
     val activityData = if (needsActivity) viewModel.activityGraphFlow.collectAsStateWithLifecycle().value else null
@@ -246,7 +249,7 @@ fun SecondaryGraphCompose(
             // must match the same shift applied when SENSITIVITY is primary (see processedSimpleSeries).
             GraphDataPoint(it.timestamp, it.value + 100.0)
         }
-        SeriesType.VAR_SENSITIVITY -> viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.varSens
+        SeriesType.VAR_SENSITIVITY -> invertIsf(viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value.varSens)
         SeriesType.DEV_SLOPE       -> viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value.dsMax
         SeriesType.DEV_CARBS       -> devCarbsRuns.flatten() // for the axis range; drawn as runs (see secondaryRuns)
         // Only when both series must be on the left axis: then the applied factor alone
@@ -287,7 +290,7 @@ fun SecondaryGraphCompose(
                 add(SeriesType.SENSITIVITY to processPoints(shifted, minTimestamp, minX, maxX))
             }
             varSensData?.varSens?.takeIf { it.isNotEmpty() }?.let {
-                add(SeriesType.VAR_SENSITIVITY to processPoints(it, minTimestamp, minX, maxX))
+                add(SeriesType.VAR_SENSITIVITY to processPoints(invertIsf(it), minTimestamp, minX, maxX))
             }
             devSlopeData?.let {
                 if (it.dsMax.isNotEmpty()) add(SeriesType.DEV_SLOPE to processPoints(it.dsMax, minTimestamp, minX, maxX))
@@ -669,8 +672,19 @@ fun SecondaryGraphCompose(
     // Where insulin activity will peak, while that is still ahead (only where activity is drawn)
     val activityPeak = remember(activityData, nowTimestamp) { activityData?.let { futureActivityPeak(it.activityPrediction, nowTimestamp) } }
     val activityPeakLine = rememberActivityPeakLine(minTimestamp, activityPeak, AapsTheme.elementColors.activity)
-    val decorations = remember(nowLine, activityPeakLine, visibleRangeReporter, inspectLine, geometryReporter) {
-        listOfNotNull(nowLine, activityPeakLine, visibleRangeReporter, inspectLine, geometryReporter)
+    // The profile ISF, before any change by autosens, dynamic ISF or AutoISF (inverted like the line)
+    val varSensColor = seriesColors.colorFor(SeriesType.VAR_SENSITIVITY)
+    val profileIsfLine = remember(profileIsf, varSensOnSecondary, varSensColor) {
+        profileIsf?.let {
+            HorizontalDashedLine(
+                y = -it,
+                color = varSensColor.copy(alpha = 0.7f),
+                axisPosition = if (varSensOnSecondary) Axis.Position.Vertical.End else Axis.Position.Vertical.Start
+            )
+        }
+    }
+    val decorations = remember(nowLine, activityPeakLine, profileIsfLine, visibleRangeReporter, inspectLine, geometryReporter) {
+        listOfNotNull(nowLine, activityPeakLine, profileIsfLine, visibleRangeReporter, inspectLine, geometryReporter)
     }
 
     // Dual-axis zero alignment.
@@ -776,14 +790,19 @@ fun SecondaryGraphCompose(
     // excursion, same rule as IOB); VAR_SENSITIVITY/HEART_RATE are free-range (no zero anchor);
     // SENSITIVITY/DEV_SLOPE are pivot-centered (pivot always lands exactly at mid-axis). Takes
     // precedence over primaryConstantRange/primaryAutoRange for these specific series types.
-    val primarySingleAxisScale = remember(primaryType, dualAxisRanges, hasBasalLayer, primaryYValues) {
+    val primarySingleAxisScale = remember(primaryType, dualAxisRanges, hasBasalLayer, primaryYValues, profileIsf) {
         if (dualAxisRanges != null || hasBasalLayer || primaryYValues.isEmpty()) return@remember null
         when (primaryType) {
             SeriesType.COB                                    -> niceScale(0.0, primaryYValues.max().coerceAtLeast(0.0), SECONDARY_GRAPH_TICK_COUNT)
             // Keeps 0 on the axis also when only negative runs are in view: the areas are drawn from 0
             SeriesType.DEV_CARBS                              -> zeroFloorNiceRange(primaryYValues.min(), primaryYValues.max().coerceAtLeast(0.0), SECONDARY_GRAPH_TICK_COUNT)
             in ZERO_FLOOR_SERIES_TYPES                         -> zeroFloorNiceRange(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
-            SeriesType.VAR_SENSITIVITY, SeriesType.HEART_RATE  -> niceScale(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
+            // The profile ISF line is part of the range, so it is always in view
+            SeriesType.VAR_SENSITIVITY                         -> {
+                val isfY = profileIsf?.let { -it }
+                niceScale(minOf(primaryYValues.min(), isfY ?: Double.MAX_VALUE), maxOf(primaryYValues.max(), isfY ?: -Double.MAX_VALUE), SECONDARY_GRAPH_TICK_COUNT)
+            }
+            SeriesType.HEART_RATE                              -> niceScale(primaryYValues.min(), primaryYValues.max(), SECONDARY_GRAPH_TICK_COUNT)
             SeriesType.SENSITIVITY                             -> niceScaleAroundPivot(primaryYValues.min(), primaryYValues.max(), 100.0, SENS_PIVOT_TICK_COUNT, SENS_MIN_DEVIATION)
             SeriesType.AUTOISF                                 -> niceScaleAroundPivot(primaryYValues.min(), primaryYValues.max(), 1.0, SECONDARY_GRAPH_TICK_COUNT, AUTOISF_MIN_DEVIATION)
             SeriesType.DEV_SLOPE                               -> niceScaleAroundPivot(primaryYValues.min(), primaryYValues.max(), 0.0, SECONDARY_GRAPH_TICK_COUNT)
@@ -951,15 +970,40 @@ fun SecondaryGraphCompose(
         }
     }
 
-    val startAxis = VerticalAxis.rememberStart(
-        itemPlacer = startAxisItemPlacer,
-        label = rememberTextComponent(
-            style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
-            minWidth = TextComponent.MinWidth.fixed(30.dp)
-        ),
-        guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))),
-        size = GRAPH_AXIS_SIZE
+    val startAxisLabel = rememberTextComponent(
+        style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
+        minWidth = TextComponent.MinWidth.fixed(30.dp)
     )
+    val startAxisGuideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+    val startAxis = if (primaryType == SeriesType.VAR_SENSITIVITY) {
+        // Variable sensitivity is drawn negated (see invertIsf), so its labels negate it back
+        val decimalFormatter = LocalDecimalFormatter.current
+        val isfFormatter = remember(primaryYStep, decimalFormatter) {
+            val step = primaryYStep ?: 1.0
+            CartesianValueFormatter { _, value, _ ->
+                val isf = if (value == 0.0) 0.0 else -value
+                when {
+                    step >= 1.0 -> decimalFormatter.to0Decimal(isf)
+                    step >= 0.1 -> decimalFormatter.to1Decimal(isf)
+                    else        -> decimalFormatter.to2Decimal(isf)
+                }
+            }
+        }
+        VerticalAxis.rememberStart(
+            valueFormatter = isfFormatter,
+            itemPlacer = startAxisItemPlacer,
+            label = startAxisLabel,
+            guideline = startAxisGuideline,
+            size = GRAPH_AXIS_SIZE
+        )
+    } else {
+        VerticalAxis.rememberStart(
+            itemPlacer = startAxisItemPlacer,
+            label = startAxisLabel,
+            guideline = startAxisGuideline,
+            size = GRAPH_AXIS_SIZE
+        )
+    }
     // No time labels: the BG graph above shows them, and the hour lines stay aligned with it.
     // This keeps the graphs below BG compact.
     val bottomAxis = HorizontalAxis.rememberBottom(

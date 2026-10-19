@@ -628,6 +628,8 @@ class LoopPlugin(
                 lastRun.lastSMBEnact = 0
                 lastRun.lastSMBRequest = 0
                 scheduleBuildAndStoreDeviceStatus("APS result")
+                // The new result is in lastRun now: lets the loop screen and the SMB status icon show it
+                rxBus.send(EventLoopUpdateGui())
 
                 if (runningMode().pausesLoopExecution()) {
                     aapsLogger.debug(LTag.APS, rh.gs(InterfacesStrings.loopsuspended))

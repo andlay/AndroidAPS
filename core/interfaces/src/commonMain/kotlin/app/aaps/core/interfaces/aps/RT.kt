@@ -49,11 +49,14 @@ data class RT(
     /** AutoISF only: the ISF factors of this run, for the AutoISF graph. Null for other algorithms. */
     var autoIsfFactors: AutoIsfFactors? = null,
     /**
-     * Whether SMBs were switched on for this run: allowed by the settings, the constraints and the
-     * target (an odd target switches them off). A low prediction that stops SMBs for one run does not
-     * count, so this does not change from run to run. Null when the run ended before it was known.
+     * Whether SMBs were switched on for this run: allowed by the settings, the constraints, the
+     * target (an odd target switches them off) and, in AutoISF, the IOB threshold (iobTH). The checks
+     * that stop one SMB inside a run (a low prediction, a fast rise) do not count. Null when the run
+     * ended before it was known.
      */
-    var smbEnabled: Boolean? = null
+    var smbEnabled: Boolean? = null,
+    /** The algorithm's log line that says why SMBs are on or off, see [smbEnabled]. Null when there was none. */
+    var smbReason: String? = null
 ) {
 
     fun serialize() = Json.encodeToString(serializer(), this)

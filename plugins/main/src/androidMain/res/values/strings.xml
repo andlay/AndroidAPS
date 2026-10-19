@@ -29,5 +29,7 @@
     <string name="smb_status_channel_name">SMB status</string>
     <string name="smb_status_on">SMB on</string>
     <string name="smb_status_off">SMB off</string>
+    <string name="smb_status_loop_not_closed">The loop is not in closed loop mode</string>
+    <string name="smb_status_no_recent_run">No loop run in the last 15 minutes</string>
 
 </resources>

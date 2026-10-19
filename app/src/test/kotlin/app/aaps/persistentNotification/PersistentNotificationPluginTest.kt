@@ -148,4 +148,12 @@ class PersistentNotificationPluginTest : TestBase() {
         assertThat(PersistentNotificationPlugin.smbOn(RM.Mode.CLOSED_LOOP, true, null, now)).isFalse()
         assertThat(PersistentNotificationPlugin.smbOn(RM.Mode.CLOSED_LOOP, true, now - 16 * 60_000L, now)).isFalse()
     }
+
+    @Test
+    fun `a loop run counts as recent for 15 minutes`() {
+        val now = 10_000_000L
+        assertThat(PersistentNotificationPlugin.isRecent(now - 15 * 60_000L, now)).isTrue()
+        assertThat(PersistentNotificationPlugin.isRecent(now - 15 * 60_000L - 1, now)).isFalse()
+        assertThat(PersistentNotificationPlugin.isRecent(null, now)).isFalse()
+    }
 }

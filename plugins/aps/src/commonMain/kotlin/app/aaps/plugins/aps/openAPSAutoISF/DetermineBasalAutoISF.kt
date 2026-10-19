@@ -12,6 +12,7 @@ import app.aaps.core.interfaces.aps.OapsProfileAutoIsf
 import app.aaps.core.interfaces.aps.Predictions
 import app.aaps.core.interfaces.aps.RT
 import app.aaps.core.interfaces.profile.ProfileUtil
+import app.aaps.plugins.aps.openAPS.smbDecisionLine
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -478,6 +479,7 @@ class DetermineBasalAutoISF(
         // generate predicted future BGs based on IOB, COB, and current absorption rate
 
         rT.smbEnabled = enableSMB // before the per-run checks below can stop SMBs
+        rT.smbReason = smbDecisionLine(auto_isf_consoleLog, consoleError)
 
         var COBpredBGs = mutableListOf<Double>()
         var aCOBpredBGs = mutableListOf<Double>()
