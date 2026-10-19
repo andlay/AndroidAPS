@@ -416,6 +416,7 @@ fun BgGraphCompose(
         // scaled from the visible window like every other curve. The BG axis above is never changed
         // to fit it — the activity is fitted into the room the BG axis already leaves on each side
         // of the low mark. Prediction points count too, same reason as for the BG values above.
+        fun inWindow(timestamp: Long) = visibleTimeRange == null || timestamp in visibleTimeRange.first..visibleTimeRange.second
         val windowedActivity = (activityData.activity + activityData.activityPrediction)
             .filter { inWindow(it.timestamp) }
             .map { it.value }
