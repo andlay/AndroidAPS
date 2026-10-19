@@ -630,7 +630,11 @@ fun BgGraphCompose(
     val defaultMarkerController = CartesianMarkerController.rememberShowOnPress()
     val inspectLine = rememberInspectLine(inspect)
 
-    val decorations = remember(inRangeBox, nowLine, inspectLine) { listOfNotNull(inRangeBox, nowLine, inspectLine) }
+    // Where insulin activity will peak, while that is still ahead
+    val activityPeak = remember(showActivity, activityData, nowTimestamp) { if (showActivity) futureActivityPeak(activityData.activityPrediction, nowTimestamp) else null }
+    val activityPeakLine = rememberActivityPeakLine(minTimestamp, activityPeak, activityColor)
+
+    val decorations = remember(inRangeBox, nowLine, activityPeakLine, inspectLine) { listOfNotNull(inRangeBox, nowLine, activityPeakLine, inspectLine) }
 
     // =========================================================================
     // Range providers — hoisted out of rememberCartesianChart so keys are re-evaluated on recomposition

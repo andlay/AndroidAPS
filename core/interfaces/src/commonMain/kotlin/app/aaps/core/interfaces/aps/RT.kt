@@ -47,7 +47,13 @@ data class RT(
     var consoleLog: MutableList<String>? = null,
     var consoleError: MutableList<String>? = null,
     /** AutoISF only: the ISF factors of this run, for the AutoISF graph. Null for other algorithms. */
-    var autoIsfFactors: AutoIsfFactors? = null
+    var autoIsfFactors: AutoIsfFactors? = null,
+    /**
+     * Whether SMBs were switched on for this run: allowed by the settings, the constraints and the
+     * target (an odd target switches them off). A low prediction that stops SMBs for one run does not
+     * count, so this does not change from run to run. Null when the run ended before it was known.
+     */
+    var smbEnabled: Boolean? = null
 ) {
 
     fun serialize() = Json.encodeToString(serializer(), this)

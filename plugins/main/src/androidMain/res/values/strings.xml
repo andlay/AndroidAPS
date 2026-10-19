@@ -26,5 +26,8 @@
     <string name="description_persistent_notification">Shows an ongoing notification with a short overview of what your loop is doing</string>
     <string name="old_data">OLD DATA</string>
     <string name="notification_iob_short">%1$.1fU</string>
+    <string name="smb_status_channel_name">SMB status</string>
+    <string name="smb_status_on">SMB on</string>
+    <string name="smb_status_off">SMB off</string>
 
 </resources>

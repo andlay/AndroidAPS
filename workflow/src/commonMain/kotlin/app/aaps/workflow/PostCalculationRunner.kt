@@ -12,6 +12,8 @@ import app.aaps.core.interfaces.nsclient.ProcessedDeviceStatusData
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgRange
 import app.aaps.core.interfaces.overview.graph.BgType
+import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
+import app.aaps.core.interfaces.profile.ProfileFunction
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.scenes.SceneExpiryCheck
 import app.aaps.core.interfaces.widget.WidgetUpdater
@@ -49,7 +51,9 @@ class PostCalculationRunner(
     private val processedDeviceStatusData: ProcessedDeviceStatusData,
     private val profileUtil: ProfileUtil,
     private val preferences: Preferences,
-    private val sceneExpiryCheck: SceneExpiryCheck
+    private val sceneExpiryCheck: SceneExpiryCheck,
+    private val graphConfigRepository: GraphConfigRepository,
+    private val profileFunction: ProfileFunction
 ) : CalculationPhase {
 
     /** Runs the phase that follows the prepare pass. [isStopped] is asked between steps. */
@@ -120,7 +124,7 @@ class PostCalculationRunner(
         }
     }
 
-    private fun preparePredictions(data: PostCalculationData) {
+    private suspend fun preparePredictions(data: PostCalculationData) {
         val apsResult = if (config.APS) loop.lastRun?.constraintsProcessed else processedDeviceStatusData.getAPSResult()
         val predictionsAvailable = if (config.APS) loop.lastRun?.request?.hasPredictions == true else config.AAPSCLIENT
         // Align to the next local hour boundary. Local, not UTC: zones like +05:30 do not line up
@@ -146,6 +150,8 @@ class PostCalculationRunner(
             data.overviewData.fromTime = data.overviewData.toTime - T.hours(Constants.GRAPH_TIME_RANGE_HOURS.toLong()).msecs()
             data.overviewData.endTime = data.overviewData.toTime
         }
+
+        shownActivityHorizon(Clock.System.now().toEpochMilliseconds())?.let { data.overviewData.endTime = max(data.overviewData.endTime, it) }
 
         val highMarkInUnits = preferences.get(UnitDoubleKey.OverviewHighMark)
         val lowMarkInUnits = preferences.get(UnitDoubleKey.OverviewLowMark)
@@ -183,4 +189,6 @@ class PostCalculationRunner(
         }
     }
 
+    private suspend fun shownActivityHorizon(now: Long): Long? =
+        activityHorizon(now, graphConfigRepository.graphConfigFlow.value, profileFunction.getProfile()?.iCfg?.insulinEndTime)
 }

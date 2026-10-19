@@ -462,6 +462,7 @@ class DetermineBasalSMB(
         UAMpredBGs.add(bg)
 
         var enableSMB = enable_smb(profile, microBolusAllowed, meal_data, target_bg)
+        rT.smbEnabled = enableSMB // before the per-run checks below can stop SMBs
 
         // enable UAM (if enabled in preferences)
         val enableUAM = profile.enableUAM

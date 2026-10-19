@@ -666,8 +666,11 @@ fun SecondaryGraphCompose(
     val nowLine = rememberNowLine(minTimestamp, nowTimestamp, nowLineColor)
     val inspectLine = rememberInspectLine(inspect)
     val geometryReporter = remember(geometryHolder) { geometryHolder?.let { GraphGeometryReporter(it) } }
-    val decorations = remember(nowLine, visibleRangeReporter, inspectLine, geometryReporter) {
-        listOfNotNull(nowLine, visibleRangeReporter, inspectLine, geometryReporter)
+    // Where insulin activity will peak, while that is still ahead (only where activity is drawn)
+    val activityPeak = remember(activityData, nowTimestamp) { activityData?.let { futureActivityPeak(it.activityPrediction, nowTimestamp) } }
+    val activityPeakLine = rememberActivityPeakLine(minTimestamp, activityPeak, AapsTheme.elementColors.activity)
+    val decorations = remember(nowLine, activityPeakLine, visibleRangeReporter, inspectLine, geometryReporter) {
+        listOfNotNull(nowLine, activityPeakLine, visibleRangeReporter, inspectLine, geometryReporter)
     }
 
     // Dual-axis zero alignment.

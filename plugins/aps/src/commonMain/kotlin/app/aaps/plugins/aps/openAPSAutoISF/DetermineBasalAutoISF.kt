@@ -477,6 +477,8 @@ class DetermineBasalAutoISF(
 
         // generate predicted future BGs based on IOB, COB, and current absorption rate
 
+        rT.smbEnabled = enableSMB // before the per-run checks below can stop SMBs
+
         var COBpredBGs = mutableListOf<Double>()
         var aCOBpredBGs = mutableListOf<Double>()
         var IOBpredBGs = mutableListOf<Double>()

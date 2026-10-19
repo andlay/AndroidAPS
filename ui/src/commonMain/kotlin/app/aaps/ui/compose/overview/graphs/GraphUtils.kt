@@ -14,6 +14,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import com.patrykandpatrick.vico.compose.cartesian.CartesianDrawingContext
 import com.patrykandpatrick.vico.compose.cartesian.axis.BaseAxis
@@ -439,6 +440,29 @@ class NowLine(
 fun rememberNowLine(minTimestamp: Long, nowTimestamp: Long, color: Color): NowLine {
     return remember(minTimestamp, nowTimestamp, color) {
         NowLine(nowX = timestampToX(nowTimestamp, minTimestamp), color = color)
+    }
+}
+
+/**
+ * When insulin activity will be highest, if that is still ahead: the time of the highest point of
+ * [prediction] after [now]. Null when activity is already falling (the peak has passed), when it
+ * never rises above zero, or when there are fewer than two future points.
+ */
+fun futureActivityPeak(prediction: List<GraphDataPoint>, now: Long): Long? {
+    val future = prediction.filter { it.timestamp > now }
+    if (future.size < 2) return null
+    val peak = future.maxBy { it.value }
+    return if (peak.value > 0.0 && peak.value > future.first().value) peak.timestamp else null
+}
+
+/**
+ * Remember a dashed line at the future insulin activity peak (see [futureActivityPeak]), or null
+ * when there is none. Drawn like [NowLine], in the activity colour, with a different dash.
+ */
+@Composable
+fun rememberActivityPeakLine(minTimestamp: Long, peakTimestamp: Long?, color: Color): NowLine? {
+    return remember(minTimestamp, peakTimestamp, color) {
+        peakTimestamp?.let { NowLine(nowX = timestampToX(it, minTimestamp), color = color, dashLengthPx = 3f, gapLengthPx = 5f) }
     }
 }
 

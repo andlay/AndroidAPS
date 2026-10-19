@@ -5,6 +5,8 @@ import app.aaps.core.interfaces.aps.AutosensDataStore
 import app.aaps.core.interfaces.aps.Loop
 import app.aaps.core.interfaces.nsclient.ProcessedDeviceStatusData
 import app.aaps.core.interfaces.overview.OverviewData
+import app.aaps.core.interfaces.overview.graph.GraphConfig
+import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
 import app.aaps.core.interfaces.scenes.SceneExpiryCheck
 import app.aaps.core.interfaces.widget.WidgetUpdater
@@ -36,11 +38,13 @@ class PostCalculationRunnerTest : TestBaseWithProfile() {
     @Mock lateinit var widgetUpdater: WidgetUpdater
     @Mock lateinit var processedDeviceStatusData: ProcessedDeviceStatusData
     @Mock lateinit var sceneExpiryCheck: SceneExpiryCheck
+    @Mock lateinit var graphConfigRepository: GraphConfigRepository
 
     private fun runner() =
         PostCalculationRunner(
             aapsLogger, workflowChainData, iobCobCalculator, loop,
-            widgetUpdater, config, processedDeviceStatusData, profileUtil, preferences, sceneExpiryCheck
+            widgetUpdater, config, processedDeviceStatusData, profileUtil, preferences, sceneExpiryCheck,
+            graphConfigRepository, profileFunction
         )
 
     // Nothing in these tests stops a run part way.
@@ -60,6 +64,7 @@ class PostCalculationRunnerTest : TestBaseWithProfile() {
     @BeforeEach
     fun setup() {
         whenever(config.APS).thenReturn(false)
+        whenever(graphConfigRepository.graphConfigFlow).thenReturn(MutableStateFlow(GraphConfig()))
     }
 
     @Test

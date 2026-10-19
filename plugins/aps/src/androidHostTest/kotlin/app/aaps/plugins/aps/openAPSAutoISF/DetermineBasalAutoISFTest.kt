@@ -221,6 +221,18 @@ class DetermineBasalAutoISFTest : TestBaseWithProfile() {
         assertThat(rT.duration).isEqualTo(30)
     }
 
+    @Test
+    fun `smbEnabled tells whether SMBs are switched on, not whether this run gave one`() {
+        // SMB always on and allowed: on, even when the low worst case stops the SMB of this run
+        assertThat(runWithSmb().smbEnabled).isTrue()
+        // SMBs not allowed: off
+        val noCarbs = MealData(
+            carbs = 0.0, mealCOB = 0.0, slopeFromMaxDeviation = 0.0, slopeFromMinDeviation = 0.0,
+            lastBolusTime = currentTime - 3600000L, lastCarbTime = currentTime - 4 * 3600000L
+        )
+        assertThat(run(noCarbs).smbEnabled).isFalse()
+    }
+
     /** BG high and rising so a bolus is wanted, with enough insulin acting that the worst case lands below target. */
     private fun runWithSmb(): RT {
         val iobs = Array(48) { i ->

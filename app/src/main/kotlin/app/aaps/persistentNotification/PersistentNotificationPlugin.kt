@@ -1,5 +1,6 @@
 package app.aaps.persistentNotification
 
+import android.app.NotificationChannel
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -14,9 +15,11 @@ import androidx.core.app.NotificationCompat.MetricStyle
 import androidx.core.app.RemoteInput
 import androidx.core.os.bundleOf
 import app.aaps.core.data.model.GlucoseUnit
+import app.aaps.core.data.model.RM
 import app.aaps.core.data.model.TrendArrow
 import app.aaps.core.data.plugin.PluginType
 import app.aaps.core.interfaces.aps.Loop
+import app.aaps.core.interfaces.aps.RT
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.db.PersistenceLayer
 import app.aaps.core.interfaces.db.ProcessedTbrEbData
@@ -45,6 +48,8 @@ import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.interfaces.utils.DecimalFormatter
 import app.aaps.core.interfaces.utils.TrendCalculator
 import app.aaps.core.interfaces.utils.fabric.FabricPrivacy
+import app.aaps.core.keys.BooleanKey
+import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.keys.interfaces.TextRef
 import app.aaps.core.objects.extensions.apsAdjustedTargetMgdl
 import app.aaps.core.objects.extensions.round
@@ -71,6 +76,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlin.math.round
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import android.app.NotificationManager as AndroidNotificationManager
 
@@ -104,6 +110,7 @@ class PersistentNotificationPlugin(
     private val processedDeviceStatusData: ProcessedDeviceStatusData,
     private val dateUtil: DateUtil,
     private val trendCalculator: TrendCalculator,
+    private val preferences: Preferences,
     notificationManager: NotificationManager
 ) : PluginBase(
     PluginDescription()
@@ -176,6 +183,9 @@ class PersistentNotificationPlugin(
         // DummyService is what keeps AAPS out of Android's background execution limits. Starting it here
         // is idempotent (startService on a running service is a no-op).
         startDummyService()
+        // Switching the setting off removes the icon at once, on again shows it at once
+        preferences.observe(BooleanKey.OverviewShowSmbStatusIcon)
+            .collectResilient(newScope, aapsLogger, LTag.CORE) { updateSmbStatusNotification() }
     }
 
     /**
@@ -203,6 +213,7 @@ class PersistentNotificationPlugin(
         scope?.cancel()
         scope = null
         deferredStart.cancel()
+        cancelSmbStatusNotification()
         dummyServiceHelper.stopService(context)
         super.onStop()
     }
@@ -230,7 +241,51 @@ class PersistentNotificationPlugin(
     // thread for the whole update.
     private suspend fun triggerNotificationUpdate(includeAuto: Boolean = false) {
         updateNotification(includeAuto)
+        if (!includeAuto) updateSmbStatusNotification()
         startDummyService()
+    }
+
+    /**
+     * A second, small notification. Its only job is its status bar icon, next to the AAPS icon: a
+     * filled triangle when SMBs are switched on, an outline only one when they are off. See [smbOn] for
+     * what counts as on. It has its own silent channel with low importance, so the user can hide it
+     * in the Android settings without touching the main notification.
+     */
+    private suspend fun updateSmbStatusNotification() {
+        if (!config.APS || !preferences.get(BooleanKey.OverviewShowSmbStatusIcon)) {
+            cancelSmbStatusNotification()
+            return
+        }
+        if (!config.appInitialized) return
+        val lastRun = loop.lastRun
+        val on = smbOn(
+            mode = loop.runningMode(),
+            smbEnabled = (lastRun?.request?.rawData() as? RT)?.smbEnabled,
+            lastRunAt = lastRun?.lastAPSRun,
+            now = dateUtil.now()
+        )
+        val mNotificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
+        val channel = NotificationChannel(SMB_STATUS_CHANNEL_ID, rh.gs(R.string.smb_status_channel_name), AndroidNotificationManager.IMPORTANCE_LOW)
+        channel.setShowBadge(false)
+        channel.setSound(null, null)
+        channel.enableVibration(false)
+        mNotificationManager.createNotificationChannel(channel)
+        val notification = NotificationCompat.Builder(context, SMB_STATUS_CHANNEL_ID)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSmallIcon(if (on) R.drawable.ic_notif_smb_on else R.drawable.ic_notif_smb_off)
+            .setContentTitle(rh.gs(if (on) R.string.smb_status_on else R.string.smb_status_off))
+            .setContentIntent(notificationHolder.openAppIntent())
+            .build()
+        mNotificationManager.notify(SMB_STATUS_NOTIFICATION_ID, notification)
+    }
+
+    private fun cancelSmbStatusNotification() {
+        (context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager).cancel(SMB_STATUS_NOTIFICATION_ID)
     }
 
     private suspend fun updateNotification(includeAuto: Boolean = false) {
@@ -475,6 +530,27 @@ class PersistentNotificationPlugin(
 
         /** Short, so the notification shows a new BG at once, but long enough for one BG's burst. */
         val UPDATE_DEBOUNCE = 1.seconds
+
+        private const val SMB_STATUS_CHANNEL_ID = "AndroidAPS-SmbStatus"
+
+        // 4711 is the main notification, 4712 the full screen alarm
+        private const val SMB_STATUS_NOTIFICATION_ID = 4720
+
+        /** A loop result older than this no longer tells what the loop does now. */
+        val SMB_STATUS_MAX_AGE = 15.minutes
+
+        /**
+         * Whether the SMB status icon shows SMBs as on.
+         *
+         * On only when the loop is closed (not open, not LGS, not suspended or disconnected), the last
+         * loop run said SMBs are switched on ([smbEnabled]: settings, constraints and the target, for
+         * example the AutoISF odd target rule), and that run is recent. Anything not known counts as
+         * off, so the icon never claims SMBs that are not happening. The checks of a single run that
+         * stop one SMB (a low prediction, a fast rise) do not count as off.
+         */
+        fun smbOn(mode: RM.Mode, smbEnabled: Boolean?, lastRunAt: Long?, now: Long): Boolean =
+            mode == RM.Mode.CLOSED_LOOP && smbEnabled == true &&
+                lastRunAt != null && now - lastRunAt <= SMB_STATUS_MAX_AGE.inWholeMilliseconds
 
         /**
          * Splits the notification content between the drawer and the Now Bar on a Samsung phone.

@@ -2,6 +2,9 @@ package app.aaps.workflow
 
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.time.T
+import app.aaps.core.interfaces.overview.graph.GraphConfig
+import app.aaps.core.interfaces.overview.graph.SeriesType
+import kotlin.math.min
 
 /**
  * Where the graph window ends, and which phase may change it.
@@ -44,4 +47,19 @@ internal const val PREDICTION_WINDOW_HOURS = 2
 internal fun keptEndTime(previousEndTime: Long?, toTime: Long): Long =
     (previousEndTime ?: toTime).coerceIn(toTime, toTime + T.hours(MAX_KEPT_HORIZON_HOURS).msecs())
 
-private const val MAX_KEPT_HORIZON_HOURS = 6L
+internal const val MAX_KEPT_HORIZON_HOURS = 6L
+
+/**
+ * Where the graph must reach so an activity curve shows to the end of insulin action: [now] plus the
+ * DIA of the insulin in use ([insulinEndTime], in ms), when [graphs] shows an activity curve on any
+ * graph. Null when none is shown or the DIA is not known. Never more than [MAX_KEPT_HORIZON_HOURS]
+ * ahead, the most a prepare pass keeps (see [keptEndTime]), so the series and the axis end at the
+ * same place.
+ */
+internal fun activityHorizon(now: Long, graphs: GraphConfig, insulinEndTime: Long?): Long? {
+    val shown = SeriesType.ACTIVITY in graphs.bgOverlays || SeriesType.ACTIVITY in graphs.iobOverlays ||
+        graphs.secondaryGraphs.any { SeriesType.ACTIVITY in it.series }
+    if (!shown) return null
+    val dia = insulinEndTime?.takeIf { it > 0 } ?: return null
+    return now + min(dia, T.hours(MAX_KEPT_HORIZON_HOURS).msecs())
+}
