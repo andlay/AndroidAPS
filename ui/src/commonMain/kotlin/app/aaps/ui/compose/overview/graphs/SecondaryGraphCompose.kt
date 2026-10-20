@@ -212,6 +212,7 @@ fun SecondaryGraphCompose(
     val absIobData = if (primaryType == SeriesType.ABS_IOB) viewModel.absIobGraphFlow.collectAsStateWithLifecycle().value else null
     val bgiData = if (SeriesType.BGI in primaryTypes) viewModel.bgiGraphFlow.collectAsStateWithLifecycle().value else null
     val deviationsData = if (SeriesType.DEVIATIONS in primaryTypes) viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value else null
+    val predictedDeviationsData = if (SeriesType.DEVIATIONS in primaryTypes) viewModel.predictedDeviationsFlow.collectAsStateWithLifecycle().value else null
     val ratioData = if (primaryType == SeriesType.SENSITIVITY) viewModel.ratioGraphFlow.collectAsStateWithLifecycle().value else null
     val varSensData = if (primaryType == SeriesType.VAR_SENSITIVITY) viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value else null
     val devSlopeData = if (primaryType == SeriesType.DEV_SLOPE) viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value else null
@@ -354,6 +355,18 @@ fun SecondaryGraphCompose(
         ProcessedDeviationLines(allX, activeTypes)
     }
 
+    // Deviations the newest loop run expects, as bars after now: one series per curve, the UAM curve
+    // (usually the longest) first so the shorter ones are drawn on top of it
+    val processedPredictedDeviations = remember(predictedDeviationsData, stableTimeRange) {
+        if (!hasRealTimeRange || predictedDeviationsData == null) return@remember emptyList()
+        listOf(
+            PredictedDeviationCurve.UAM to predictedDeviationsData.uam,
+            PredictedDeviationCurve.COB to predictedDeviationsData.cob,
+            PredictedDeviationCurve.IOB to predictedDeviationsData.iob
+        ).map { (curve, points) -> curve to processPoints(points, minTimestamp, minX, maxX) }
+            .filter { it.second.isNotEmpty() }
+    }
+
     // IOB line processing
     val processedIob = remember(iobData, stableTimeRange) {
         if (!hasRealTimeRange || iobData == null) return@remember emptyList()
@@ -463,9 +476,11 @@ fun SecondaryGraphCompose(
     // Deliberately does NOT include the activity overlay: that one is mapped into this axis' units
     // (see processedActivityOverlay below), so feeding it back in here would be circular.
     val primaryYValues = remember(
-        processedIob, processedCob, processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedDeviationLines, processedAutoIsf, visibleMinX, visibleMaxX
+        processedIob, processedCob, processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedDeviationLines, processedAutoIsf,
+        processedPredictedDeviations, visibleMinX, visibleMaxX
     ) {
-        val simpleAndAutoIsf = processedSimpleSeries + processedAutoIsf.map { (_, pts) -> SeriesType.AUTOISF to pts }
+        val simpleAndAutoIsf = processedSimpleSeries + processedAutoIsf.map { (_, pts) -> SeriesType.AUTOISF to pts } +
+            processedPredictedDeviations.map { (_, pts) -> SeriesType.DEVIATIONS to pts }
         windowedPrimaryY(visibleMinX, visibleMaxX, processedIob, processedCob.first, processedCarbs, simpleAndAutoIsf, processedDevSlopeMin, processedDeviationLines)
     }
 
@@ -540,12 +555,16 @@ fun SecondaryGraphCompose(
     // stale 0..1 axis until the next recomposition ("renders wrong, then fixes itself").
     val primarySeries = remember(
         processedDeviationLines, processedIob, processedIobTreatments, processedCob,
-        processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedActivityOverlay, processedAutoIsf
+        processedCarbs, processedSimpleSeries, processedDevSlopeMin, processedActivityOverlay, processedAutoIsf, processedPredictedDeviations
     ) {
         buildList {
             // Deviation lines (per-type step lines) — first so other series draw on top
             processedDeviationLines?.series?.forEach { (type, yValues) ->
                 add(PrimarySeriesSpec(processedDeviationLines.allX, yValues, SeriesSlot.DeviationLine(type)))
+            }
+            // Expected deviations after now, drawn as bars like the deviations before it
+            processedPredictedDeviations.forEach { (curve, pts) ->
+                add(PrimarySeriesSpec(pts.map { it.first }, pts.map { it.second }, SeriesSlot.PredictedDeviation(curve)))
             }
             // IOB line
             if (processedIob.isNotEmpty())
@@ -606,7 +625,13 @@ fun SecondaryGraphCompose(
 
     // The applied AutoISF factor: white on the dark theme, as the text it is drawn over
     val autoIsfAppliedColor = MaterialTheme.colorScheme.onSurface
-    val lines = remember(primarySeries, seriesColors, iobLineStyle, cobLineStyle, normalizerLine, autoIsfAppliedColor) {
+    // Expected deviations: the colour of their prediction line on the BG graph
+    val iobPredictionColor = AapsTheme.generalColors.iobPrediction
+    val cobPredictionColor = AapsTheme.generalColors.cobPrediction
+    val uamPredictionColor = AapsTheme.generalColors.uamPrediction
+    val lines = remember(
+        primarySeries, seriesColors, iobLineStyle, cobLineStyle, normalizerLine, autoIsfAppliedColor, iobPredictionColor, cobPredictionColor, uamPredictionColor
+    ) {
         buildList {
             for (spec in primarySeries) {
                 add(
@@ -626,6 +651,13 @@ fun SecondaryGraphCompose(
                         is SeriesSlot.SimpleLine    -> createSeriesLine(slot.type, seriesColors)
                         is SeriesSlot.DevCarbsRun   -> createDevCarbsLine(slot.positive)
                         is SeriesSlot.AutoIsfFactor -> createAutoIsfLine(slot.line, autoIsfAppliedColor)
+                        is SeriesSlot.PredictedDeviation -> createPredictedDeviationLine(
+                            when (slot.curve) {
+                                PredictedDeviationCurve.IOB -> iobPredictionColor
+                                PredictedDeviationCurve.COB -> cobPredictionColor
+                                PredictedDeviationCurve.UAM -> uamPredictionColor
+                            }
+                        )
                     }
                 )
             }
@@ -1082,6 +1114,7 @@ private sealed class SeriesSlot {
     data class AutoIsfFactor(val line: AutoIsfLine) : SeriesSlot()
     data object DevSlopeMin : SeriesSlot()
     data object ActivityOverlay : SeriesSlot()
+    data class PredictedDeviation(val curve: PredictedDeviationCurve) : SeriesSlot()
 }
 
 // =========================================================================
@@ -1653,6 +1686,18 @@ private fun createDeviationLine(type: DeviationType): LineCartesianLayer.Line {
         interpolator = Square
     )
 }
+
+/** The prediction curve an expected deviation belongs to, see `PredictedDeviationsGraphData`. */
+internal enum class PredictedDeviationCurve { IOB, COB, UAM }
+
+/** A bar per 5 minutes like [createDeviationLine], lighter, as it is expected and not measured. */
+private fun createPredictedDeviationLine(color: Color): LineCartesianLayer.Line =
+    LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(color)),
+        stroke = LineCartesianLayer.LineStroke.Continuous(thickness = 0.dp),
+        areaFill = LineCartesianLayer.AreaFill.single(Fill(color.copy(alpha = 0.35f))),
+        interpolator = Square
+    )
 
 /** Processed deviation data split by type for multi-series line rendering */
 internal data class ProcessedDeviationLines(

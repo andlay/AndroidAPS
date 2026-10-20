@@ -80,6 +80,10 @@ interface OverviewDataCache {
     val deviationsGraphFlow: StateFlow<DeviationsGraphData>
     fun updateDeviationsGraph(data: DeviationsGraphData)
 
+    // Deviations the newest loop run expects, drawn after now on the deviations graph
+    val predictedDeviationsFlow: StateFlow<PredictedDeviationsGraphData>
+    fun updatePredictedDeviations(data: PredictedDeviationsGraphData)
+
     // Ratio graph: autosens ratio percentage line
     val ratioGraphFlow: StateFlow<RatioGraphData>
     fun updateRatioGraph(data: RatioGraphData)

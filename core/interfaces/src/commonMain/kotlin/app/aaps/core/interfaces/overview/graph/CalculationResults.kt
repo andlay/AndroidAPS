@@ -171,6 +171,17 @@ data class DeviationsGraphData(
 )
 
 /**
+ * The deviations the newest loop run expects, one bar every 5 minutes after the run, in the user's
+ * units per 5 minutes like [DeviationsGraphData.deviations]. A list is empty when the run made no such
+ * curve (see `app.aaps.core.interfaces.aps.PredictedDeviations`).
+ */
+data class PredictedDeviationsGraphData(
+    val iob: List<GraphDataPoint> = emptyList(),
+    val cob: List<GraphDataPoint> = emptyList(),
+    val uam: List<GraphDataPoint> = emptyList()
+)
+
+/**
  * Autosens ratio graph data: ratio percentage line
  */
 data class RatioGraphData(

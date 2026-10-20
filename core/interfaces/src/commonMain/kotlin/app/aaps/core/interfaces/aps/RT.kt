@@ -39,6 +39,8 @@ data class RT(
     var duration: Int? = null,
     var rate: Double? = null,
     var predBGs: Predictions? = null,
+    /** The deviation each curve in [predBGs] expects at each future step. Null for runs before it was stored. */
+    var predDevs: PredictedDeviations? = null,
     var COB: Double? = null,
     var IOB: Double? = null,
     var variable_sens: Double? = null,

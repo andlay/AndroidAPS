@@ -3,7 +3,9 @@ package app.aaps.workflow
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.SourceSensor
 import app.aaps.core.data.time.T
+import app.aaps.core.interfaces.aps.APSResult
 import app.aaps.core.interfaces.aps.Loop
+import app.aaps.core.interfaces.aps.RT
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.iob.IobCobCalculator
 import app.aaps.core.interfaces.logging.AAPSLogger
@@ -13,6 +15,8 @@ import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgRange
 import app.aaps.core.interfaces.overview.graph.BgType
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
+import app.aaps.core.interfaces.overview.graph.GraphDataPoint
+import app.aaps.core.interfaces.overview.graph.PredictedDeviationsGraphData
 import app.aaps.core.interfaces.profile.ProfileFunction
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.scenes.SceneExpiryCheck
@@ -182,11 +186,21 @@ class PostCalculationRunner(
             ?: emptyList()
 
         data.cache.updatePredictions(predictionDataPoints)
+        data.cache.updatePredictedDeviations(predictedDeviations(apsResult))
 
         // Extend cached time range to include prediction horizon
         data.cache.timeRangeFlow.value?.let { current ->
             data.cache.updateTimeRange(current.copy(endTime = data.overviewData.endTime))
         }
+    }
+
+    /** The deviations the run expects, see `PredictedDeviations`, as graph points in the user's units. */
+    private fun predictedDeviations(apsResult: APSResult?): PredictedDeviationsGraphData {
+        val devs = (apsResult?.rawData() as? RT)?.predDevs ?: return PredictedDeviationsGraphData()
+        val start = apsResult.date
+        fun points(steps: List<Double>?): List<GraphDataPoint> =
+            steps.orEmpty().mapIndexed { i, mgdl -> GraphDataPoint(start + (i + 1) * 5 * 60 * 1000L, profileUtil.fromMgdlToUnits(mgdl)) }
+        return PredictedDeviationsGraphData(iob = points(devs.IOB), cob = points(devs.COB), uam = points(devs.UAM))
     }
 
     private suspend fun shownActivityHorizon(now: Long): Long? =

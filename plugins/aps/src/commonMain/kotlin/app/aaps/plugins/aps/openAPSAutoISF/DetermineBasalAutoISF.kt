@@ -12,6 +12,7 @@ import app.aaps.core.interfaces.aps.OapsProfileAutoIsf
 import app.aaps.core.interfaces.aps.Predictions
 import app.aaps.core.interfaces.aps.RT
 import app.aaps.core.interfaces.profile.ProfileUtil
+import app.aaps.plugins.aps.openAPS.PredictedDeviationSteps
 import app.aaps.plugins.aps.openAPS.smbDecisionLine
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
@@ -614,6 +615,7 @@ class DetermineBasalAutoISF(
         var UAMpredBG: Double? = null
         var COBpredBG: Double? = null
         var aCOBpredBG: Double?
+        val predDevSteps = PredictedDeviationSteps()
         iobArray.forEach { iobTick ->
             //console.error(iobTick);
             val predBGI: Double = round((-iobTick.activity * sens * 5), 2)
@@ -656,6 +658,7 @@ class DetermineBasalAutoISF(
                 UAMduration = round((UAMpredBGs.size + 1) * 5 / 60.0, 1)
             }
             UAMpredBG = UAMpredBGs[UAMpredBGs.size - 1] + predUAMBGI + min(0.0, predDev) + predUCI
+            predDevSteps.add(predDev, min(0.0, predDev) + predCI + remainingCI, min(0.0, predDev) + predUCI)
             //console.error(predBGI, predCI, predUCI);
             // truncate all BG predictions at 4 hours
             if (IOBpredBGs.size < 48) IOBpredBGs.add(IOBpredBG)
@@ -738,6 +741,7 @@ class DetermineBasalAutoISF(
             // set eventualBG based on COB or UAM predBGs
             rT.eventualBG = eventualBG
         }
+        rT.predDevs = predDevSteps.build(rT.predBGs)
 
         consoleError.add("UAM Impact: $uci mg/dL per 5m; UAM Duration: $UAMduration hours")
         consoleError.add("EventualBG is $eventualBG ;")

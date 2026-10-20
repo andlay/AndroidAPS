@@ -52,6 +52,7 @@ import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.HeartRateGraphData
 import app.aaps.core.interfaces.overview.graph.IobGraphData
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
+import app.aaps.core.interfaces.overview.graph.PredictedDeviationsGraphData
 import app.aaps.core.interfaces.overview.graph.ProfileDisplayData
 import app.aaps.core.interfaces.overview.graph.RatioGraphData
 import app.aaps.core.interfaces.overview.graph.RunningModeDisplayData
@@ -260,6 +261,8 @@ class OverviewDataCacheImpl(
     override val bgiGraphFlow: StateFlow<BgiGraphData> = _bgiGraphFlow.asStateFlow()
     private val _deviationsGraphFlow = MutableStateFlow(DeviationsGraphData(emptyList()))
     override val deviationsGraphFlow: StateFlow<DeviationsGraphData> = _deviationsGraphFlow.asStateFlow()
+    private val _predictedDeviationsFlow = MutableStateFlow(PredictedDeviationsGraphData())
+    override val predictedDeviationsFlow: StateFlow<PredictedDeviationsGraphData> = _predictedDeviationsFlow.asStateFlow()
     private val _ratioGraphFlow = MutableStateFlow(RatioGraphData(emptyList()))
     override val ratioGraphFlow: StateFlow<RatioGraphData> = _ratioGraphFlow.asStateFlow()
     private val _devSlopeGraphFlow = MutableStateFlow(DevSlopeGraphData(emptyList(), emptyList()))
@@ -808,6 +811,10 @@ class OverviewDataCacheImpl(
         _deviationsGraphFlow.value = data
     }
 
+    override fun updatePredictedDeviations(data: PredictedDeviationsGraphData) {
+        _predictedDeviationsFlow.value = data
+    }
+
     override fun updateRatioGraph(data: RatioGraphData) {
         _ratioGraphFlow.value = data
     }
@@ -1257,6 +1264,7 @@ class OverviewDataCacheImpl(
         _activityGraphFlow.value = ActivityGraphData(emptyList(), emptyList())
         _bgiGraphFlow.value = BgiGraphData(emptyList(), emptyList())
         _deviationsGraphFlow.value = DeviationsGraphData(emptyList())
+        _predictedDeviationsFlow.value = PredictedDeviationsGraphData()
         _ratioGraphFlow.value = RatioGraphData(emptyList())
         _devSlopeGraphFlow.value = DevSlopeGraphData(emptyList(), emptyList())
         _varSensGraphFlow.value = VarSensGraphData(emptyList())

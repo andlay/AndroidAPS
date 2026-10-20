@@ -109,6 +109,7 @@ class GraphViewModel(
     val activityGraphFlow = cache.activityGraphFlow
     val bgiGraphFlow = cache.bgiGraphFlow
     val deviationsGraphFlow = cache.deviationsGraphFlow
+    val predictedDeviationsFlow = cache.predictedDeviationsFlow
     val ratioGraphFlow = cache.ratioGraphFlow
     val devSlopeGraphFlow = cache.devSlopeGraphFlow
     val varSensGraphFlow = cache.varSensGraphFlow

@@ -243,6 +243,16 @@ class DetermineBasalAutoISFTest : TestBaseWithProfile() {
         assertThat(run(noCarbs).smbReason).isEqualTo("SMB disabled (!microBolusAllowed)")
     }
 
+    @Test
+    fun `predDevs has a deviation for each future step of each curve`() {
+        val rt = runWithSmb()
+        val predictions = rt.predBGs!!
+        val devs = rt.predDevs!!
+        assertThat(devs.IOB).hasSize(predictions.IOB!!.size - 1)
+        predictions.UAM?.let { assertThat(devs.UAM).hasSize(it.size - 1) } ?: assertThat(devs.UAM).isNull()
+        predictions.COB?.let { assertThat(devs.COB).hasSize(it.size - 1) } ?: assertThat(devs.COB).isNull()
+    }
+
     /** BG high and rising so a bolus is wanted, with enough insulin acting that the worst case lands below target. */
     private fun runWithSmb(): RT {
         val iobs = Array(48) { i ->

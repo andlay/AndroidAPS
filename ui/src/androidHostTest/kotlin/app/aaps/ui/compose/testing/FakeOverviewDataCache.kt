@@ -14,6 +14,7 @@ import app.aaps.core.interfaces.overview.graph.EpsGraphPoint
 import app.aaps.core.interfaces.overview.graph.HeartRateGraphData
 import app.aaps.core.interfaces.overview.graph.IobGraphData
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
+import app.aaps.core.interfaces.overview.graph.PredictedDeviationsGraphData
 import app.aaps.core.interfaces.overview.graph.ProfileDisplayData
 import app.aaps.core.interfaces.overview.graph.RatioGraphData
 import app.aaps.core.interfaces.overview.graph.RunningModeDisplayData
@@ -56,6 +57,7 @@ class FakeOverviewDataCache : OverviewDataCache {
     override val activityGraphFlow = MutableStateFlow(ActivityGraphData(emptyList(), emptyList()))
     override val bgiGraphFlow = MutableStateFlow(BgiGraphData(emptyList(), emptyList()))
     override val deviationsGraphFlow = MutableStateFlow(DeviationsGraphData(emptyList()))
+    override val predictedDeviationsFlow = MutableStateFlow(PredictedDeviationsGraphData())
     override val ratioGraphFlow = MutableStateFlow(RatioGraphData(emptyList()))
     override val devSlopeGraphFlow = MutableStateFlow(DevSlopeGraphData(emptyList(), emptyList()))
     override val varSensGraphFlow = MutableStateFlow(VarSensGraphData(emptyList()))
@@ -87,6 +89,7 @@ class FakeOverviewDataCache : OverviewDataCache {
     override fun updateActivityGraph(data: ActivityGraphData) { activityGraphFlow.value = data }
     override fun updateBgiGraph(data: BgiGraphData) { bgiGraphFlow.value = data }
     override fun updateDeviationsGraph(data: DeviationsGraphData) { deviationsGraphFlow.value = data }
+    override fun updatePredictedDeviations(data: PredictedDeviationsGraphData) { predictedDeviationsFlow.value = data }
     override fun updateRatioGraph(data: RatioGraphData) { ratioGraphFlow.value = data }
     override fun updateDevSlopeGraph(data: DevSlopeGraphData) { devSlopeGraphFlow.value = data }
     override fun updateVarSensGraph(data: VarSensGraphData) { varSensGraphFlow.value = data }
