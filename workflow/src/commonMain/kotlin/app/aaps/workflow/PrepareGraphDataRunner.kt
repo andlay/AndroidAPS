@@ -758,6 +758,8 @@ class PrepareGraphDataRunner(
             .filter { it.filledGap }
             .mapTo(HashSet()) { adsData.roundUpTime(it.timestamp) }
         time = gridStartThrough(fromTime, endTime, bucketed.firstOrNull()?.timestamp)
+        // Sensitivity of the newest autosens data, for the BGI after now
+        var lastSens: Double? = null
 
         while (time <= endTime) {
             if (isStopped()) return
@@ -784,7 +786,7 @@ class PrepareGraphDataRunner(
 
                 val bgiCompose: Double = glucoseChangeInUnits(iob.activity * autosensData.sens * 5.0)
                 if (time <= now) bgiListCompose.add(GraphDataPoint(time, bgiCompose))
-                else bgiPredictionListCompose.add(GraphDataPoint(time, bgiCompose))
+                lastSens = autosensData.sens
 
                 val deviationType = when {
                     autosensData.type == "uam"          -> DeviationType.UAM
@@ -808,7 +810,16 @@ class PrepareGraphDataRunner(
             }
 
             if (time <= now) activityListCompose.add(GraphDataPoint(time, iob.activity))
-            else activityPredictionListCompose.add(GraphDataPoint(time, iob.activity))
+            else {
+                // The future starts at the last point of the past, so the two lines join
+                if (activityPredictionListCompose.isEmpty()) activityListCompose.lastOrNull()?.let { activityPredictionListCompose.add(it) }
+                activityPredictionListCompose.add(GraphDataPoint(time, iob.activity))
+                // There is no autosens data in the future: the BGI uses the last known sensitivity, as the loop does
+                lastSens?.let { sens ->
+                    if (bgiPredictionListCompose.isEmpty()) bgiListCompose.lastOrNull()?.let { bgiPredictionListCompose.add(it) }
+                    bgiPredictionListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(iob.activity * sens * 5.0)))
+                }
+            }
 
             time += 5 * 60 * 1000L
         }

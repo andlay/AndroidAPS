@@ -194,13 +194,20 @@ class PostCalculationRunner(
         }
     }
 
-    /** The deviations the run expects, see `PredictedDeviations`, as graph points in the user's units. */
+    /**
+     * The deviations the run expects, see `PredictedDeviations`, as graph points in the user's units.
+     * Step i is the change from 5 * i to 5 * (i + 1) minutes, so it is drawn as a bar over that time,
+     * starting at the BG reading the run used. That is where the measured deviation bars end, so the
+     * two join without a gap. A last point at the end closes the last bar.
+     */
     private fun predictedDeviations(apsResult: APSResult?): PredictedDeviationsGraphData {
         val devs = (apsResult?.rawData() as? RT)?.predDevs ?: return PredictedDeviationsGraphData()
-        val start = apsResult.date
-        fun points(steps: List<Double>?): List<GraphDataPoint> =
-            steps.orEmpty().mapIndexed { i, mgdl -> GraphDataPoint(start + (i + 1) * 5 * 60 * 1000L, profileUtil.fromMgdlToUnits(mgdl)) }
-        return PredictedDeviationsGraphData(iob = points(devs.IOB), cob = points(devs.COB), uam = points(devs.UAM))
+        val start = predictedDeviationsStart(apsResult.date, apsResult.glucoseStatus?.date)
+        return PredictedDeviationsGraphData(
+            iob = predictedDeviationBars(devs.IOB, start) { profileUtil.fromMgdlToUnits(it) },
+            cob = predictedDeviationBars(devs.COB, start) { profileUtil.fromMgdlToUnits(it) },
+            uam = predictedDeviationBars(devs.UAM, start) { profileUtil.fromMgdlToUnits(it) }
+        )
     }
 
     private suspend fun shownActivityHorizon(now: Long): Long? =

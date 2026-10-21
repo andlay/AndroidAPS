@@ -223,6 +223,27 @@ class PrepareGraphDataRunnerTest : TestBaseWithProfile() {
     }
 
     @Test
+    fun `the future activity starts at the last point of the past, so the lines join`() = runTest {
+        stubSuspendCalls()
+        val toTime = now + T.mins(30).msecs()
+        val horizon = toTime + T.hours(4).msecs()
+        whenever(overviewData.toTime).thenReturn(toTime)
+        val timeRange = MutableStateFlow<TimeRange?>(TimeRange(fromTime = toTime - T.hours(24).msecs(), toTime = toTime, endTime = horizon))
+        whenever(cache.timeRangeFlow).thenReturn(timeRange)
+        whenever(profileFunction.getProfile(any<Long>())).thenReturn(effectiveProfile)
+        whenever(dataIobCob.calculateFromTreatmentsAndTemps(any(), any())).thenAnswer { IobTotal(it.arguments[0] as Long, activity = 0.01) }
+        whenever(dataIobCob.calculateAbsoluteIobFromBaseBasals(any())).thenAnswer { IobTotal(it.arguments[0] as Long) }
+        whenever(workflowChainData.prepareFor(anyOrNull(), any())).thenReturn(buildData(bgDataReload = false, emitFinalProgress = false))
+
+        run()
+
+        val activity = argumentCaptor<ActivityGraphData>()
+        verify(cache).updateActivityGraph(activity.capture())
+        assertThat(activity.lastValue.activity).isNotEmpty()
+        assertThat(activity.lastValue.activityPrediction.first()).isEqualTo(activity.lastValue.activity.last())
+    }
+
+    @Test
     fun `bg data reload phase loads, smooths and signals bucketed data`() = runTest {
         stubSuspendCalls()
         whenever(workflowChainData.prepareFor(any(), any())).thenReturn(buildData(bgDataReload = true, emitFinalProgress = false))
