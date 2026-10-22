@@ -81,6 +81,8 @@ class ChipsViewModel(
         val cobInfo = iobCobCalculator.getCobInfo("ChipsViewModel COB")
         var cobText = cobInfo.displayText(rh, decimalFormatter)
             ?: rh.gs(CoreUiStrings.value_unavailable_short)
+        val valueText = cobText
+        var carbsReqText = ""
         var carbsReq = 0
 
         val constraintsProcessed = loop.lastRun?.constraintsProcessed
@@ -90,12 +92,13 @@ class ChipsViewModel(
                 val lastCarbsTime = persistenceLayer.getNewestCarbs()?.timestamp ?: 0L
                 if (lastCarbsTime < lastRun.lastAPSRun) {
                     cobText += " ${constraintsProcessed.carbsReq}${rh.gs(CoreUiStrings.required)}"
+                    carbsReqText = rh.gs(CoreUiStrings.carbs_required_value, constraintsProcessed.carbsReq)
                 }
                 carbsReq = constraintsProcessed.carbsReq
             }
         }
 
-        CobUiState(text = cobText, carbsReq = carbsReq, cobValue = cobInfo.displayCob ?: 0.0)
+        CobUiState(text = cobText, carbsReq = carbsReq, cobValue = cobInfo.displayCob ?: 0.0, valueText = valueText, carbsReqText = carbsReqText)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),

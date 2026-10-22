@@ -1183,6 +1183,7 @@
     <string name="loop_decision_no_smb">None</string>
     <string name="basal_now">Basal now</string>
     <string name="temp_basal_details">Temp basal details</string>
+    <string name="carbs_required_value" comment="Carbs the loop asks for, under COB. %1$d = grams. Example: 16 g req">%1$d g req</string>
     <string name="smb_on">SMB on</string>
     <string name="smb_off">SMB off</string>
     <string name="dosing_state_description" comment="Spoken state of the basal and SMB widget. %1$s = temp basal state, %2$s = SMB on or off. Example: Temp basal below profile, SMB on">%1$s, %2$s</string>

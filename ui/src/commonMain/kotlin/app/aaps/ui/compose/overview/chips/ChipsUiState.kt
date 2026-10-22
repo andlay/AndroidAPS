@@ -19,7 +19,11 @@ data class IobUiState(
 data class CobUiState(
     val text: String = "",
     val carbsReq: Int = 0,
-    val cobValue: Double = 0.0
+    val cobValue: Double = 0.0,
+    /** COB alone, without the carbs required that [text] adds. */
+    val valueText: String = "",
+    /** The carbs the last loop run asks for, when no carbs were entered since; empty otherwise. */
+    val carbsReqText: String = ""
 )
 
 @Immutable

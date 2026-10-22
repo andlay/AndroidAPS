@@ -21,7 +21,9 @@ import app.aaps.core.ui.compose.AapsSpacing
 import app.aaps.core.ui.compose.navigation.NavigationRequest
 import app.aaps.core.ui.compose.stringResource
 import app.aaps.ui.compose.main.TempTargetChipState
+import app.aaps.ui.compose.overview.chips.CarbsChip
 import app.aaps.ui.compose.overview.chips.CobUiState
+import app.aaps.ui.compose.overview.chips.IobChip
 import app.aaps.ui.compose.overview.chips.IobCobChipsRow
 import app.aaps.ui.compose.overview.chips.IobUiState
 import app.aaps.ui.compose.overview.chips.DOSING_CHIP_HEIGHT
@@ -132,7 +134,7 @@ fun OverviewChipsColumn(
                 onTbrChipClick = onTbrChipClick,
                 commandsAllowed = commandsAllowed
             )
-            // The dosing widget is two rows high, to the right of the temp target and IOB / COB
+            // The carbs and dosing widgets are two rows high, to the right of the temp target and IOB
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(AapsSpacing.small)
@@ -150,12 +152,16 @@ fun OverviewChipsColumn(
                         onNavigate = onNavigate,
                         commandsAllowed = commandsAllowed
                     )
-                    IobCobChipsRow(
-                        iobUiState = iobUiState,
-                        cobUiState = cobUiState,
-                        onIobChipClick = onIobChipClick
+                    IobChip(
+                        state = iobUiState,
+                        onClick = onIobChipClick,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
+                CarbsChip(
+                    state = cobUiState,
+                    modifier = Modifier.height(DOSING_CHIP_HEIGHT)
+                )
                 DosingChip(
                     tbrState = tbrState,
                     state = dosingUiState,
