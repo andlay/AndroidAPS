@@ -80,6 +80,9 @@ internal fun IobChip(
                     text = state.text,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // One line: a value split over two lines ("0.96" / "U") makes the whole row taller
+                    maxLines = 1,
+                    softWrap = false,
                     modifier = Modifier.padding(start = if (showIcon) AapsSpacing.medium else 0.dp)
                 )
             }

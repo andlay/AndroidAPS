@@ -53,8 +53,9 @@ fun IobCobChipsRow(
         val naturalWidths = measurables.map { it.maxIntrinsicWidth(constraints.maxHeight) }
 
         val placeables = if (isWidthBounded) {
-            // IOB hugs its content but never grabs more than half the row when space is tight.
-            val iobWidth = naturalWidths[0].coerceAtMost(availableWidth / 2)
+            // IOB hugs its content. Only when the two do not fit is it held to half the row, so a
+            // short COB text leaves IOB the room it needs and its value does not wrap.
+            val iobWidth = if (naturalWidths.sum() <= availableWidth) naturalWidths[0] else naturalWidths[0].coerceAtMost(availableWidth / 2)
             // COB fills the rest of the row up to the edge so the chips span the full width;
             // its text marquee-scrolls when it can't fit (see CobChip).
             val cobWidth = (availableWidth - iobWidth).coerceAtLeast(0)

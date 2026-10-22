@@ -31,7 +31,7 @@ class DosingChipTest {
     val compose = createComposeRule()
 
     private val state = DosingUiState(
-        basalText = "0.00 U/h",
+        basalText = "0.00 U",
         smbText = "0.30 U",
         smbOn = true,
         lastRunAt = 1_000_000L,
@@ -46,7 +46,7 @@ class DosingChipTest {
         compose.setContent { MaterialTheme { DosingChip(tbrState = TbrState.LOW, state = state, onTempBasalDetails = {}, modifier = Modifier.testTag("dosing")) } }
 
         compose.onNodeWithTag("dosing").assertIsDisplayed()
-        compose.onNodeWithText("0.00 U/h", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("0.00 U", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("0.30 U", useUnmergedTree = true).assertIsDisplayed()
     }
 

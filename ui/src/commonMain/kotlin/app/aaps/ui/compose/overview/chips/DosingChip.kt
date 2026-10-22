@@ -90,12 +90,12 @@ fun DosingChip(
                         tint = basalColor,
                         modifier = Modifier.size(AapsSpacing.chipIconSize)
                     )
-                    Text(state.basalText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    Text(state.basalText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AapsSpacing.small)) {
                     SmbTriangle(filled = state.smbOn, color = smbColor, modifier = Modifier.size(AapsSpacing.chipIconSize))
                     if (state.smbText.isNotEmpty())
-                        Text(state.smbText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(state.smbText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
                 }
             }
         }

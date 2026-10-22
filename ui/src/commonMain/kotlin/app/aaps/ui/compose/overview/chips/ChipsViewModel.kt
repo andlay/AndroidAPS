@@ -144,7 +144,8 @@ class ChipsViewModel(
         val lastRunAt = lastRun?.lastAPSRun ?: 0L
         val rt = request?.rawData() as? RT
         return DosingUiState(
-            basalText = tbr?.rate?.let { rh.gs(CoreUiStrings.pump_base_basal_rate, it) }.orEmpty(),
+            // Without "/h", so the widget stays narrow next to IOB and COB
+            basalText = tbr?.rate?.let { rh.gs(InterfacesStrings.format_insulin_units, it) }.orEmpty(),
             smbText = result?.smb?.takeIf { it > 0.0 }?.let { rh.gs(InterfacesStrings.format_insulin_units, it) }.orEmpty(),
             // Same rule as the SMB icon in the status bar: closed loop, SMBs on in the last run, and that run is recent
             smbOn = loop.runningMode() == RM.Mode.CLOSED_LOOP && rt?.smbEnabled == true &&
