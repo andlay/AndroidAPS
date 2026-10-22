@@ -3,6 +3,7 @@ package app.aaps.ui.compose.overview.graphs
 import app.aaps.core.interfaces.overview.graph.AutoIsfFactorPoint
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.SeriesType
+import app.aaps.core.ui.CoreUiStrings
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -81,13 +82,11 @@ class GraphInspectExtrasTest {
     }
 
     @Test
-    fun theBgFactorShowsATargetBelowTarget() {
-        val above = AutoIsfFactorPoint(at(0), acce = 1.0, bg = 1.05, pp = 1.0, dura = 1.0, applied = 1.05)
-        val below = above.copy(bg = 0.94, applied = 0.94)
-
-        assertEquals("🎚️", AutoIsfLine.BG.emojiAt(above))
-        assertEquals("🎯", AutoIsfLine.BG.emojiAt(below))
-        assertEquals("⤴️", AutoIsfLine.ACCE.emojiAt(below))
+    fun theFallingSlopeHasItsOwnLabelAndTheOthersUseTheGraphLabels() {
+        assertEquals(CoreUiStrings.devslope_min_shortname, inspectLabel(SeriesType.DEV_SLOPE, isMin = true))
+        assertEquals(CoreUiStrings.devslope_max_shortname, inspectLabel(SeriesType.DEV_SLOPE))
+        assertEquals(CoreUiStrings.deviation_shortname, inspectLabel(SeriesType.DEVIATIONS))
+        assertEquals(CoreUiStrings.activity_shortname, inspectLabel(SeriesType.ACTIVITY))
     }
 
     @Test

@@ -28,6 +28,8 @@ import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.overview.graph.TreatmentGraphData
 import app.aaps.core.interfaces.utils.DecimalFormatter
+import app.aaps.core.keys.interfaces.TextRef
+import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.compose.AapsTheme
 import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.LocalDecimalFormatter
@@ -1429,18 +1431,15 @@ internal const val AUTOISF_MIN_DEVIATION = 0.1
 
 /**
  * One line of the AutoISF graph: each factor in its own colour with a small dot at each loop run, and
- * the factor that was applied in bold in the text colour, under the others. The emojis are used in the
+ * the factor that was applied in bold in the text colour, under the others. The labels are used in the
  * values pop-up.
  */
-internal enum class AutoIsfLine(val color: Color?, val emoji: String) {
-    ACCE(Color(0xFFFFA726), "⤴️"),   // acceleration of BG: speeding up or braking
-    BG(Color(0xFF29B6F6), "🎚️"),     // how far BG is from the target (🎯 below target, see emojiAt)
-    PP(Color(0xFF66BB6A), "📈"),     // rise after a meal
-    DURA(Color(0xFFEC407A), "🔝"),   // stuck high
-    APPLIED(null, "⭐");             // the factor that was used
-
-    /** The emoji for this factor at [point]: the BG factor below 1.0 means BG is below the target. */
-    fun emojiAt(point: AutoIsfFactorPoint): String = if (this == BG && point.bg < 1.0) "🎯" else emoji
+internal enum class AutoIsfLine(val color: Color?, val label: TextRef) {
+    ACCE(Color(0xFFFFA726), CoreUiStrings.autoisf_acce_shortname),     // acceleration of BG: speeding up or braking
+    BG(Color(0xFF29B6F6), CoreUiStrings.autoisf_bg_shortname),         // how far BG is from the target
+    PP(Color(0xFF66BB6A), CoreUiStrings.autoisf_pp_shortname),         // rise after a meal
+    DURA(Color(0xFFEC407A), CoreUiStrings.autoisf_dura_shortname),     // stuck high
+    APPLIED(null, CoreUiStrings.autoisf_applied_shortname);            // the factor that was used
 
     fun valueAt(point: AutoIsfFactorPoint): Double = when (this) {
         ACCE    -> point.acce

@@ -77,6 +77,7 @@ fun OverviewScreenStacked(
     val sensitivityUiState by chipsViewModel.sensitivityUiState.collectAsStateWithLifecycle()
     val iobUiState by chipsViewModel.iobUiState.collectAsStateWithLifecycle()
     val cobUiState by chipsViewModel.cobUiState.collectAsStateWithLifecycle()
+    val dosingUiState by chipsViewModel.dosingUiState.collectAsStateWithLifecycle()
     val statusState by statusViewModel.uiState.collectAsStateWithLifecycle()
 
     var statusExpanded by rememberSaveable { mutableStateOf(false) }
@@ -130,6 +131,7 @@ fun OverviewScreenStacked(
                 tbrState = tbrState,
                 iobUiState = iobUiState,
                 cobUiState = cobUiState,
+                dosingUiState = dosingUiState,
                 sensitivityUiState = sensitivityUiState,
                 onNavigate = onNavigate,
                 onTbrChipClick = onTbrChipClick,

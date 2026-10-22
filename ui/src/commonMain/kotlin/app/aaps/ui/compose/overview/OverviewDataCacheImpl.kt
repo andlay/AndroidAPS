@@ -72,7 +72,6 @@ import app.aaps.core.interfaces.overview.graph.TherapyEventType
 import app.aaps.core.interfaces.overview.graph.TimeRange
 import app.aaps.core.interfaces.overview.graph.TreatmentGraphData
 import app.aaps.core.interfaces.overview.graph.VarSensGraphData
-import app.aaps.core.interfaces.overview.graph.predictionPoints
 import app.aaps.core.interfaces.overview.graph.toGraphData
 import app.aaps.core.interfaces.plugin.ActivePlugin
 import app.aaps.core.interfaces.profile.ProfileFunction
@@ -766,7 +765,9 @@ class OverviewDataCacheImpl(
         _tbrFlow.value = TbrDisplayData(
             state = state,
             timestamp = activeTb?.timestamp ?: 0L,
-            duration = activeTb?.duration ?: 0L
+            duration = activeTb?.duration ?: 0L,
+            rate = if (basalData.isTempBasalRunning) basalData.tempBasalAbsolute else basalData.basal,
+            baseBasal = basalData.basal
         )
     }
 
@@ -826,14 +827,9 @@ class OverviewDataCacheImpl(
         // The run for a reading comes a few seconds after it, so look a little past the reading
         val result = persistenceLayer.getApsResultCloseTo(timestamp + LOOP_RUN_AFTER_READING_MS) ?: return null
         val rt = result.rawData() as? RT ?: return null
-        val lowMark = preferences.get(UnitDoubleKey.OverviewLowMark)
-        val highMark = preferences.get(UnitDoubleKey.OverviewHighMark)
         val toUnits = { mgdl: Double -> profileUtil.fromMgdlToUnits(mgdl) }
-        val predictions = rt.predBGs?.let { predictionPoints(it, result.date, afterDose = false, lowMark = lowMark, highMark = highMark, toUnits = toUnits) }.orEmpty() +
-            rt.predBGsAfterDose?.let { predictionPoints(it, result.date, afterDose = true, lowMark = lowMark, highMark = highMark, toUnits = toUnits) }.orEmpty()
         return HeldLoopRun(
             timestamp = result.date,
-            predictions = predictions,
             deviations = rt.predDevs.toGraphData(result.date, result.glucoseStatus?.date, toUnits),
             eventualBg = rt.eventualBG?.let(toUnits),
             minPredBg = rt.minPredBG?.let(toUnits),

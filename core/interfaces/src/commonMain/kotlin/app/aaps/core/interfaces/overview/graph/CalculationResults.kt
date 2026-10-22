@@ -186,7 +186,6 @@ data class PredictedDeviationsGraphData(
  * One past loop run, as the graphs show it while the user holds a point (see [OverviewDataCache.loopRunAt]).
  *
  * @param timestamp when the run was made
- * @param predictions its prediction curves from that time, the ones with its dose added marked [BgDataPoint.afterDose]
  * @param deviations the deviations it expected, as bars
  * @param eventualBg eventual BG in the user's units
  * @param minPredBg lowest expected BG in the user's units; null for runs before it was stored
@@ -195,7 +194,6 @@ data class PredictedDeviationsGraphData(
  */
 data class HeldLoopRun(
     val timestamp: Long,
-    val predictions: List<BgDataPoint>,
     val deviations: PredictedDeviationsGraphData,
     val eventualBg: Double?,
     val minPredBg: Double?,
@@ -449,7 +447,9 @@ enum class TbrState {
 data class TbrDisplayData(
     val state: TbrState,
     val timestamp: Long,                 // When TBR started (0 if none)
-    val duration: Long                   // TBR duration in ms (0 if none)
+    val duration: Long,                  // TBR duration in ms (0 if none)
+    val rate: Double? = null,            // Basal rate delivered now, U/h (the temp rate while one runs)
+    val baseBasal: Double? = null        // Profile basal rate now, U/h
 )
 
 // ============================================================================

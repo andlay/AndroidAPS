@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -52,6 +53,7 @@ import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.HeldLoopRun
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.overview.graph.TbrState
+import app.aaps.core.keys.interfaces.TextRef
 import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.compose.AapsSpacing
 import app.aaps.core.ui.compose.AapsTheme
@@ -111,6 +113,12 @@ class GraphInspectState {
 
     /** Graph x of the reading that is shown. */
     var shownX by mutableStateOf<Double?>(null)
+
+    /**
+     * The series of the graph the finger went down on; the pop-up shows only its values. Empty for
+     * the BG graph (and the treatment belt above it). Set by [inspectSource].
+     */
+    var touchedSeries by mutableStateOf<List<SeriesType>>(emptyList())
 
     /** Where the line is drawn, or null when the finger is up. */
     val lineX: Double? get() = if (fingerDown) shownX else null
@@ -238,6 +246,19 @@ fun Modifier.graphInspectTouch(state: GraphInspectState): Modifier = pointerInpu
 }
 
 /**
+ * Tells [state] which graph the finger went down on, so the pop-up shows the values of that graph
+ * only. [series] is what the graph shows; empty for the BG graph. Does not consume the touch.
+ */
+fun Modifier.inspectSource(state: GraphInspectState, series: List<SeriesType>): Modifier = pointerInput(state, series) {
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            if (event.changes.any { it.changedToDownIgnoreConsumed() }) state.touchedSeries = series
+        }
+    }
+}
+
+/**
  * Snaps the finger to a reading, gives haptic feedback and shows the pill until [INSPECT_LINGER_MS]
  * after the lift. Uses snapshotFlow, not effect keys, so a move only recomposes when the reading changes.
  */
@@ -247,8 +268,6 @@ fun GraphInspectOverlay(
     graphViewModel: GraphViewModel,
     bgReadings: List<BgDataPoint>,
     minTimestamp: Long?,
-    /** The series of the extra graphs that are shown; their values are added to the pill. */
-    extraSeries: List<SeriesType> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     var inspectData by remember { mutableStateOf<InspectData?>(null) }
@@ -267,7 +286,6 @@ fun GraphInspectOverlay(
     val stepsGraph by graphViewModel.stepsGraphFlow.collectAsStateWithLifecycle()
     val currentBgReadings by rememberUpdatedState(bgReadings)
     val currentMinTimestamp by rememberUpdatedState(minTimestamp)
-    val currentExtraSeries by rememberUpdatedState(extraSeries)
     val haptic = LocalHapticFeedback.current
 
     LaunchedEffect(inspect, haptic) {
@@ -287,7 +305,7 @@ fun GraphInspectOverlay(
                 at.copy(
                     extras = inspectExtrasAt(
                         timestamp = at.timestamp,
-                        series = currentExtraSeries,
+                        series = inspect.touchedSeries,
                         sources = InspectSources(
                             absIob = absIobGraph.absIob,
                             activity = activityGraph.activity + activityGraph.activityPrediction,
@@ -306,7 +324,7 @@ fun GraphInspectOverlay(
                 )
             }
             if (data.timestamp != inspectData?.timestamp) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            // The graphs show the curves of the loop run at this reading
+            // The DEV graph and the pill show the loop run at this reading
             graphViewModel.holdAt(data.timestamp)
             inspect.shownX = timestampToX(data.timestamp, min)
             inspect.dotValue = data.bg?.value
@@ -330,7 +348,7 @@ fun GraphInspectOverlay(
     val heldRun by graphViewModel.heldLoopRunFlow.collectAsStateWithLifecycle()
     val dotColor = data?.bg?.range?.inspectColor() ?: Color.Unspecified
     SideEffect { inspect.dotColor = dotColor }
-    if (data != null) GraphInspectPill(data = data, heldRun = heldRun, modifier = modifier)
+    if (data != null) GraphInspectPill(data = data, touchedSeries = inspect.touchedSeries, heldRun = heldRun, modifier = modifier)
 }
 
 /** The values at one reading. Null means no data near that time. */
@@ -403,20 +421,10 @@ internal fun inspectExtrasAt(timestamp: Long, series: List<SeriesType>, sources:
     }
 }
 
-/** The emoji that names the value of [type] in the pill. IOB, COB and basal have their own icons. */
-internal fun inspectEmoji(type: SeriesType, isMin: Boolean = false): String = when (type) {
-    SeriesType.ABS_IOB         -> "🧪"
-    SeriesType.ACTIVITY        -> "⚡"
-    SeriesType.BGI             -> "📉"
-    SeriesType.DEVIATIONS      -> "📊"
-    SeriesType.DEV_CARBS       -> "🍞"
-    SeriesType.SENSITIVITY     -> "⚖️"
-    SeriesType.VAR_SENSITIVITY -> "🧭"
-    SeriesType.DEV_SLOPE       -> if (isMin) "↘️" else "↗️"
-    SeriesType.HEART_RATE      -> "❤️"
-    SeriesType.STEPS           -> "👣"
-    SeriesType.AUTOISF         -> AutoIsfLine.APPLIED.emoji
-    SeriesType.IOB, SeriesType.COB, SeriesType.PREDICTIONS -> ""
+/** The name of the value of [type] in the pill, as in the graph labels. IOB, COB and basal have their own icons. */
+internal fun inspectLabel(type: SeriesType, isMin: Boolean = false): TextRef = when (type) {
+    SeriesType.DEV_SLOPE -> if (isMin) CoreUiStrings.devslope_min_shortname else CoreUiStrings.devslope_max_shortname
+    else                 -> seriesShortNameId(type)
 }
 
 /** The nearest reading to [timestamp], with the values and treatments at its time. */
@@ -472,10 +480,15 @@ internal fun BgRange.inspectColor(): Color = when (this) {
 @Composable
 fun GraphInspectPill(
     data: InspectData,
-    /** The loop run at the shown reading: what it expected and asked for. */
+    /** The series of the touched graph (see [GraphInspectState.touchedSeries]); empty for the BG graph. */
+    touchedSeries: List<SeriesType> = emptyList(),
+    /** The loop run at the shown reading: what it expected and asked for. Shown on the BG graph. */
     heldRun: HeldLoopRun? = null,
     modifier: Modifier = Modifier
 ) {
+    val onBg = touchedSeries.isEmpty()
+    val onIob = SeriesType.IOB in touchedSeries
+    val onCob = SeriesType.COB in touchedSeries
     val dateUtil = LocalDateUtil.current
     val profileUtil = LocalProfileUtil.current
     val decimalFormatter = LocalDecimalFormatter.current
@@ -495,26 +508,27 @@ fun GraphInspectPill(
                 modifier = Modifier.padding(vertical = AapsSpacing.small)
             ) {
                 PillText(dateUtil.timeString(data.timestamp), MaterialTheme.colorScheme.onSurfaceVariant)
-                data.bg?.let { bg ->
+                // Only the values of the touched graph
+                if (onBg) data.bg?.let { bg ->
                     val text = if (profileUtil.units == GlucoseUnit.MGDL) decimalFormatter.to0Decimal(bg.value) else decimalFormatter.to1Decimal(bg.value)
                     PillText(text, bg.range.inspectColor())
                 }
-                data.iob?.let {
+                if (onIob) data.iob?.let {
                     PillItem(ElementType.INSULIN.icon(), stringResource(InterfacesStrings.format_insulin_units, it), ElementType.INSULIN.color())
                 }
-                shownCob(data.cob)?.let {
+                if (onCob) shownCob(data.cob)?.let {
                     PillItem(ElementType.COB.icon(), stringResource(InterfacesStrings.format_carbs, it), ElementType.COB.color(), iconSize = PILL_COB_ICON_SIZE)
                 }
-                data.basal?.let {
+                if (onIob) data.basal?.let {
                     PillItem(data.tbrState.toIcon(), stringResource(CoreUiStrings.pump_base_basal_rate, it), ElementType.TEMP_BASAL.color())
                 }
                 // Same triangles as the IOB and COB graphs
-                data.boluses.forEach { bolus ->
+                if (onIob) data.boluses.forEach { bolus ->
                     PillTriangleItem(pointsUp = bolus.bolusType == BolusType.SMB, text = bolus.label, color = ElementType.INSULIN.color())
                 }
-                data.carbs.forEach { carbs -> PillTriangleItem(pointsUp = false, text = carbs.label, color = ElementType.CARBS.color()) }
+                if (onCob) data.carbs.forEach { carbs -> PillTriangleItem(pointsUp = false, text = carbs.label, color = ElementType.CARBS.color()) }
                 data.extras.forEach { extra -> PillExtra(extra) }
-                heldRun?.let { PillLoopRun(it) }
+                if (onBg) heldRun?.let { PillLoopRun(it) }
             }
         }
     }
@@ -527,9 +541,11 @@ private fun PillLoopRun(run: HeldLoopRun) {
     val profileUtil = LocalProfileUtil.current
     fun bg(v: Double) = if (profileUtil.units == GlucoseUnit.MGDL) decimalFormatter.to0Decimal(v) else decimalFormatter.to1Decimal(v)
     val onSurface = MaterialTheme.colorScheme.onSurface
-    run.eventualBg?.let { PillEmojiItem(emoji = "🔮", text = bg(it), color = onSurface, bold = false) }
-    run.minPredBg?.let { PillEmojiItem(emoji = "🔻", text = bg(it), color = onSurface, bold = false) }
-    run.insulinReq?.takeIf { it > 0.0 }?.let { PillEmojiItem(emoji = "💉", text = stringResource(InterfacesStrings.format_insulin_units, it), color = ElementType.INSULIN.color(), bold = false) }
+    run.eventualBg?.let { PillLabelItem(label = stringResource(CoreUiStrings.eventual_bg_shortname), text = bg(it), color = onSurface, bold = false) }
+    run.minPredBg?.let { PillLabelItem(label = stringResource(CoreUiStrings.min_pred_bg_shortname), text = bg(it), color = onSurface, bold = false) }
+    run.insulinReq?.takeIf { it > 0.0 }?.let {
+        PillLabelItem(label = stringResource(CoreUiStrings.insulin_req_shortname), text = stringResource(InterfacesStrings.format_insulin_units, it), color = ElementType.INSULIN.color(), bold = false)
+    }
     run.smb?.takeIf { it > 0.0 }?.let { PillTriangleItem(pointsUp = true, text = stringResource(InterfacesStrings.format_insulin_units, it), color = ElementType.INSULIN.color()) }
 }
 
@@ -538,7 +554,7 @@ private fun PillText(text: String, color: Color) {
     Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = color)
 }
 
-/** A value of an extra graph: its emoji and the value in the colour of its graph. */
+/** A value of an extra graph: its name and the value in the colour of its graph. */
 @Composable
 private fun PillExtra(extra: InspectExtra) {
     val decimalFormatter = LocalDecimalFormatter.current
@@ -549,8 +565,8 @@ private fun PillExtra(extra: InspectExtra) {
         is InspectExtra.AutoIsf -> {
             // The factors in their line colours, the applied one in bold in the text colour
             AutoIsfLine.entries.forEach { line ->
-                PillEmojiItem(
-                    emoji = line.emojiAt(extra.point),
+                PillLabelItem(
+                    label = stringResource(line.label),
                     text = decimalFormatter.to2Decimal(line.valueAt(extra.point)),
                     color = line.color ?: MaterialTheme.colorScheme.onSurface,
                     bold = line == AutoIsfLine.APPLIED
@@ -574,15 +590,15 @@ private fun PillExtra(extra: InspectExtra) {
                 extra.type == SeriesType.DEV_SLOPE && extra.isMin -> devSlopeMinColor()
                 else                               -> colors.colorFor(extra.type)
             }
-            PillEmojiItem(emoji = inspectEmoji(extra.type, extra.isMin), text = text, color = color, bold = false)
+            PillLabelItem(label = stringResource(inspectLabel(extra.type, extra.isMin)), text = text, color = color, bold = false)
         }
     }
 }
 
 @Composable
-private fun PillEmojiItem(emoji: String, text: String, color: Color, bold: Boolean) {
+private fun PillLabelItem(label: String, text: String, color: Color, bold: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AapsSpacing.extraSmall)) {
-        Text(emoji, style = MaterialTheme.typography.labelMedium)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = if (bold) FontWeight.ExtraBold else FontWeight.Bold, color = color)
     }
 }

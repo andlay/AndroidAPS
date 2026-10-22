@@ -36,3 +36,27 @@ data class SensitivityUiState(
     val isEnabled: Boolean = true,
     val hasData: Boolean = false
 )
+
+/**
+ * The dosing widget: the basal now, whether SMBs are on and the last SMB, and the last loop decision behind its dialog.
+ *
+ * @param basalText the basal rate delivered now
+ * @param smbText the SMB of the last loop run, empty when it gave none
+ * @param smbOn SMBs are on (the triangle is filled): closed loop and on in a recent loop run
+ * @param lastRunAt when the loop last ran, 0 before the first run
+ * @param decisionTemp the temp basal the last run asked for, or "no change"
+ * @param decisionSmb the SMB the last run gave, or "none"
+ * @param reason the reason line of the last run
+ * @param smbReason the log line that says why SMBs were on or off, when there was one
+ */
+@Immutable
+data class DosingUiState(
+    val basalText: String = "",
+    val smbText: String = "",
+    val smbOn: Boolean = false,
+    val lastRunAt: Long = 0L,
+    val decisionTemp: String = "",
+    val decisionSmb: String = "",
+    val reason: String = "",
+    val smbReason: String? = null
+)

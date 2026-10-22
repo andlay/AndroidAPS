@@ -114,8 +114,8 @@ class GraphViewModel(
     val deviationsGraphFlow = cache.deviationsGraphFlow
     val predictedDeviationsFlow = cache.predictedDeviationsFlow
 
-    // Press and hold: the loop run at the held reading. The graphs draw its curves and expected
-    // deviations instead of the newest ones while it is set.
+    // Press and hold: the loop run at the held reading. The DEV graph draws its expected
+    // deviations instead of the newest ones while it is set, and the pill shows its values.
     private val _heldLoopRun = MutableStateFlow<HeldLoopRun?>(null)
     val heldLoopRunFlow: StateFlow<HeldLoopRun?> = _heldLoopRun.asStateFlow()
     private var heldAt: Long? = null

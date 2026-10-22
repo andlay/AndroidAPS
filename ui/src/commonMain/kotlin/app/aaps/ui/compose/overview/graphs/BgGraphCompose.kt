@@ -58,9 +58,6 @@ private const val showBasalOnBgGraph = false
 private const val SERIES_REGULAR = "regular"
 private const val SERIES_BUCKETED = "bucketed"
 
-// Readings after the held loop run, drawn faint while the user holds a point
-private const val SERIES_BUCKETED_DIM = "bucketed_dim"
-private const val DIM_ALPHA = 0.25f
 private val AFTER_DOSE_POINT_SIZE = 2.dp
 private const val SERIES_PRED_IOB = "pred_iob"
 private const val SERIES_PRED_COB = "pred_cob"
@@ -174,9 +171,6 @@ fun BgGraphCompose(
     val showPredictions = SeriesType.PREDICTIONS in bgOverlays
     val rawPredictions by viewModel.predictionsFlow.collectAsStateWithLifecycle()
     val predictions = if (showPredictions) rawPredictions else emptyList()
-    // While the user holds a point: the loop run there, its curves drawn instead of the newest ones
-    val heldRun by viewModel.heldLoopRunFlow.collectAsStateWithLifecycle()
-    val shownPredictions = heldRun?.predictions ?: predictions
     val rawBasalData by viewModel.basalGraphFlow.collectAsStateWithLifecycle()
     val targetData by viewModel.targetLineFlow.collectAsStateWithLifecycle()
 
@@ -275,15 +269,6 @@ fun BgGraphCompose(
                         .sortedBy { it.first }
                     series(x = dataPoints.map { it.first }, y = dataPoints.map { it.second })
                     activeSeries.add(SERIES_BUCKETED)
-                }
-
-                val dimPoints = seriesRegistry[SERIES_BUCKETED_DIM].orEmpty()
-                if (dimPoints.isNotEmpty()) {
-                    val dataPoints = dimPoints
-                        .map { timestampToX(it.timestamp, minTimestamp) to it.value }
-                        .sortedBy { it.first }
-                    series(x = dataPoints.map { it.first }, y = dataPoints.map { it.second })
-                    activeSeries.add(SERIES_BUCKETED_DIM)
                 }
 
                 // Prediction series - each type as a separate line
@@ -394,8 +379,8 @@ fun BgGraphCompose(
     }
 
     // Split predictions by type into registry
-    val predictionsByType = remember(shownPredictions) {
-        fun of(type: BgType, afterDose: Boolean) = shownPredictions.filter { it.type == type && it.afterDose == afterDose }
+    val predictionsByType = remember(predictions) {
+        fun of(type: BgType, afterDose: Boolean) = predictions.filter { it.type == type && it.afterDose == afterDose }
         mapOf(
             SERIES_PRED_IOB to of(BgType.IOB_PREDICTION, false),
             SERIES_PRED_COB to of(BgType.COB_PREDICTION, false),
@@ -411,12 +396,9 @@ fun BgGraphCompose(
     }
 
     // Single LaunchedEffect for all data - ensures atomic updates
-    val heldTime = heldRun?.timestamp
-    LaunchedEffect(bgReadings, bucketedData, predictionsByType, heldTime, basalData, targetData, epsPoints, activityData, showActivity, chartConfig, stableTimeRange, visibleTimeRange) {
-        // Held: the readings after the run are faint, so its curves can be compared with them
-        seriesRegistry[SERIES_REGULAR] = if (heldTime == null) bgReadings else bgReadings.filter { it.timestamp <= heldTime }
-        seriesRegistry[SERIES_BUCKETED] = if (heldTime == null) bucketedData else bucketedData.filter { it.timestamp <= heldTime }
-        seriesRegistry[SERIES_BUCKETED_DIM] = if (heldTime == null) emptyList() else bucketedData.filter { it.timestamp > heldTime }
+    LaunchedEffect(bgReadings, bucketedData, predictionsByType, basalData, targetData, epsPoints, activityData, showActivity, chartConfig, stableTimeRange, visibleTimeRange) {
+        seriesRegistry[SERIES_REGULAR] = bgReadings
+        seriesRegistry[SERIES_BUCKETED] = bucketedData
         for ((key, points) in predictionsByType) {
             seriesRegistry[key] = points
         }
@@ -509,13 +491,6 @@ fun BgGraphCompose(
             pointProvider = bucketedPointProvider
         )
     }
-    val dimBucketedLine = remember(bucketedLookup, lowColor, inRangeColor, highColor) {
-        LineCartesianLayer.Line(
-            fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
-            areaFill = null,
-            pointProvider = BucketedPointProvider(bucketedLookup, lowColor.copy(alpha = DIM_ALPHA), inRangeColor.copy(alpha = DIM_ALPHA), highColor.copy(alpha = DIM_ALPHA))
-        )
-    }
 
     val normalizerLine = remember { createNormalizerLine() }
 
@@ -537,12 +512,11 @@ fun BgGraphCompose(
     }
 
     val activeSeries by activeSeriesState
-    val bgLines = remember(activeSeries, regularLine, bucketedLine, dimBucketedLine, iobPredLine, cobPredLine, aCobPredLine, uamPredLine, ztPredLine, afterDoseLines, normalizerLine) {
+    val bgLines = remember(activeSeries, regularLine, bucketedLine, iobPredLine, cobPredLine, aCobPredLine, uamPredLine, ztPredLine, afterDoseLines, normalizerLine) {
         buildList {
             // Same order as the series in rebuildChart
             if (SERIES_REGULAR in activeSeries) add(regularLine)
             if (SERIES_BUCKETED in activeSeries) add(bucketedLine)
-            if (SERIES_BUCKETED_DIM in activeSeries) add(dimBucketedLine)
             if (SERIES_PRED_IOB in activeSeries) add(iobPredLine)
             if (SERIES_PRED_COB in activeSeries) add(cobPredLine)
             if (SERIES_PRED_ACOB in activeSeries) add(aCobPredLine)

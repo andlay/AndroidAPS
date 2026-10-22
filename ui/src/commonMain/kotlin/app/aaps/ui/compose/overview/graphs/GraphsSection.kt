@@ -18,6 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -463,10 +465,8 @@ fun GraphsSection(
 
     // Set by the graph that is held, read by every graph
     val inspect = remember { GraphInspectState() }
-    // The series of the graphs below BG, for their values in the pop-up
-    val shownExtraSeries = remember(graphConfig, activeCount) {
-        (graphConfig.iobOverlays + graphConfig.secondaryGraphs.take(activeCount).flatMap { it.series }).distinct()
-    }
+    // The series of the IOB graph, for its values in the pop-up
+    val iobGraphSeries = remember(graphConfig.iobOverlays) { listOf(SeriesType.IOB) + graphConfig.iobOverlays }
 
     Column(
         modifier = modifier
@@ -483,6 +483,7 @@ fun GraphsSection(
             nowTimestamp = nowTimestamp,
             modifier = Modifier
                 .fillMaxWidth()
+                .inspectSource(inspect, emptyList())
                 .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, inspect, graphViewModel::onGraphInteraction))
         )
         // BG Graph - primary interactive graph
@@ -557,6 +558,7 @@ fun GraphsSection(
         Box(
             modifier = Modifier
                 .offset(y = (-16).dp)
+                .inspectSource(inspect, emptyList())
                 .graphInspectTouch(inspect)
         ) {
             BgGraphCompose(
@@ -600,7 +602,6 @@ fun GraphsSection(
                 graphViewModel = graphViewModel,
                 bgReadings = bgReadings,
                 minTimestamp = derivedTimeRange?.first,
-                extraSeries = shownExtraSeries,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .offset(y = INSPECT_PILL_OFFSET)
@@ -653,6 +654,7 @@ fun GraphsSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.iobHeight.dp - REMOVED_TIME_LABELS_HEIGHT)
+                    .inspectSource(inspect, iobGraphSeries)
                     .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, inspect, graphViewModel::onGraphInteraction))
             )
             GraphNameRow(
@@ -698,6 +700,7 @@ fun GraphsSection(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(secondary.height.dp - REMOVED_TIME_LABELS_HEIGHT)
+                        .inspectSource(inspect, secondary.series)
                         .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, inspect, graphViewModel::onGraphInteraction))
                 )
                 GraphNameRow(
@@ -749,6 +752,13 @@ fun GraphsSection(
                     graphs.removeAt(index)
                     editingGraphIndex = -1
                     graphViewModel.updateGraphConfig(graphConfig.copy(secondaryGraphs = graphs))
+                },
+                // The sheet stays open on the graph it moved
+                onMoveUp = movedSecondaryGraph(graphConfig, index, index - 1)?.let { moved ->
+                    { editingGraphIndex = index - 1; graphViewModel.updateGraphConfig(moved) }
+                },
+                onMoveDown = movedSecondaryGraph(graphConfig, index, index + 1)?.let { moved ->
+                    { editingGraphIndex = index + 1; graphViewModel.updateGraphConfig(moved) }
                 },
                 onDismiss = { editingGraphIndex = -1 }
             )
@@ -828,6 +838,15 @@ internal fun withSecondaryGraphHeight(config: GraphConfig, index: Int, expectedS
     return config.copy(secondaryGraphs = graphs)
 }
 
+/** [config] with the graph below BG at [from] moved to [to], or null when either is not a graph. */
+internal fun movedSecondaryGraph(config: GraphConfig, from: Int, to: Int): GraphConfig? {
+    val graphs = config.secondaryGraphs
+    if (from !in graphs.indices || to !in graphs.indices || from == to) return null
+    val moved = graphs.toMutableList()
+    moved.add(to, moved.removeAt(from))
+    return config.copy(secondaryGraphs = moved)
+}
+
 // =========================================================================
 // Graph label generation
 // =========================================================================
@@ -840,7 +859,7 @@ private fun seriesListLabel(seriesList: List<SeriesType>): String {
 }
 
 /** String resource ID for the short name of a series type */
-private fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
+internal fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
     SeriesType.IOB             -> CoreUiStrings.iob
     SeriesType.ABS_IOB         -> CoreUiStrings.abs_insulin_shortname
     SeriesType.COB             -> CoreUiStrings.cob
@@ -920,7 +939,11 @@ private fun GraphSeriesBottomSheet(
     onHeightChange: (Int) -> Unit,
     onToggle: (SeriesType) -> Unit,
     onDismiss: () -> Unit,
-    onRemoveGraph: (() -> Unit)? = null
+    onRemoveGraph: (() -> Unit)? = null,
+    /** Moves the graph one place up; null when it is the first or cannot move. */
+    onMoveUp: (() -> Unit)? = null,
+    /** Moves the graph one place down; null when it is the last or cannot move. */
+    onMoveDown: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(
@@ -941,6 +964,15 @@ private fun GraphSeriesBottomSheet(
                     text = title,
                     style = MaterialTheme.typography.titleMedium
                 )
+                Spacer(Modifier.weight(1f))
+                if (onMoveUp != null || onMoveDown != null) {
+                    IconButton(onClick = { onMoveUp?.invoke() }, enabled = onMoveUp != null) {
+                        Icon(Icons.Filled.KeyboardArrowUp, contentDescription = stringResource(CoreUiStrings.graph_move_up))
+                    }
+                    IconButton(onClick = { onMoveDown?.invoke() }, enabled = onMoveDown != null) {
+                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(CoreUiStrings.graph_move_down))
+                    }
+                }
                 if (onRemoveGraph != null) {
                     TextButton(onClick = onRemoveGraph) {
                         Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,10 +24,12 @@ import app.aaps.ui.compose.main.TempTargetChipState
 import app.aaps.ui.compose.overview.chips.CobUiState
 import app.aaps.ui.compose.overview.chips.IobCobChipsRow
 import app.aaps.ui.compose.overview.chips.IobUiState
+import app.aaps.ui.compose.overview.chips.DOSING_CHIP_HEIGHT
+import app.aaps.ui.compose.overview.chips.DosingChip
+import app.aaps.ui.compose.overview.chips.DosingUiState
 import app.aaps.ui.compose.overview.chips.ProfileChip
 import app.aaps.ui.compose.overview.chips.RunningModeChip
 import app.aaps.ui.compose.overview.chips.SensitivityUiState
-import app.aaps.ui.compose.overview.chips.TbrChip
 import app.aaps.ui.compose.overview.chips.TempTargetChip
 
 @Composable
@@ -50,6 +53,7 @@ fun OverviewChipsColumn(
     iobUiState: IobUiState,
     cobUiState: CobUiState,
     sensitivityUiState: SensitivityUiState,
+    dosingUiState: DosingUiState = DosingUiState(),
     onNavigate: (NavigationRequest) -> Unit,
     onTbrChipClick: () -> Unit,
     onIobChipClick: () -> Unit,
@@ -91,6 +95,8 @@ fun OverviewChipsColumn(
                             tempTargetReason = tempTargetReason,
                             tempTargetSceneManaged = tempTargetSceneManaged,
                             tbrState = tbrState,
+                            dosingUiState = dosingUiState,
+                            includeTempTargetRow = true,
                             onNavigate = onNavigate,
                             onTbrChipClick = onTbrChipClick,
                             commandsAllowed = commandsAllowed
@@ -120,16 +126,51 @@ fun OverviewChipsColumn(
                 tempTargetReason = tempTargetReason,
                 tempTargetSceneManaged = tempTargetSceneManaged,
                 tbrState = tbrState,
+                dosingUiState = dosingUiState,
+                includeTempTargetRow = false,
                 onNavigate = onNavigate,
                 onTbrChipClick = onTbrChipClick,
                 commandsAllowed = commandsAllowed
             )
+            // The dosing widget is two rows high, to the right of the temp target and IOB / COB
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(AapsSpacing.small)
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    TempTargetRow(
+                        tempTargetText = tempTargetText,
+                        tempTargetState = tempTargetState,
+                        tempTargetProgress = tempTargetProgress,
+                        tempTargetReason = tempTargetReason,
+                        tempTargetSceneManaged = tempTargetSceneManaged,
+                        onNavigate = onNavigate,
+                        commandsAllowed = commandsAllowed
+                    )
+                    IobCobChipsRow(
+                        iobUiState = iobUiState,
+                        cobUiState = cobUiState,
+                        onIobChipClick = onIobChipClick
+                    )
+                }
+                DosingChip(
+                    tbrState = tbrState,
+                    state = dosingUiState,
+                    onTempBasalDetails = onTbrChipClick,
+                    modifier = Modifier.height(DOSING_CHIP_HEIGHT)
+                )
+            }
         }
-        IobCobChipsRow(
-            iobUiState = iobUiState,
-            cobUiState = cobUiState,
-            onIobChipClick = onIobChipClick
-        )
+        if (trailingContent != null) {
+            IobCobChipsRow(
+                iobUiState = iobUiState,
+                cobUiState = cobUiState,
+                onIobChipClick = onIobChipClick
+            )
+        }
         SensitivityChipBlock(
             state = sensitivityUiState,
             modifier = Modifier.fillMaxWidth()
@@ -155,6 +196,9 @@ private fun NarrowChips(
     tempTargetReason: TT.Reason?,
     tempTargetSceneManaged: Boolean,
     tbrState: TbrState,
+    dosingUiState: DosingUiState,
+    /** Draw the temp target row with the dosing widget here; otherwise the caller places them. */
+    includeTempTargetRow: Boolean,
     onNavigate: (NavigationRequest) -> Unit,
     onTbrChipClick: () -> Unit,
     commandsAllowed: Boolean
@@ -186,26 +230,53 @@ private fun NarrowChips(
             modifier = Modifier.weight(1f)
         )
     }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AapsSpacing.small)
-    ) {
-        if (tempTargetText.isNotEmpty()) {
-            TempTargetChip(
-                targetText = tempTargetText,
-                state = tempTargetState,
-                progress = tempTargetProgress,
-                reason = tempTargetReason,
-                modifier = Modifier.weight(1f),
-                onClick = { onNavigate(NavigationRequest.Element(ElementType.TEMP_TARGET_MANAGEMENT)) },
-                sceneManaged = tempTargetSceneManaged,
-                enabled = commandsAllowed
+    if (includeTempTargetRow) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AapsSpacing.small)
+        ) {
+            TempTargetRow(
+                tempTargetText = tempTargetText,
+                tempTargetState = tempTargetState,
+                tempTargetProgress = tempTargetProgress,
+                tempTargetReason = tempTargetReason,
+                tempTargetSceneManaged = tempTargetSceneManaged,
+                onNavigate = onNavigate,
+                commandsAllowed = commandsAllowed,
+                modifier = Modifier.weight(1f)
+            )
+            DosingChip(
+                tbrState = tbrState,
+                state = dosingUiState,
+                onTempBasalDetails = onTbrChipClick,
+                modifier = Modifier.height(DOSING_CHIP_HEIGHT)
             )
         }
-        TbrChip(
-            state = tbrState,
-            onClick = onTbrChipClick
-        )
     }
 }
 
+/** The temp target chip, when a target is set. */
+@Composable
+private fun TempTargetRow(
+    tempTargetText: String,
+    tempTargetState: TempTargetChipState,
+    tempTargetProgress: Float,
+    tempTargetReason: TT.Reason?,
+    tempTargetSceneManaged: Boolean,
+    onNavigate: (NavigationRequest) -> Unit,
+    commandsAllowed: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (tempTargetText.isNotEmpty()) {
+        TempTargetChip(
+            targetText = tempTargetText,
+            state = tempTargetState,
+            progress = tempTargetProgress,
+            reason = tempTargetReason,
+            modifier = modifier.fillMaxWidth(),
+            onClick = { onNavigate(NavigationRequest.Element(ElementType.TEMP_TARGET_MANAGEMENT)) },
+            sceneManaged = tempTargetSceneManaged,
+            enabled = commandsAllowed
+        )
+    }
+}
