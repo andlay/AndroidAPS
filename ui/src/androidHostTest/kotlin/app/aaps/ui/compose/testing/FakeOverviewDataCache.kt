@@ -13,6 +13,7 @@ import app.aaps.core.interfaces.overview.graph.DeviationsGraphData
 import app.aaps.core.interfaces.overview.graph.EpsGraphPoint
 import app.aaps.core.interfaces.overview.graph.HeartRateGraphData
 import app.aaps.core.interfaces.overview.graph.IobGraphData
+import app.aaps.core.interfaces.overview.graph.HeldLoopRun
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
 import app.aaps.core.interfaces.overview.graph.PredictedDeviationsGraphData
 import app.aaps.core.interfaces.overview.graph.ProfileDisplayData
@@ -90,6 +91,7 @@ class FakeOverviewDataCache : OverviewDataCache {
     override fun updateBgiGraph(data: BgiGraphData) { bgiGraphFlow.value = data }
     override fun updateDeviationsGraph(data: DeviationsGraphData) { deviationsGraphFlow.value = data }
     override fun updatePredictedDeviations(data: PredictedDeviationsGraphData) { predictedDeviationsFlow.value = data }
+    override suspend fun loopRunAt(timestamp: Long): HeldLoopRun? = null
     override fun updateRatioGraph(data: RatioGraphData) { ratioGraphFlow.value = data }
     override fun updateDevSlopeGraph(data: DevSlopeGraphData) { devSlopeGraphFlow.value = data }
     override fun updateVarSensGraph(data: VarSensGraphData) { varSensGraphFlow.value = data }

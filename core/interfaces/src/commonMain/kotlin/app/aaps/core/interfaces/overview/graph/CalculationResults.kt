@@ -52,6 +52,7 @@ data class BgDataPoint(
     val range: BgRange,            // Range classification (high/in-range/low)
     val type: BgType,              // Type determines rendering style and color
     val filledGap: Boolean = false, // For bucketed data - if true, render semi-transparent
+    val afterDose: Boolean = false, // For predictions - the curve with the dose of the loop run added (see RT.predBGsAfterDose)
 )
 
 // ============================================================================
@@ -179,6 +180,27 @@ data class PredictedDeviationsGraphData(
     val iob: List<GraphDataPoint> = emptyList(),
     val cob: List<GraphDataPoint> = emptyList(),
     val uam: List<GraphDataPoint> = emptyList()
+)
+
+/**
+ * One past loop run, as the graphs show it while the user holds a point (see [OverviewDataCache.loopRunAt]).
+ *
+ * @param timestamp when the run was made
+ * @param predictions its prediction curves from that time, the ones with its dose added marked [BgDataPoint.afterDose]
+ * @param deviations the deviations it expected, as bars
+ * @param eventualBg eventual BG in the user's units
+ * @param minPredBg lowest expected BG in the user's units; null for runs before it was stored
+ * @param insulinReq insulin it asked for, U
+ * @param smb SMB it asked for, U
+ */
+data class HeldLoopRun(
+    val timestamp: Long,
+    val predictions: List<BgDataPoint>,
+    val deviations: PredictedDeviationsGraphData,
+    val eventualBg: Double?,
+    val minPredBg: Double?,
+    val insulinReq: Double?,
+    val smb: Double?
 )
 
 /**

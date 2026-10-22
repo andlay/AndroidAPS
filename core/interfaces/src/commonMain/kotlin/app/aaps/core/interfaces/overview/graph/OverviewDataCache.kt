@@ -84,6 +84,9 @@ interface OverviewDataCache {
     val predictedDeviationsFlow: StateFlow<PredictedDeviationsGraphData>
     fun updatePredictedDeviations(data: PredictedDeviationsGraphData)
 
+    /** The loop run made for the BG reading at [timestamp] (up to 5 minutes before it is accepted), or null. Reads the database. */
+    suspend fun loopRunAt(timestamp: Long): HeldLoopRun?
+
     // Ratio graph: autosens ratio percentage line
     val ratioGraphFlow: StateFlow<RatioGraphData>
     fun updateRatioGraph(data: RatioGraphData)

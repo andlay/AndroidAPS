@@ -49,6 +49,7 @@ import app.aaps.core.interfaces.overview.graph.BolusGraphPoint
 import app.aaps.core.interfaces.overview.graph.BolusType
 import app.aaps.core.interfaces.overview.graph.CarbsGraphPoint
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
+import app.aaps.core.interfaces.overview.graph.HeldLoopRun
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.overview.graph.TbrState
 import app.aaps.core.ui.CoreUiStrings
@@ -305,6 +306,8 @@ fun GraphInspectOverlay(
                 )
             }
             if (data.timestamp != inspectData?.timestamp) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            // The graphs show the curves of the loop run at this reading
+            graphViewModel.holdAt(data.timestamp)
             inspect.shownX = timestampToX(data.timestamp, min)
             inspect.dotValue = data.bg?.value
             inspectData = data
@@ -318,14 +321,16 @@ fun GraphInspectOverlay(
             if (!fingerDown && data != null) {
                 delay(INSPECT_LINGER_MS)
                 inspectData = null
+                graphViewModel.holdAt(null)
             }
         }
     }
 
     val data = inspectData
+    val heldRun by graphViewModel.heldLoopRunFlow.collectAsStateWithLifecycle()
     val dotColor = data?.bg?.range?.inspectColor() ?: Color.Unspecified
     SideEffect { inspect.dotColor = dotColor }
-    if (data != null) GraphInspectPill(data = data, modifier = modifier)
+    if (data != null) GraphInspectPill(data = data, heldRun = heldRun, modifier = modifier)
 }
 
 /** The values at one reading. Null means no data near that time. */
@@ -467,6 +472,8 @@ internal fun BgRange.inspectColor(): Color = when (this) {
 @Composable
 fun GraphInspectPill(
     data: InspectData,
+    /** The loop run at the shown reading: what it expected and asked for. */
+    heldRun: HeldLoopRun? = null,
     modifier: Modifier = Modifier
 ) {
     val dateUtil = LocalDateUtil.current
@@ -507,9 +514,23 @@ fun GraphInspectPill(
                 }
                 data.carbs.forEach { carbs -> PillTriangleItem(pointsUp = false, text = carbs.label, color = ElementType.CARBS.color()) }
                 data.extras.forEach { extra -> PillExtra(extra) }
+                heldRun?.let { PillLoopRun(it) }
             }
         }
     }
+}
+
+/** What the loop run at the reading expected (eventual and lowest BG) and asked for (insulinReq, SMB). */
+@Composable
+private fun PillLoopRun(run: HeldLoopRun) {
+    val decimalFormatter = LocalDecimalFormatter.current
+    val profileUtil = LocalProfileUtil.current
+    fun bg(v: Double) = if (profileUtil.units == GlucoseUnit.MGDL) decimalFormatter.to0Decimal(v) else decimalFormatter.to1Decimal(v)
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    run.eventualBg?.let { PillEmojiItem(emoji = "🔮", text = bg(it), color = onSurface, bold = false) }
+    run.minPredBg?.let { PillEmojiItem(emoji = "🔻", text = bg(it), color = onSurface, bold = false) }
+    run.insulinReq?.takeIf { it > 0.0 }?.let { PillEmojiItem(emoji = "💉", text = stringResource(InterfacesStrings.format_insulin_units, it), color = ElementType.INSULIN.color(), bold = false) }
+    run.smb?.takeIf { it > 0.0 }?.let { PillTriangleItem(pointsUp = true, text = stringResource(InterfacesStrings.format_insulin_units, it), color = ElementType.INSULIN.color()) }
 }
 
 @Composable

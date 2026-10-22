@@ -212,7 +212,10 @@ fun SecondaryGraphCompose(
     val absIobData = if (primaryType == SeriesType.ABS_IOB) viewModel.absIobGraphFlow.collectAsStateWithLifecycle().value else null
     val bgiData = if (SeriesType.BGI in primaryTypes) viewModel.bgiGraphFlow.collectAsStateWithLifecycle().value else null
     val deviationsData = if (SeriesType.DEVIATIONS in primaryTypes) viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value else null
-    val predictedDeviationsData = if (SeriesType.DEVIATIONS in primaryTypes) viewModel.predictedDeviationsFlow.collectAsStateWithLifecycle().value else null
+    // While the user holds a point: the deviations the loop run there expected, drawn over what came
+    val heldRun = if (SeriesType.DEVIATIONS in primaryTypes) viewModel.heldLoopRunFlow.collectAsStateWithLifecycle().value else null
+    val predictedDeviationsData =
+        if (SeriesType.DEVIATIONS in primaryTypes) heldRun?.deviations ?: viewModel.predictedDeviationsFlow.collectAsStateWithLifecycle().value else null
     val ratioData = if (primaryType == SeriesType.SENSITIVITY) viewModel.ratioGraphFlow.collectAsStateWithLifecycle().value else null
     val varSensData = if (primaryType == SeriesType.VAR_SENSITIVITY) viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value else null
     val devSlopeData = if (primaryType == SeriesType.DEV_SLOPE) viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value else null

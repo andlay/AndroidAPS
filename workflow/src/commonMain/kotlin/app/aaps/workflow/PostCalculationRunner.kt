@@ -15,8 +15,9 @@ import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgRange
 import app.aaps.core.interfaces.overview.graph.BgType
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
-import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.PredictedDeviationsGraphData
+import app.aaps.core.interfaces.overview.graph.predictionPoints
+import app.aaps.core.interfaces.overview.graph.toGraphData
 import app.aaps.core.interfaces.profile.ProfileFunction
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.scenes.SceneExpiryCheck
@@ -184,8 +185,13 @@ class PostCalculationRunner(
             }
             ?.sortedBy { it.timestamp }
             ?: emptyList()
+        // The same curves with the dose of the run added, drawn smaller
+        val afterDose = (apsResult?.rawData() as? RT)?.predBGsAfterDose
+        val afterDosePoints =
+            if (apsResult == null || afterDose == null) emptyList()
+            else predictionPoints(afterDose, apsResult.date, afterDose = true, lowMark = lowMarkInUnits, highMark = highMarkInUnits) { profileUtil.fromMgdlToUnits(it) }
 
-        data.cache.updatePredictions(predictionDataPoints)
+        data.cache.updatePredictions(predictionDataPoints + afterDosePoints)
         data.cache.updatePredictedDeviations(predictedDeviations(apsResult))
 
         // Extend cached time range to include prediction horizon
@@ -194,21 +200,9 @@ class PostCalculationRunner(
         }
     }
 
-    /**
-     * The deviations the run expects, see `PredictedDeviations`, as graph points in the user's units.
-     * Step i is the change from 5 * i to 5 * (i + 1) minutes, so it is drawn as a bar over that time,
-     * starting at the BG reading the run used. That is where the measured deviation bars end, so the
-     * two join without a gap. A last point at the end closes the last bar.
-     */
-    private fun predictedDeviations(apsResult: APSResult?): PredictedDeviationsGraphData {
-        val devs = (apsResult?.rawData() as? RT)?.predDevs ?: return PredictedDeviationsGraphData()
-        val start = predictedDeviationsStart(apsResult.date, apsResult.glucoseStatus?.date)
-        return PredictedDeviationsGraphData(
-            iob = predictedDeviationBars(devs.IOB, start) { profileUtil.fromMgdlToUnits(it) },
-            cob = predictedDeviationBars(devs.COB, start) { profileUtil.fromMgdlToUnits(it) },
-            uam = predictedDeviationBars(devs.UAM, start) { profileUtil.fromMgdlToUnits(it) }
-        )
-    }
+    /** The deviations the run expects, see `PredictedDeviations`, as graph points in the user's units. */
+    private fun predictedDeviations(apsResult: APSResult?): PredictedDeviationsGraphData =
+        (apsResult?.rawData() as? RT)?.predDevs.toGraphData(apsResult?.date ?: 0L, apsResult?.glucoseStatus?.date) { profileUtil.fromMgdlToUnits(it) }
 
     private suspend fun shownActivityHorizon(now: Long): Long? =
         activityHorizon(now, graphConfigRepository.graphConfigFlow.value, profileFunction.getProfile()?.iCfg?.insulinEndTime)

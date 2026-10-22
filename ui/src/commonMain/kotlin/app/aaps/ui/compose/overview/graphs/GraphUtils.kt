@@ -356,7 +356,7 @@ val InvertedTriangleShape: Shape = GenericShape { size, _ ->
  * Transparent connecting line with small filled circle points in the given color.
  * Each prediction type (IOB, COB, UAM, ZT, aCOB) uses a different color.
  */
-fun createPredictionLine(color: Color): LineCartesianLayer.Line =
+fun createPredictionLine(color: Color, pointSize: Dp = 4.dp): LineCartesianLayer.Line =
     LineCartesianLayer.Line(
         fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
         areaFill = null,
@@ -366,7 +366,7 @@ fun createPredictionLine(color: Color): LineCartesianLayer.Line =
                     fill = Fill(color),
                     shape = CircleShape
                 ),
-                size = 4.dp
+                size = pointSize
             )
         )
     )

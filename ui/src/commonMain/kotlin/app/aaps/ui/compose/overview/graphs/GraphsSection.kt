@@ -531,7 +531,7 @@ fun GraphsSection(
         val predictionExtremes = remember(predictions, currentValue, predictionsVisible) {
             if (!predictionsVisible || currentValue == null) emptyList()
             else PREDICTION_SPOKEN_ORDER.mapNotNull { (type, name) ->
-                predictionExtreme(predictions.filter { it.type == type }.map { it.value }, currentValue)
+                predictionExtreme(predictions.filter { it.type == type && !it.afterDose }.map { it.value }, currentValue)
                     ?.let { (value, direction) -> Triple(name, value, direction) }
             }
         }

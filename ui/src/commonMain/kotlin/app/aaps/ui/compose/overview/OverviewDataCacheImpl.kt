@@ -19,6 +19,7 @@ import app.aaps.core.data.model.latestRunningAt
 import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.InterfacesStrings
 import app.aaps.core.interfaces.aps.Loop
+import app.aaps.core.interfaces.aps.RT
 import app.aaps.core.interfaces.concurrent.aapsIoDispatcher
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.db.PersistenceLayer
@@ -50,6 +51,7 @@ import app.aaps.core.interfaces.overview.graph.ExtendedBolusGraphPoint
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.HeartRateGraphData
+import app.aaps.core.interfaces.overview.graph.HeldLoopRun
 import app.aaps.core.interfaces.overview.graph.IobGraphData
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
 import app.aaps.core.interfaces.overview.graph.PredictedDeviationsGraphData
@@ -70,6 +72,8 @@ import app.aaps.core.interfaces.overview.graph.TherapyEventType
 import app.aaps.core.interfaces.overview.graph.TimeRange
 import app.aaps.core.interfaces.overview.graph.TreatmentGraphData
 import app.aaps.core.interfaces.overview.graph.VarSensGraphData
+import app.aaps.core.interfaces.overview.graph.predictionPoints
+import app.aaps.core.interfaces.overview.graph.toGraphData
 import app.aaps.core.interfaces.plugin.ActivePlugin
 import app.aaps.core.interfaces.profile.ProfileFunction
 import app.aaps.core.interfaces.profile.ProfileUtil
@@ -145,6 +149,9 @@ private const val WARN_BATTERY_PERCENT = 30.0
 private const val URGENT_BATTERY_PERCENT = 20.0
 private const val WARN_BATTERY_VOLTAGE = 1.35
 private const val URGENT_BATTERY_VOLTAGE = 1.3
+
+/** How far after a BG reading its loop run may come, see `loopRunAt`. */
+private const val LOOP_RUN_AFTER_READING_MS = 2 * 60 * 1000L
 
 /**
  * What a tap on a therapy event in the graph shows.
@@ -813,6 +820,26 @@ class OverviewDataCacheImpl(
 
     override fun updatePredictedDeviations(data: PredictedDeviationsGraphData) {
         _predictedDeviationsFlow.value = data
+    }
+
+    override suspend fun loopRunAt(timestamp: Long): HeldLoopRun? {
+        // The run for a reading comes a few seconds after it, so look a little past the reading
+        val result = persistenceLayer.getApsResultCloseTo(timestamp + LOOP_RUN_AFTER_READING_MS) ?: return null
+        val rt = result.rawData() as? RT ?: return null
+        val lowMark = preferences.get(UnitDoubleKey.OverviewLowMark)
+        val highMark = preferences.get(UnitDoubleKey.OverviewHighMark)
+        val toUnits = { mgdl: Double -> profileUtil.fromMgdlToUnits(mgdl) }
+        val predictions = rt.predBGs?.let { predictionPoints(it, result.date, afterDose = false, lowMark = lowMark, highMark = highMark, toUnits = toUnits) }.orEmpty() +
+            rt.predBGsAfterDose?.let { predictionPoints(it, result.date, afterDose = true, lowMark = lowMark, highMark = highMark, toUnits = toUnits) }.orEmpty()
+        return HeldLoopRun(
+            timestamp = result.date,
+            predictions = predictions,
+            deviations = rt.predDevs.toGraphData(result.date, result.glucoseStatus?.date, toUnits),
+            eventualBg = rt.eventualBG?.let(toUnits),
+            minPredBg = rt.minPredBG?.let(toUnits),
+            insulinReq = rt.insulinReq,
+            smb = rt.units
+        )
     }
 
     override fun updateRatioGraph(data: RatioGraphData) {

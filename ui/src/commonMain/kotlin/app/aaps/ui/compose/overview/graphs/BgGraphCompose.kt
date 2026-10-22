@@ -57,6 +57,11 @@ private const val showBasalOnBgGraph = false
 
 private const val SERIES_REGULAR = "regular"
 private const val SERIES_BUCKETED = "bucketed"
+
+// Readings after the held loop run, drawn faint while the user holds a point
+private const val SERIES_BUCKETED_DIM = "bucketed_dim"
+private const val DIM_ALPHA = 0.25f
+private val AFTER_DOSE_POINT_SIZE = 2.dp
 private const val SERIES_PRED_IOB = "pred_iob"
 private const val SERIES_PRED_COB = "pred_cob"
 private const val SERIES_PRED_ACOB = "pred_acob"
@@ -64,7 +69,16 @@ private const val SERIES_PRED_UAM = "pred_uam"
 private const val SERIES_PRED_ZT = "pred_zt"
 
 /** All prediction series identifiers */
-private val PREDICTION_SERIES = listOf(SERIES_PRED_IOB, SERIES_PRED_COB, SERIES_PRED_ACOB, SERIES_PRED_UAM, SERIES_PRED_ZT)
+// The same curves with the dose of the loop run added, see BgDataPoint.afterDose
+private const val SERIES_PRED_IOB_AFTER = "pred_iob_after"
+private const val SERIES_PRED_COB_AFTER = "pred_cob_after"
+private const val SERIES_PRED_ACOB_AFTER = "pred_acob_after"
+private const val SERIES_PRED_UAM_AFTER = "pred_uam_after"
+private const val SERIES_PRED_ZT_AFTER = "pred_zt_after"
+private val PREDICTION_SERIES = listOf(
+    SERIES_PRED_IOB, SERIES_PRED_COB, SERIES_PRED_ACOB, SERIES_PRED_UAM, SERIES_PRED_ZT,
+    SERIES_PRED_IOB_AFTER, SERIES_PRED_COB_AFTER, SERIES_PRED_ACOB_AFTER, SERIES_PRED_UAM_AFTER, SERIES_PRED_ZT_AFTER
+)
 
 /**
  * CartesianChartModelProducer.update() skips notifying receivers (and thus skips recomputing axis
@@ -160,6 +174,9 @@ fun BgGraphCompose(
     val showPredictions = SeriesType.PREDICTIONS in bgOverlays
     val rawPredictions by viewModel.predictionsFlow.collectAsStateWithLifecycle()
     val predictions = if (showPredictions) rawPredictions else emptyList()
+    // While the user holds a point: the loop run there, its curves drawn instead of the newest ones
+    val heldRun by viewModel.heldLoopRunFlow.collectAsStateWithLifecycle()
+    val shownPredictions = heldRun?.predictions ?: predictions
     val rawBasalData by viewModel.basalGraphFlow.collectAsStateWithLifecycle()
     val targetData by viewModel.targetLineFlow.collectAsStateWithLifecycle()
 
@@ -258,6 +275,15 @@ fun BgGraphCompose(
                         .sortedBy { it.first }
                     series(x = dataPoints.map { it.first }, y = dataPoints.map { it.second })
                     activeSeries.add(SERIES_BUCKETED)
+                }
+
+                val dimPoints = seriesRegistry[SERIES_BUCKETED_DIM].orEmpty()
+                if (dimPoints.isNotEmpty()) {
+                    val dataPoints = dimPoints
+                        .map { timestampToX(it.timestamp, minTimestamp) to it.value }
+                        .sortedBy { it.first }
+                    series(x = dataPoints.map { it.first }, y = dataPoints.map { it.second })
+                    activeSeries.add(SERIES_BUCKETED_DIM)
                 }
 
                 // Prediction series - each type as a separate line
@@ -368,20 +394,29 @@ fun BgGraphCompose(
     }
 
     // Split predictions by type into registry
-    val predictionsByType = remember(predictions) {
+    val predictionsByType = remember(shownPredictions) {
+        fun of(type: BgType, afterDose: Boolean) = shownPredictions.filter { it.type == type && it.afterDose == afterDose }
         mapOf(
-            SERIES_PRED_IOB to predictions.filter { it.type == BgType.IOB_PREDICTION },
-            SERIES_PRED_COB to predictions.filter { it.type == BgType.COB_PREDICTION },
-            SERIES_PRED_ACOB to predictions.filter { it.type == BgType.A_COB_PREDICTION },
-            SERIES_PRED_UAM to predictions.filter { it.type == BgType.UAM_PREDICTION },
-            SERIES_PRED_ZT to predictions.filter { it.type == BgType.ZT_PREDICTION }
+            SERIES_PRED_IOB to of(BgType.IOB_PREDICTION, false),
+            SERIES_PRED_COB to of(BgType.COB_PREDICTION, false),
+            SERIES_PRED_ACOB to of(BgType.A_COB_PREDICTION, false),
+            SERIES_PRED_UAM to of(BgType.UAM_PREDICTION, false),
+            SERIES_PRED_ZT to of(BgType.ZT_PREDICTION, false),
+            SERIES_PRED_IOB_AFTER to of(BgType.IOB_PREDICTION, true),
+            SERIES_PRED_COB_AFTER to of(BgType.COB_PREDICTION, true),
+            SERIES_PRED_ACOB_AFTER to of(BgType.A_COB_PREDICTION, true),
+            SERIES_PRED_UAM_AFTER to of(BgType.UAM_PREDICTION, true),
+            SERIES_PRED_ZT_AFTER to of(BgType.ZT_PREDICTION, true)
         )
     }
 
     // Single LaunchedEffect for all data - ensures atomic updates
-    LaunchedEffect(bgReadings, bucketedData, predictionsByType, basalData, targetData, epsPoints, activityData, showActivity, chartConfig, stableTimeRange, visibleTimeRange) {
-        seriesRegistry[SERIES_REGULAR] = bgReadings
-        seriesRegistry[SERIES_BUCKETED] = bucketedData
+    val heldTime = heldRun?.timestamp
+    LaunchedEffect(bgReadings, bucketedData, predictionsByType, heldTime, basalData, targetData, epsPoints, activityData, showActivity, chartConfig, stableTimeRange, visibleTimeRange) {
+        // Held: the readings after the run are faint, so its curves can be compared with them
+        seriesRegistry[SERIES_REGULAR] = if (heldTime == null) bgReadings else bgReadings.filter { it.timestamp <= heldTime }
+        seriesRegistry[SERIES_BUCKETED] = if (heldTime == null) bucketedData else bucketedData.filter { it.timestamp <= heldTime }
+        seriesRegistry[SERIES_BUCKETED_DIM] = if (heldTime == null) emptyList() else bucketedData.filter { it.timestamp > heldTime }
         for ((key, points) in predictionsByType) {
             seriesRegistry[key] = points
         }
@@ -474,6 +509,13 @@ fun BgGraphCompose(
             pointProvider = bucketedPointProvider
         )
     }
+    val dimBucketedLine = remember(bucketedLookup, lowColor, inRangeColor, highColor) {
+        LineCartesianLayer.Line(
+            fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
+            areaFill = null,
+            pointProvider = BucketedPointProvider(bucketedLookup, lowColor.copy(alpha = DIM_ALPHA), inRangeColor.copy(alpha = DIM_ALPHA), highColor.copy(alpha = DIM_ALPHA))
+        )
+    }
 
     val normalizerLine = remember { createNormalizerLine() }
 
@@ -483,17 +525,30 @@ fun BgGraphCompose(
     val aCobPredLine = remember(aCobPredColor) { createPredictionLine(aCobPredColor) }
     val uamPredLine = remember(uamPredColor) { createPredictionLine(uamPredColor) }
     val ztPredLine = remember(ztPredColor) { createPredictionLine(ztPredColor) }
+    // After the dose of the run: smaller dots in the same colours
+    val afterDoseLines = remember(iobPredColor, cobPredColor, aCobPredColor, uamPredColor, ztPredColor) {
+        mapOf(
+            SERIES_PRED_IOB_AFTER to createPredictionLine(iobPredColor, AFTER_DOSE_POINT_SIZE),
+            SERIES_PRED_COB_AFTER to createPredictionLine(cobPredColor, AFTER_DOSE_POINT_SIZE),
+            SERIES_PRED_ACOB_AFTER to createPredictionLine(aCobPredColor, AFTER_DOSE_POINT_SIZE),
+            SERIES_PRED_UAM_AFTER to createPredictionLine(uamPredColor, AFTER_DOSE_POINT_SIZE),
+            SERIES_PRED_ZT_AFTER to createPredictionLine(ztPredColor, AFTER_DOSE_POINT_SIZE)
+        )
+    }
 
     val activeSeries by activeSeriesState
-    val bgLines = remember(activeSeries, regularLine, bucketedLine, iobPredLine, cobPredLine, aCobPredLine, uamPredLine, ztPredLine, normalizerLine) {
+    val bgLines = remember(activeSeries, regularLine, bucketedLine, dimBucketedLine, iobPredLine, cobPredLine, aCobPredLine, uamPredLine, ztPredLine, afterDoseLines, normalizerLine) {
         buildList {
+            // Same order as the series in rebuildChart
             if (SERIES_REGULAR in activeSeries) add(regularLine)
             if (SERIES_BUCKETED in activeSeries) add(bucketedLine)
+            if (SERIES_BUCKETED_DIM in activeSeries) add(dimBucketedLine)
             if (SERIES_PRED_IOB in activeSeries) add(iobPredLine)
             if (SERIES_PRED_COB in activeSeries) add(cobPredLine)
             if (SERIES_PRED_ACOB in activeSeries) add(aCobPredLine)
             if (SERIES_PRED_UAM in activeSeries) add(uamPredLine)
             if (SERIES_PRED_ZT in activeSeries) add(ztPredLine)
+            for ((key, line) in afterDoseLines) if (key in activeSeries) add(line)
             add(normalizerLine)
         }
     }

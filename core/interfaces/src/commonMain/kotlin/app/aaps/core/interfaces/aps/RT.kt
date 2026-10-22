@@ -41,6 +41,14 @@ data class RT(
     var predBGs: Predictions? = null,
     /** The deviation each curve in [predBGs] expects at each future step. Null for runs before it was stored. */
     var predDevs: PredictedDeviations? = null,
+    /**
+     * The curves of [predBGs] with the dose this run asks for added: the SMB in [units] and the change
+     * from the running temp basal to the one in [rate] and [duration]. [predBGs] are made before the
+     * decision, so they leave that dose out. Null when the run asks for no change, or before it was stored.
+     */
+    var predBGsAfterDose: Predictions? = null,
+    /** The lowest BG the run expects, which sets insulinReq. Null for runs before it was stored. */
+    var minPredBG: Double? = null,
     var COB: Double? = null,
     var IOB: Double? = null,
     var variable_sens: Double? = null,

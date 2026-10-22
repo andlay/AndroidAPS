@@ -894,6 +894,7 @@ class DetermineBasalSMB(
         if (maxCOBPredBG > bg) {
             minPredBG = min(minPredBG, maxCOBPredBG)
         }
+        rT.minPredBG = minPredBG
 
         rT.COB = meal_data.mealCOB
         rT.IOB = iob_data.iob

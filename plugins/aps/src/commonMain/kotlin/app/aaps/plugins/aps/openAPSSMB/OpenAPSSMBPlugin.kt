@@ -3,6 +3,7 @@ package app.aaps.plugins.aps.openAPSSMB
 import androidx.collection.LongSparseArray
 import androidx.collection.forEach
 import app.aaps.core.data.aps.SMBDefaults
+import app.aaps.core.data.model.BS
 import app.aaps.core.data.model.GlucoseUnit
 import app.aaps.core.data.model.getPassedDurationToTimeInMinutes
 import app.aaps.core.data.plugin.PluginType
@@ -63,6 +64,7 @@ import app.aaps.core.ui.compose.icons.IcPluginOpenAPS
 import app.aaps.core.ui.compose.preference.PreferenceSubScreenDef
 import app.aaps.core.utils.MidnightUtils
 import app.aaps.plugins.aps.ApsStrings
+import app.aaps.plugins.aps.openAPS.PostDosePredictions
 import app.aaps.plugins.aps.openAPS.applySmbMinBg
 import app.aaps.plugins.aps.events.EventOpenAPSUpdateGui
 import app.aaps.plugins.aps.events.EventResetOpenAPSGui
@@ -500,6 +502,11 @@ open class OpenAPSSMBPlugin(
             flatBGsDetected = flatBGsDetected,
             dynIsfMode = effectiveDynIsfMode
         ).also {
+            // The ISF the curves were made with: dynamic ISF, or the profile ISF with autosens
+            val predictionSens = if (effectiveDynIsfMode) oapsProfile.variable_sens else oapsProfile.sens / (it.sensitivityRatio ?: autosensResult.ratio)
+            it.predBGsAfterDose = PostDosePredictions.afterDose(it, currentTemp, oapsProfile.current_basal, predictionSens) { units, minutesAgo ->
+                profile.iCfg.iobCalcForTreatment(BS(timestamp = 0L, amount = units, type = BS.Type.SMB), (minutesAgo * 60_000).toLong()).activityContrib
+            }
             val determineBasalResult = apsResultProvider().with(it)
             // Preserve input data
             determineBasalResult.inputConstraints = inputConstraints
