@@ -467,7 +467,7 @@ open class OpenAPSAutoISFPlugin(
             // The ISF the curves were made with: the AutoISF one, or the profile ISF with autosens
             val predictionSens = if (autoIsfMode) oapsProfile.variable_sens else oapsProfile.sens / (it.sensitivityRatio ?: autosensResult.ratio)
             it.predBGsAfterDose = PostDosePredictions.afterDose(it, currentTemp, oapsProfile.current_basal, predictionSens) { units, minutesAgo ->
-                profile.iCfg.iobCalcForTreatment(BS(timestamp = 0L, amount = units, type = BS.Type.SMB), (minutesAgo * 60_000).toLong()).activityContrib
+                profile.iCfg.iobCalcForTreatment(BS(timestamp = 0L, amount = units, type = BS.Type.SMB, iCfg = profile.iCfg), (minutesAgo * 60_000).toLong()).activityContrib
             }
             val determineBasalResult = apsResultProvider().with(it)
             // Preserve input data
