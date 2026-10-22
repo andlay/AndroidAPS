@@ -1,6 +1,7 @@
 package app.aaps.ui.compose.overview.chips
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
@@ -9,9 +10,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import app.aaps.core.interfaces.overview.graph.TbrState
+import app.aaps.core.interfaces.utils.DateUtil
+import app.aaps.core.ui.compose.LocalDateUtil
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.kotlin.any
+import org.mockito.kotlin.doReturn
+import org.mockito.kotlin.mock
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
@@ -53,7 +59,15 @@ class DosingChipTest {
 
     @Test
     fun aTapShowsTheDecisionAndTheReason() {
-        compose.setContent { MaterialTheme { DosingChip(tbrState = TbrState.LOW, state = state, onTempBasalDetails = {}, modifier = Modifier.testTag("dosing")) } }
+        // The dialog shows the time of the loop run
+        val dateUtil: DateUtil = mock { on { timeString(any<Long>()) } doReturn "14:05" }
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalDateUtil provides dateUtil) {
+                    DosingChip(tbrState = TbrState.LOW, state = state, onTempBasalDetails = {}, modifier = Modifier.testTag("dosing"))
+                }
+            }
+        }
 
         compose.onNodeWithTag("dosing").performClick()
 
