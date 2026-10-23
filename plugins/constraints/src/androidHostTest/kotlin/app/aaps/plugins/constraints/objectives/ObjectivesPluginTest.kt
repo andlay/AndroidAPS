@@ -70,7 +70,7 @@ class ObjectivesPluginTest : TestBaseWithProfile() {
             Objective8(emulatedPreferences, text, durationText, dateUtil),
             Objective9(emulatedPreferences, text, durationText, dateUtil)
         )
-        objectivesPlugin = ObjectivesPlugin(aapsLogger, text, emulatedPreferences, config, objectives, mock())
+        objectivesPlugin = ObjectivesPlugin(aapsLogger, text, emulatedPreferences, config, mock(), objectives)
         runBlocking { objectivesPlugin.onStart() }
     }
 
