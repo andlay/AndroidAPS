@@ -48,7 +48,7 @@ class ObjectivesPlugin(
     aapsLogger: AAPSLogger,
     override val rh: TextResolver,
     preferences: Preferences,
-    config: Config,
+    private val config: Config,
     notificationManager: NotificationManager,
     val objectives: List<@JvmSuppressWildcards Objective>
 ) : PluginBaseWithPreferences(
@@ -62,10 +62,15 @@ class ObjectivesPlugin(
         // rule keeps it true if the plugin's mainType ever changes, and it is what makes canToggle false so
         // the Config Builder shows a locked switch rather than a live one that does nothing.
         .enforce(EnforcedState.Enabled) { config.APS }
+        // The alpha build never doses (shadow loop on the virtual pump), so it has no objectives: see [skipped]
+        .showInList { !config.ALPHA }
         .description(ConstraintsStrings.description_objectives),
     ownPreferences = ObjectivesBooleanComposedKey.entries + ObjectivesLongComposedKey.entries,
     aapsLogger, rh, preferences, notificationManager
 ), PluginConstraints, Objectives {
+
+    /** The alpha build runs the loop in shadow mode only, so every objective counts as done and nothing is limited */
+    private val skipped: Boolean get() = config.ALPHA
 
     fun reset() {
         for (objective in objectives) {
@@ -96,7 +101,7 @@ class ObjectivesPlugin(
      */
     override fun isLoopInvocationAllowed(value: Constraint<Boolean>): Constraint<Boolean> {
         // Check if initialized
-        if (objectives.isEmpty()) return value
+        if (objectives.isEmpty() || skipped) return value
         if (!objectives[FIRST_OBJECTIVE].isStarted)
             value.set(false, rh.gs(ConstraintsStrings.objectivenotstarted, FIRST_OBJECTIVE + 1), this)
         return value
@@ -104,7 +109,7 @@ class ObjectivesPlugin(
 
     override fun isLgsForced(value: Constraint<Boolean>): Constraint<Boolean> {
         // Check if initialized
-        if (objectives.isEmpty()) return value
+        if (objectives.isEmpty() || skipped) return value
         if (objectives[LGS_OBJECTIVE].isStarted && !objectives[LGS_OBJECTIVE].isAccomplished)
             value.set(true, rh.gs(ConstraintsStrings.objectivenotfinished, LGS_OBJECTIVE + 1), this)
         return value
@@ -112,7 +117,7 @@ class ObjectivesPlugin(
 
     override suspend fun isClosedLoopAllowed(value: Constraint<Boolean>): Constraint<Boolean> {
         // Check if initialized
-        if (objectives.isEmpty()) return value
+        if (objectives.isEmpty() || skipped) return value
         if (!objectives[CLOSED_LOOP_OBJECTIVE].isStarted)
             value.set(false, rh.gs(ConstraintsStrings.objectivenotstarted, CLOSED_LOOP_OBJECTIVE + 1), this)
         return value
@@ -120,7 +125,7 @@ class ObjectivesPlugin(
 
     override fun isAutosensModeEnabled(value: Constraint<Boolean>): Constraint<Boolean> {
         // Check if initialized
-        if (objectives.isEmpty()) return value
+        if (objectives.isEmpty() || skipped) return value
         if (!objectives[AUTOSENS_OBJECTIVE].isStarted)
             value.set(false, rh.gs(ConstraintsStrings.objectivenotstarted, AUTOSENS_OBJECTIVE + 1), this)
         return value
@@ -128,7 +133,7 @@ class ObjectivesPlugin(
 
     override suspend fun isSMBModeEnabled(value: Constraint<Boolean>): Constraint<Boolean> {
         // Check if initialized
-        if (objectives.isEmpty()) return value
+        if (objectives.isEmpty() || skipped) return value
         if (!objectives[SMB_OBJECTIVE].isStarted)
             value.set(false, rh.gs(ConstraintsStrings.objectivenotstarted, SMB_OBJECTIVE + 1), this)
         return value
@@ -136,14 +141,14 @@ class ObjectivesPlugin(
 
     override fun isAutomationEnabled(value: Constraint<Boolean>): Constraint<Boolean> {
         // Check if initialized
-        if (objectives.isEmpty()) return value
+        if (objectives.isEmpty() || skipped) return value
         if (!objectives[AUTO_OBJECTIVE].isStarted)
             value.set(false, rh.gs(ConstraintsStrings.objectivenotstarted, AUTO_OBJECTIVE + 1), this)
         return value
     }
 
     override fun isConcentrationEnabled(value: Constraint<Boolean>): Constraint<Boolean> {
-        if (objectives.isEmpty()) return value
+        if (objectives.isEmpty() || skipped) return value
         if (!objectives[EXAM_OBJECTIVE].isAccomplished) {
             value.set(false, rh.gs(ConstraintsStrings.objectivenotfinished, EXAM_OBJECTIVE + 1), this)
         }
@@ -151,8 +156,8 @@ class ObjectivesPlugin(
     }
 
     override val size: Int get() = objectives.size
-    override val accomplishedCount: Int get() = objectives.count { it.isAccomplished }
+    override val accomplishedCount: Int get() = if (skipped) objectives.size else objectives.count { it.isAccomplished }
 
-    override fun isAccomplished(index: Int) = objectives[index].isAccomplished
-    override fun isStarted(index: Int): Boolean = objectives[index].isStarted
+    override fun isAccomplished(index: Int) = skipped || objectives[index].isAccomplished
+    override fun isStarted(index: Int): Boolean = skipped || objectives[index].isStarted
 }
