@@ -19,7 +19,7 @@ class MpcControllerGoldenTest {
 
     @Test
     fun decisionsMatchTheReplay() {
-        val steps = JSONObject(File("src/androidHostTest/res/mpc/replay_steps.json").readText()).getJSONArray("steps")
+        val steps = JSONObject(File("src/androidHostTest/fixtures/mpc/replay_steps.json").readText()).getJSONArray("steps")
         assertThat(steps.length()).isEqualTo(96)
         val controller = MpcController()
         val settings = MpcController.Settings()

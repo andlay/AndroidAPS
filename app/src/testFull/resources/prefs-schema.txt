@@ -92,11 +92,12 @@ application_protection|IntKey|true
 appwidget_%d|IntComposedKey|true
 aps_incarnation_no|DiaconnIntNonKey|true
 aps_link_to_docs|ApsIntentKey|false
-aps_mpc_aim_low_line|MpcDoubleNonKey|true
+aps_mpc_aim_low_line_hba1c|MpcDoubleNonKey|true
+aps_mpc_aim_low_line_trade|MpcDoubleNonKey|true
+aps_mpc_aim|MpcIntKey|true
 aps_mpc_half_width|MpcDoubleKey|true
 aps_mpc_high_line|MpcIntKey|true
 aps_mpc_low_line|MpcIntKey|true
-aps_mpc_low_weight|MpcIntKey|true
 aps_mpc_max_iob|MpcDoubleKey|true
 aps_mpc_max_smb|MpcDoubleKey|true
 aps_mpc_meal_readiness|MpcIntKey|true
@@ -109,6 +110,7 @@ aps_mpc_second_stage|MpcIntKey|true
 aps_mpc_step_down|MpcIntKey|true
 aps_mpc_tail_half_life|MpcDoubleKey|true
 aps_mpc_target_hba1c|MpcDoubleKey|true
+aps_mpc_trade_rate|MpcDoubleKey|true
 aps_mpc_trend_room|MpcIntKey|true
 aps_mpc_typical_meal|MpcDoubleKey|true
 autoISF_max|DoubleKey|true

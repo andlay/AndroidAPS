@@ -44,7 +44,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
-import kotlin.math.min
+import kotlin.math.ln
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 /**
@@ -94,8 +95,15 @@ class MpcPlugin(
 
     private val controller = MpcController()
 
-    /** When the HbA1c aim last moved the low line (in memory: after a restart it moves once more straight away) */
-    private var lastAimRun = 0L
+    /** The last 7 days of BG, measured once an hour for the aims (in memory: after a restart it is measured again straight away) */
+    private var bgWindow: BgWindow? = null
+    private var bgWindowTime = 0L
+
+    /**
+     * The alpha build runs the loop in shadow mode (see `LoopPlugin.invoke`), so there MPC never doses and moving its
+     * low line cannot change the BG an aim measures. In shadow mode the aims only show which way they would go.
+     */
+    private val shadow: Boolean get() = config.ALPHA
 
     private val _details = MutableStateFlow<MpcDetails?>(null)
 
@@ -143,11 +151,10 @@ class MpcPlugin(
         val target = persistenceLayer.getTemporaryTargetActiveAt(now)?.target() ?: profile.getTargetMgdl()
         val isfProfile = profile.getIsfMgdl("MpcPlugin")
         val basal = profile.getBasal()
-        val lowLine = aimLowLine(now)
+        val (lowLine, aimState) = aim(now)
         val settings = MpcController.Settings(
             lowLine = lowLine,
             highLine = preferences.get(MpcIntKey.HighLine).toDouble(),
-            lowWeight = preferences.get(MpcIntKey.LowWeight).toDouble(),
             roomBoost = preferences.get(MpcIntKey.RoomBoost) / 100.0,
             trendRoomMinutes = preferences.get(MpcIntKey.TrendRoom).toDouble(),
             secondStageMinutes = preferences.get(MpcIntKey.SecondStage),
@@ -198,7 +205,7 @@ class MpcPlugin(
             time = t0, bg = view[0], units = d.units, rate = d.rate, duration = d.duration, basal = basal, iob = iob,
             isfProfile = isfProfile, isf = isf, mealChance = d.mealChance, weightedMealChance = pm, room = d.room,
             lowLine = settings.lowLine - d.stepDown, highLine = settings.highLine - d.stepDown,
-            setLowLine = preferences.get(MpcIntKey.LowLine).toDouble(), targetHbA1c = preferences.get(MpcDoubleKey.TargetHbA1c), stepDown = d.stepDown,
+            setLowLine = preferences.get(MpcIntKey.LowLine).toDouble(), aim = aimState, stepDown = d.stepDown,
             predictedMeal = d.predictedMeal, predictedFalseStart = d.predictedFalseStart, predictedExpected = expected,
             pastDev = d.futures.dev, pastFitted = d.futures.fitted,
             futureMeal = d.futures.meal.copyOf(MpcController.HORIZON), futureFalseStart = d.futures.non.copyOf(MpcController.HORIZON),
@@ -211,38 +218,68 @@ class MpcPlugin(
     }
 
     /**
-     * The low line to use. With a target HbA1c set, an outer loop moves it once an hour, as in the replay prototype:
-     * the mean BG of the last 7 days is compared with the mean that HbA1c stands for (ADAG: 28.7 x HbA1c - 46.7),
-     * and the line moves 0.01 mg/dL per mg/dL of difference. With more than 1 % of readings below 70 mg/dL it
-     * never moves down and goes up at least 2 mg/dL. It stays within 10 below and 25 above the set low line.
+     * The low line to use, and what the aim measured. Once an hour the aim moves the line a little, from the BG of the last
+     * 7 days, as in the replay prototypes:
+     * - HbA1c: the mean BG is compared with the mean the target HbA1c stands for (ADAG: 28.7 x HbA1c - 46.7). The line
+     *   moves 0.01 mg/dL per mg/dL of difference. With more than 1 % of readings below 70 mg/dL it never moves down and goes
+     *   up at least 2 mg/dL. It stays within 10 below and 25 above the set low line.
+     * - Trade: a small shift of all BG changes time below 70 and time above 180 in the ratio of the time spent near each
+     *   line, so time in 60-80 against time in 170-190 is the rate at which lows and highs trade now. The line moves
+     *   0.2 mg/dL per unit of ln(measured / wanted): up while lows cost more than the user accepts. It stays within 20 below
+     *   and 30 above the set low line.
      *
-     * In shadow mode the BG it learns from is the BG of the app that really doses, not of MPC.
+     * In [shadow] mode the line is not moved.
      */
-    private suspend fun aimLowLine(now: Long): Double {
+    private suspend fun aim(now: Long): Pair<Double, MpcAimState?> {
         val set = preferences.get(MpcIntKey.LowLine).toDouble()
+        val aim = preferences.get(MpcIntKey.Aim)
+        if (aim != MpcAim.HBA1C && aim != MpcAim.TRADE) return set to null
+        val newHour = now - bgWindowTime >= 60 * MINUTE
+        if (newHour) {
+            bgWindow = measureBg(now)
+            bgWindowTime = now
+        }
+        val window = bgWindow
         val a1c = preferences.get(MpcDoubleKey.TargetHbA1c)
-        if (a1c <= 0) {
-            preferences.put(MpcDoubleNonKey.AimLowLine, 0.0)
-            return set
+        val hba1c = aim == MpcAim.HBA1C
+        val wanted = if (hba1c) 28.7 * a1c - 46.7 else preferences.get(MpcDoubleKey.TradeRate)
+        val measured = when {
+            window == null -> Double.NaN
+            hba1c          -> window.mean
+            else           -> window.tradeRate
         }
-        val min = set - AIM_BELOW
-        val max = set + AIM_ABOVE
-        val stored = preferences.get(MpcDoubleNonKey.AimLowLine).takeIf { it > 0 } ?: set
-        var line = stored.coerceIn(min, max)
-        if (now - lastAimRun >= 60 * MINUTE) {
-            val readings = persistenceLayer.getBgReadingsDataFromTime(now - AIM_WINDOW, true).map { it.value }.filter { it > 39 }
-            if (readings.size > AIM_MIN_READINGS) {
-                lastAimRun = now
-                val mean = readings.average()
-                val lows = 100.0 * readings.count { it < 70 } / readings.size
-                var step = AIM_GAIN * (mean - (28.7 * a1c - 46.7))
-                if (lows > AIM_LOWS_PCT) step = min(step, -2.0)
-                line = (line - step).coerceIn(min, max)
-            }
+        // mg/dL the line moves in one hour, + is up
+        val step =
+            if (window == null || measured.isNaN()) 0.0
+            else if (hba1c) (-HBA1C_GAIN * (measured - wanted)).let { if (window.lowsPct > HBA1C_LOWS_PCT) max(it, 2.0) else it }
+            else TRADE_GAIN * ln(measured / wanted)
+        var line = set
+        if (!shadow) {
+            val key = if (hba1c) MpcDoubleNonKey.AimLowLineHbA1c else MpcDoubleNonKey.AimLowLineTrade
+            val lo = set - if (hba1c) 10.0 else 20.0
+            val hi = set + if (hba1c) 25.0 else 30.0
+            val stored = preferences.get(key).takeIf { it > 0 } ?: set
+            line = stored.coerceIn(lo, hi)
+            if (newHour) line = (line + step).coerceIn(lo, hi)
+            if (line != stored) preferences.put(key, line)
         }
-        if (line != stored) preferences.put(MpcDoubleNonKey.AimLowLine, line)
-        return line
+        return line to MpcAimState(aim, measured, wanted, a1c, step, steering = !shadow)
     }
+
+    /** Mean, share below 70 mg/dL and trade rate of the BG of the last 7 days, or null with too few readings */
+    private suspend fun measureBg(now: Long): BgWindow? {
+        val bg = persistenceLayer.getBgReadingsDataFromTime(now - AIM_WINDOW, true).map { it.value }.filter { it > 39 }
+        if (bg.size <= AIM_MIN_READINGS) return null
+        val nearLow = bg.count { it >= 60 && it < 80 }
+        val nearHigh = bg.count { it > 170 && it <= 190 }
+        return BgWindow(
+            mean = bg.average(),
+            lowsPct = 100.0 * bg.count { it < 70 } / bg.size,
+            tradeRate = if (nearHigh >= TRADE_MIN_NEAR_HIGH) max(nearLow.toDouble(), 0.5) / nearHigh else Double.NaN
+        )
+    }
+
+    private class BgWindow(val mean: Double, val lowsPct: Double, val tradeRate: Double)
 
     private fun abort(message: String) {
         aapsLogger.debug(LTag.APS, message)
@@ -285,7 +322,7 @@ class MpcPlugin(
             PreferenceSubScreenDef(
                 key = "mpc_aim",
                 title = ApsStrings.mpc_settings_aim,
-                items = listOf(MpcDoubleKey.TargetHbA1c, MpcIntKey.StepDownMax)
+                items = listOf(MpcIntKey.Aim, MpcDoubleKey.TargetHbA1c, MpcDoubleKey.TradeRate, MpcIntKey.StepDownMax)
             ),
             PreferenceSubScreenDef(
                 key = "mpc_meal_call",
@@ -303,7 +340,7 @@ class MpcPlugin(
             PreferenceSubScreenDef(
                 key = "mpc_advanced",
                 title = CoreUiStrings.advanced_settings_title,
-                items = listOf(MpcIntKey.LowWeight, MpcIntKey.SecondStage)
+                items = listOf(MpcIntKey.SecondStage)
             )
         ),
         icon = pluginDescription.icon
@@ -316,10 +353,10 @@ class MpcPlugin(
         const val VIEW_SIZE = 26
         const val AIM_WINDOW = 7 * 24 * 60 * MINUTE
         const val AIM_MIN_READINGS = 144
-        const val AIM_GAIN = 0.01
-        const val AIM_LOWS_PCT = 1.0
-        const val AIM_BELOW = 10.0
-        const val AIM_ABOVE = 25.0
+        const val HBA1C_GAIN = 0.01
+        const val HBA1C_LOWS_PCT = 1.0
+        const val TRADE_GAIN = 0.2
+        const val TRADE_MIN_NEAR_HIGH = 6
     }
 }
 
@@ -343,8 +380,8 @@ class MpcDetails(
     val highLine: Double,
     /** The low line as set by the user */
     val setLowLine: Double,
-    /** 0 = off */
-    val targetHbA1c: Double,
+    /** null = no aim */
+    val aim: MpcAimState?,
     /** How far the step-down has lowered both lines now, mg/dL */
     val stepDown: Double,
     /** Every 5 min from 5 min ahead, 3 h */
@@ -362,4 +399,19 @@ class MpcDetails(
     val options: List<MpcController.Option>,
     val reason: String,
     val mmol: Boolean
+)
+
+/** What the aim over days measured in its last hourly check, for the MPC screen */
+class MpcAimState(
+    /** One of [MpcAim] */
+    val aim: Int,
+    /** HbA1c: mean BG of the last 7 days, mg/dL. Trade: % more time low per 1 % less time high, measured now. NaN = too few readings. */
+    val measured: Double,
+    /** HbA1c: the mean BG the target stands for, mg/dL. Trade: the rate the user accepts. */
+    val wanted: Double,
+    val targetHbA1c: Double,
+    /** mg/dL the line moves in one hour, + is up */
+    val step: Double,
+    /** False in shadow mode: the line is not moved */
+    val steering: Boolean
 )

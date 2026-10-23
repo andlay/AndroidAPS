@@ -85,6 +85,34 @@ fun MpcScreen(details: MpcDetails?, shape: MpcShapeSettings, dateUtil: DateUtil)
     }
 }
 
+/** What the aim over days measured, and what it did with the low line or, in shadow mode, would do */
+@Composable
+private fun AimLines(a: MpcAimState, d: MpcDetails) {
+    Text(
+        when {
+            a.measured.isNaN()     -> stringResource(ApsStrings.mpc_aim_no_data)
+            a.aim == MpcAim.HBA1C  ->
+                if (d.mmol) stringResource(ApsStrings.mpc_aim_hba1c_mmol, a.targetHbA1c, a.measured / 18, a.wanted / 18)
+                else stringResource(ApsStrings.mpc_aim_hba1c_mgdl, a.targetHbA1c, a.measured, a.wanted)
+            else                   -> stringResource(ApsStrings.mpc_aim_trade_line, a.wanted, a.measured)
+        }
+    )
+    if (a.steering) {
+        val moved = d.lowLine + d.stepDown - d.setLowLine
+        Text(if (d.mmol) stringResource(ApsStrings.mpc_aim_moved_mmol, moved / 18) else stringResource(ApsStrings.mpc_aim_moved_mgdl, moved))
+    } else if (!a.measured.isNaN()) {
+        Text(
+            stringResource(
+                when {
+                    a.step > 0.05  -> ApsStrings.mpc_aim_shadow_up
+                    a.step < -0.05 -> ApsStrings.mpc_aim_shadow_down
+                    else           -> ApsStrings.mpc_aim_shadow_hold
+                }
+            )
+        )
+    }
+}
+
 @Composable
 private fun DecisionCard(d: MpcDetails, dateUtil: DateUtil) {
     AapsCard(modifier = Modifier.fillMaxWidth()) {
@@ -102,10 +130,7 @@ private fun DecisionCard(d: MpcDetails, dateUtil: DateUtil) {
             Text(stringResource(ApsStrings.mpc_meal_chance_line, (d.mealChance * 100).roundToInt(), (d.weightedMealChance * 100).roundToInt()))
             Text(if (d.mmol) stringResource(ApsStrings.mpc_room_mmol, d.room / 18) else stringResource(ApsStrings.mpc_room_mgdl, d.room))
             Text(if (d.mmol) stringResource(ApsStrings.mpc_lines_mmol, d.lowLine / 18, d.highLine / 18) else stringResource(ApsStrings.mpc_lines_mgdl, d.lowLine, d.highLine))
-            if (d.targetHbA1c > 0) {
-                val moved = d.lowLine + d.stepDown - d.setLowLine
-                Text(if (d.mmol) stringResource(ApsStrings.mpc_aim_mmol, d.targetHbA1c, moved / 18) else stringResource(ApsStrings.mpc_aim_mgdl, d.targetHbA1c, moved))
-            }
+            d.aim?.let { a -> AimLines(a, d) }
             if (d.stepDown > 0) Text(if (d.mmol) stringResource(ApsStrings.mpc_step_down_mmol, d.stepDown / 18) else stringResource(ApsStrings.mpc_step_down_mgdl, d.stepDown))
             Text(
                 when {
