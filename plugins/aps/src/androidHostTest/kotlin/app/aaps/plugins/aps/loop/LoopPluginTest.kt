@@ -1008,6 +1008,19 @@ class LoopPluginTest : TestBaseWithProfile() {
         verify(loopNotifier).dismiss()
     }
 
+    /** The alpha build runs in shadow mode: another app instance doses, so nothing is enacted here, also not by hand. */
+    @Test
+    fun `acceptChangeRequest never enacts in the alpha build`() = runTest {
+        prepareAcceptableRequest(suggestionAge = T.mins(Constants.OLD_BG_MINUTES).msecs() - 1000)
+        whenever(config.ALPHA).thenReturn(true)
+        whenever(commandQueue.tempBasalAbsolute(any(), any(), any(), any(), any())).thenReturn(pumpEnactResultProvider().enacted(true).success(true))
+
+        loopPlugin.acceptChangeRequest()
+
+        verify(commandQueue, never()).tempBasalAbsolute(any(), any(), any(), any(), any())
+        verify(commandQueue, never()).bolus(any())
+    }
+
     /** The control case: the same setup, in open loop and fresh, does enact. */
     @Test
     fun `acceptChangeRequest enacts a fresh suggestion in open loop`() = runTest {

@@ -52,6 +52,28 @@
     <string name="zero_basal_not_set">The pump did not accept the zero temp basal. It may still be giving basal insulin. Check the pump.</string>
     <string name="description_loop">Activate or deactivate the implementation triggering the loop.</string>
     <string name="no_aps_selected">NO APS SELECTED OR PROVIDED RESULT</string>
+    <string name="alpha_shadow_not_enacted">Shadow mode: decision recorded, not sent to the pump</string>
+    <string name="slim_fcl">Slim FCL (alpha)</string>
+    <string name="description_slim_fcl">Meal-aware controller from the closed-loop replay. Alpha build only: it runs in shadow mode and never doses.</string>
+    <string name="slim_fcl_alpha_only">Slim FCL runs only in the alpha build</string>
+    <string name="slim_fcl_virtual_pump_only">Slim FCL runs only with the virtual pump</string>
+    <string name="slim_fcl_no_recent_bg">Slim FCL: no recent BG</string>
+    <string name="slim_fcl_low_line_title">Low line</string>
+    <string name="slim_fcl_low_line_summary">Below this BG the cost of a low starts. A higher line gives fewer lows and less time in range.</string>
+    <string name="slim_fcl_high_line_title">High line</string>
+    <string name="slim_fcl_high_line_summary">Above this BG the cost of a high starts.</string>
+    <string name="slim_fcl_low_weight_title">Weight of lows</string>
+    <string name="slim_fcl_low_weight_summary">How much more a low costs than a high of the same size</string>
+    <string name="slim_fcl_room_boost_title">Room boost</string>
+    <string name="slim_fcl_room_boost_summary">The meal chance moves this share of the way to certain for each mmol/L of BG above the low line</string>
+    <string name="slim_fcl_trend_room_title">Trend room</string>
+    <string name="slim_fcl_trend_room_summary">When BG is falling, the room above the low line is measured from the BG this many minutes ahead. 0 = off</string>
+    <string name="slim_fcl_second_stage_title">Second stage</string>
+    <string name="slim_fcl_second_stage_summary">A second dose this many minutes later may be planned for each future. 0 = off</string>
+    <string name="slim_fcl_max_smb_title">Largest SMB</string>
+    <string name="slim_fcl_max_smb_summary">The largest SMB the controller may choose</string>
+    <string name="slim_fcl_max_iob_title">Max IOB</string>
+    <string name="slim_fcl_max_iob_summary">No SMB that takes IOB above this</string>
     <string name="ignore5m">Ignore 5m</string>
     <string name="ignore15m">Ignore 15m</string>
     <string name="ignore30m">Ignore 30m</string>

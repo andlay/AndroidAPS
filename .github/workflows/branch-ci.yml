@@ -17,6 +17,8 @@ on:
           - aapsclient2Debug
           - pumpcontrolRelease
           - pumpcontrolDebug
+          - alphaRelease
+          - alphaDebug
       unitTests:
         description: 'Optional: unit tests to run before the build, as "task:filter" pairs separated by spaces (e.g. ":ui:testAndroidHostTest:app.aaps.ui.compose.overview.*"). A failing test stops the build.'
         required: false

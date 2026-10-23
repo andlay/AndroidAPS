@@ -82,6 +82,15 @@ android {
             versionName = Versions.appVersion + "-pumpcontrol"
             manifestPlaceholders["appIcon"] = "@mipmap/ic_pumpcontrol"
         }
+        create("alpha") {
+            applicationId = "info.nightscout.aapsalpha"
+            dimension = "standard"
+            resValue("string", "app_name", "AAPS Alpha")
+            resValue("string", "label_actions_activity", "AAPS Alpha")
+            resValue("color", "flavor_header_color", "#B0BEC5")
+            versionName = Versions.appVersion + "-alpha"
+            manifestPlaceholders["appIcon"] = "@mipmap/ic_pumpcontrol"
+        }
         create("aapsclient") {
             applicationId = "info.nightscout.aapsclient"
             dimension = "standard"

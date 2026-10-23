@@ -92,6 +92,14 @@ application_protection|IntKey|true
 appwidget_%d|IntComposedKey|true
 aps_incarnation_no|DiaconnIntNonKey|true
 aps_link_to_docs|ApsIntentKey|false
+aps_slim_high_line|SlimFclIntKey|true
+aps_slim_low_line|SlimFclIntKey|true
+aps_slim_low_weight|SlimFclIntKey|true
+aps_slim_max_iob|SlimFclDoubleKey|true
+aps_slim_max_smb|SlimFclDoubleKey|true
+aps_slim_room_boost|SlimFclIntKey|true
+aps_slim_second_stage|SlimFclIntKey|true
+aps_slim_trend_room|SlimFclIntKey|true
 autoISF_max|DoubleKey|true
 autoISF_min|DoubleKey|true
 autosens_adjust_targets|BooleanKey|true

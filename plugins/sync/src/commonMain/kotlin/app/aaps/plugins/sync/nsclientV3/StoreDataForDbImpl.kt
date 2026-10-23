@@ -417,37 +417,37 @@ class StoreDataForDbImpl(
     override suspend fun updateDeletedTreatmentsInDb() = treatmentsMutex.withLock {
         val ids = deleteTreatment.snapshotAndClear() ?: return@withLock
         ids.forEach { id ->
-            if (preferences.get(BooleanKey.NsClientAcceptInsulin) || config.AAPSCLIENT)
+            if (preferences.get(BooleanKey.NsClientAcceptInsulin) || config.AAPSCLIENT || config.ALPHA)
                 persistenceLayer.getBolusByNSId(id)?.let { bolus ->
                     val result = persistenceLayer.invalidateBolus(bolus.id, Action.BOLUS_REMOVED, Sources.NSClient, null, listValues = listOf(ValueWithUnit.Timestamp(bolus.timestamp)))
                     invalidated.add(BS::class.label, result.invalidated.size)
                     sendLog("Bolus", BS::class.label)
                 }
-            if (preferences.get(BooleanKey.NsClientAcceptCarbs) || config.AAPSCLIENT)
+            if (preferences.get(BooleanKey.NsClientAcceptCarbs) || config.AAPSCLIENT || config.ALPHA)
                 persistenceLayer.getCarbsByNSId(id)?.let { carb ->
                     val result = persistenceLayer.invalidateCarbs(carb.id, Action.CARBS_REMOVED, Sources.NSClient, null, listValues = listOf(ValueWithUnit.Timestamp(carb.timestamp)))
                     invalidated.add(CA::class.label, result.invalidated.size)
                     sendLog("Carbs", CA::class.label)
                 }
-            if (preferences.get(BooleanKey.NsClientAcceptTempTarget) || config.AAPSCLIENT)
+            if (preferences.get(BooleanKey.NsClientAcceptTempTarget) || config.AAPSCLIENT || config.ALPHA)
                 persistenceLayer.getTemporaryTargetByNSId(id)?.let { tt ->
                     val result = persistenceLayer.invalidateTemporaryTarget(tt.id, Action.TT_REMOVED, Sources.NSClient, null, listValues = listOf(ValueWithUnit.Timestamp(tt.timestamp)))
                     invalidated.add(TT::class.label, result.invalidated.size)
                     sendLog("TemporaryTarget", TT::class.label)
                 }
-            if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT)
+            if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT || config.ALPHA)
                 persistenceLayer.getTemporaryBasalByNSId(id)?.let { tb ->
                     val result = persistenceLayer.invalidateTemporaryBasal(tb.id, Action.TEMP_BASAL_REMOVED, Sources.NSClient, null, listValues = listOf(ValueWithUnit.Timestamp(tb.timestamp)))
                     invalidated.add(TB::class.label, result.invalidated.size)
                     sendLog("TemporaryBasal", TB::class.label)
                 }
-            if (preferences.get(BooleanKey.NsClientAcceptProfileSwitch) || config.AAPSCLIENT)
+            if (preferences.get(BooleanKey.NsClientAcceptProfileSwitch) || config.AAPSCLIENT || config.ALPHA)
                 persistenceLayer.getEffectiveProfileSwitchByNSId(id)?.let { eps ->
                     val result = persistenceLayer.invalidateEffectiveProfileSwitch(eps.id, Action.PROFILE_SWITCH_REMOVED, Sources.NSClient, null, listValues = listOf(ValueWithUnit.Timestamp(eps.timestamp)))
                     invalidated.add(EPS::class.label, result.invalidated.size)
                     sendLog("EffectiveProfileSwitch", EPS::class.label)
                 }
-            if (preferences.get(BooleanKey.NsClientAcceptProfileSwitch) || config.AAPSCLIENT)
+            if (preferences.get(BooleanKey.NsClientAcceptProfileSwitch) || config.AAPSCLIENT || config.ALPHA)
                 persistenceLayer.getProfileSwitchByNSId(id)?.let { ps ->
                     val result = persistenceLayer.invalidateProfileSwitch(ps.id, Action.PROFILE_SWITCH_REMOVED, Sources.NSClient, null, listValues = listOf(ValueWithUnit.Timestamp(ps.timestamp)))
                     invalidated.add(PS::class.label, result.invalidated.size)
@@ -458,7 +458,7 @@ class StoreDataForDbImpl(
                 invalidated.add(BCR::class.label, result.invalidated.size)
                 sendLog("BolusCalculatorResult", BCR::class.label)
             }
-            if (preferences.get(BooleanKey.NsClientAcceptTherapyEvent) || config.AAPSCLIENT)
+            if (preferences.get(BooleanKey.NsClientAcceptTherapyEvent) || config.AAPSCLIENT || config.ALPHA)
                 persistenceLayer.getTherapyEventByNSId(id)?.let { te ->
                     val result = persistenceLayer.invalidateTherapyEvent(te.id, Action.TREATMENT_REMOVED, Sources.NSClient, null, listValues = listOf(ValueWithUnit.Timestamp(te.timestamp)))
                     invalidated.add(TE::class.label, result.invalidated.size)
@@ -470,7 +470,7 @@ class StoreDataForDbImpl(
                     invalidated.add(RM::class.label, result.invalidated.size)
                     sendLog("RunningMode", RM::class.label)
                 }
-            if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT)
+            if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT || config.ALPHA)
                 persistenceLayer.getExtendedBolusByNSId(id)?.let { eb ->
                     val result = persistenceLayer.invalidateExtendedBolus(eb.id, Action.EXTENDED_BOLUS_REMOVED, Sources.NSClient, null, listValues = listOf(ValueWithUnit.Timestamp(eb.timestamp)))
                     invalidated.add(EB::class.label, result.invalidated.size)

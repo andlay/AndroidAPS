@@ -149,6 +149,15 @@ android {
             manifestPlaceholders["appIcon"] = "@mipmap/ic_pumpcontrol"
             manifestPlaceholders["appIconRound"] = "@null"
         }
+        create("alpha") {
+            // Test build of the Slim FCL controller: shadow mode only (it never doses) and no real pump drivers.
+            applicationId = "info.nightscout.aapsalpha"
+            dimension = "standard"
+            resValue("string", "app_name", "AAPS Alpha")
+            versionName = Versions.appVersion + "-alpha"
+            manifestPlaceholders["appIcon"] = "@mipmap/ic_pumpcontrol"
+            manifestPlaceholders["appIconRound"] = "@null"
+        }
         create("aapsclient") {
             applicationId = "info.nightscout.aapsclient"
             dimension = "standard"
