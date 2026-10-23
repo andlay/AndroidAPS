@@ -188,8 +188,9 @@ class MainApp : Application(), MetroMemberInjector, MetroViewModelFactoryOwner, 
         GeneratedStringOwners.registerAll()
         resourceHelperImpl.start()
         // Applies the analytics opt-out. Must come before configureLeakCanary below, which reports
-        // through fabricPrivacy.
-        fabricPrivacyImpl.start()
+        // through fabricPrivacy. The alpha build shares the Firebase app of the full build (see
+        // google-services.json), so it reports nothing, to keep its data out of that dashboard.
+        fabricPrivacyImpl.start(allowed = !config.ALPHA)
         // Build identity goes on the crash report here, not in setUserStats() near the end of doInit.
         // A crash during plugin initialization happens seconds before that runs, so those reports carried
         // no HEAD and no Committed - exactly the ones where the build has to be known to tell a stale

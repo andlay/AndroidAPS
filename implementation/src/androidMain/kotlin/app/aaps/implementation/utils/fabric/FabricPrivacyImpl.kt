@@ -38,6 +38,7 @@ class FabricPrivacyImpl(
 
     /**
      * Applies the user's opt-out to Firebase. Called from `MainApp.onCreate`, before anything logs.
+     * [allowed] false turns collection off whatever the user chose (the alpha build reports nothing).
      *
      * **Was an `init` block**, which tied it to whenever this class happened to be injected.
      * `BaseTestApp` documents what that cost: "the only thing that ever turns it off is
@@ -46,8 +47,8 @@ class FabricPrivacyImpl(
      * file set the flags itself. An explicit call from the `Application` is a defined moment; being
      * constructed is not.
      */
-    fun start() {
-        val enabled = !java.lang.Boolean.getBoolean("disableFirebase") && fabricEnabled()
+    fun start(allowed: Boolean = true) {
+        val enabled = allowed && !java.lang.Boolean.getBoolean("disableFirebase") && fabricEnabled()
         firebaseAnalytics.setAnalyticsCollectionEnabled(enabled)
         FirebaseCrashlytics.getInstance().isCrashlyticsCollectionEnabled = enabled
     }
