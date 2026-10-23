@@ -41,9 +41,10 @@ class NSClientSourcePlugin(
         .icon(IcPluginNsClientBg)
         .pluginName(SourceStrings.ns_client_bg)
         .description(SourceStrings.description_source_ns_client)
-        // Forced on for a client, which has no other BG source. On a master it stays the user's choice, so
-        // this is one-sided on purpose - no forced-off half.
-        .enforce(EnforcedState.Enabled) { config.AAPSCLIENT }
-        .setDefault(config.AAPSCLIENT),
+        // Forced on for a client, which has no other BG source, and for the alpha build, which always takes
+        // CGM from Nightscout (see NsIncomingDataProcessor). On a master it stays the user's choice, so this is
+        // one-sided on purpose - no forced-off half.
+        .enforce(EnforcedState.Enabled) { config.AAPSCLIENT || config.ALPHA }
+        .setDefault(config.AAPSCLIENT || config.ALPHA),
     aapsLogger, rh, notificationManager
 ), BgSource, NSClientSource
