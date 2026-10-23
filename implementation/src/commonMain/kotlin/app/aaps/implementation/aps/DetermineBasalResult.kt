@@ -274,6 +274,16 @@ class DetermineBasalResult(
                     array.add(gv)
                 }
             }
+            // MPC curves
+            for ((curve, sensor) in listOf(
+                predictions?.mpcMeal to SourceSensor.MPC_MEAL_PREDICTION,
+                predictions?.mpcFalseStart to SourceSensor.MPC_FALSE_START_PREDICTION,
+                predictions?.mpcExpected to SourceSensor.MPC_EXPECTED_PREDICTION
+            )) {
+                curve ?: continue
+                for (i in 1 until curve.size)
+                    array.add(GV(raw = 0.0, noise = 0.0, value = curve[i].toDouble(), timestamp = startTime + i * 5 * 60 * 1000L, sourceSensor = sensor, trendArrow = TrendArrow.NONE))
+            }
             return array
         }
     override val latestPredictionsTime: Long
@@ -286,6 +296,8 @@ class DetermineBasalResult(
             predictions?.COB?.let { if (it.isNotEmpty()) latest = max(latest, startTime + (it.size - 1) * 5 * 60 * 1000L) }
             predictions?.UAM?.let { if (it.isNotEmpty()) latest = max(latest, startTime + (it.size - 1) * 5 * 60 * 1000L) }
             predictions?.ZT?.let { if (it.isNotEmpty()) latest = max(latest, startTime + (it.size - 1) * 5 * 60 * 1000L) }
+            listOfNotNull(predictions?.mpcMeal, predictions?.mpcFalseStart, predictions?.mpcExpected)
+                .forEach { if (it.isNotEmpty()) latest = max(latest, startTime + (it.size - 1) * 5 * 60 * 1000L) }
             return latest
         }
 

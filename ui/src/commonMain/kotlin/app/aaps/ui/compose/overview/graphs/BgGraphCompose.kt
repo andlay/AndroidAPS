@@ -64,6 +64,9 @@ private const val SERIES_PRED_COB = "pred_cob"
 private const val SERIES_PRED_ACOB = "pred_acob"
 private const val SERIES_PRED_UAM = "pred_uam"
 private const val SERIES_PRED_ZT = "pred_zt"
+private const val SERIES_PRED_MPC_MEAL = "pred_mpc_meal"
+private const val SERIES_PRED_MPC_FALSE_START = "pred_mpc_false_start"
+private const val SERIES_PRED_MPC_EXPECTED = "pred_mpc_expected"
 
 /** All prediction series identifiers */
 // The same curves with the dose of the loop run added, see BgDataPoint.afterDose
@@ -74,6 +77,7 @@ private const val SERIES_PRED_UAM_AFTER = "pred_uam_after"
 private const val SERIES_PRED_ZT_AFTER = "pred_zt_after"
 private val PREDICTION_SERIES = listOf(
     SERIES_PRED_IOB, SERIES_PRED_COB, SERIES_PRED_ACOB, SERIES_PRED_UAM, SERIES_PRED_ZT,
+    SERIES_PRED_MPC_MEAL, SERIES_PRED_MPC_FALSE_START, SERIES_PRED_MPC_EXPECTED,
     SERIES_PRED_IOB_AFTER, SERIES_PRED_COB_AFTER, SERIES_PRED_ACOB_AFTER, SERIES_PRED_UAM_AFTER, SERIES_PRED_ZT_AFTER
 )
 
@@ -211,6 +215,9 @@ fun BgGraphCompose(
     val aCobPredColor = AapsTheme.generalColors.aCobPrediction
     val uamPredColor = AapsTheme.generalColors.uamPrediction
     val ztPredColor = AapsTheme.generalColors.ztPrediction
+    val mpcMealPredColor = AapsTheme.generalColors.mpcMealPrediction
+    val mpcFalseStartPredColor = AapsTheme.generalColors.mpcFalseStartPrediction
+    val mpcExpectedPredColor = AapsTheme.generalColors.mpcExpectedPrediction
 
     // Calculate x-axis range (must match COB graph for alignment)
     val maxX = remember(minTimestamp, maxTimestamp) {
@@ -387,6 +394,9 @@ fun BgGraphCompose(
             SERIES_PRED_ACOB to of(BgType.A_COB_PREDICTION, false),
             SERIES_PRED_UAM to of(BgType.UAM_PREDICTION, false),
             SERIES_PRED_ZT to of(BgType.ZT_PREDICTION, false),
+            SERIES_PRED_MPC_MEAL to of(BgType.MPC_MEAL_PREDICTION, false),
+            SERIES_PRED_MPC_FALSE_START to of(BgType.MPC_FALSE_START_PREDICTION, false),
+            SERIES_PRED_MPC_EXPECTED to of(BgType.MPC_EXPECTED_PREDICTION, false),
             SERIES_PRED_IOB_AFTER to of(BgType.IOB_PREDICTION, true),
             SERIES_PRED_COB_AFTER to of(BgType.COB_PREDICTION, true),
             SERIES_PRED_ACOB_AFTER to of(BgType.A_COB_PREDICTION, true),
@@ -500,6 +510,9 @@ fun BgGraphCompose(
     val aCobPredLine = remember(aCobPredColor) { createPredictionLine(aCobPredColor) }
     val uamPredLine = remember(uamPredColor) { createPredictionLine(uamPredColor) }
     val ztPredLine = remember(ztPredColor) { createPredictionLine(ztPredColor) }
+    val mpcMealPredLine = remember(mpcMealPredColor) { createPredictionLine(mpcMealPredColor) }
+    val mpcFalseStartPredLine = remember(mpcFalseStartPredColor) { createPredictionLine(mpcFalseStartPredColor) }
+    val mpcExpectedPredLine = remember(mpcExpectedPredColor) { createPredictionLine(mpcExpectedPredColor) }
     // After the dose of the run: smaller dots in the same colours
     val afterDoseLines = remember(iobPredColor, cobPredColor, aCobPredColor, uamPredColor, ztPredColor) {
         mapOf(
@@ -512,7 +525,7 @@ fun BgGraphCompose(
     }
 
     val activeSeries by activeSeriesState
-    val bgLines = remember(activeSeries, regularLine, bucketedLine, iobPredLine, cobPredLine, aCobPredLine, uamPredLine, ztPredLine, afterDoseLines, normalizerLine) {
+    val bgLines = remember(activeSeries, regularLine, bucketedLine, iobPredLine, cobPredLine, aCobPredLine, uamPredLine, ztPredLine, mpcMealPredLine, mpcFalseStartPredLine, mpcExpectedPredLine, afterDoseLines, normalizerLine) {
         buildList {
             // Same order as the series in rebuildChart
             if (SERIES_REGULAR in activeSeries) add(regularLine)
@@ -522,6 +535,9 @@ fun BgGraphCompose(
             if (SERIES_PRED_ACOB in activeSeries) add(aCobPredLine)
             if (SERIES_PRED_UAM in activeSeries) add(uamPredLine)
             if (SERIES_PRED_ZT in activeSeries) add(ztPredLine)
+            if (SERIES_PRED_MPC_MEAL in activeSeries) add(mpcMealPredLine)
+            if (SERIES_PRED_MPC_FALSE_START in activeSeries) add(mpcFalseStartPredLine)
+            if (SERIES_PRED_MPC_EXPECTED in activeSeries) add(mpcExpectedPredLine)
             for ((key, line) in afterDoseLines) if (key in activeSeries) add(line)
             add(normalizerLine)
         }

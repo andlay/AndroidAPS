@@ -179,6 +179,9 @@ class PostCalculationRunner(
                         SourceSensor.A_COB_PREDICTION -> BgType.A_COB_PREDICTION
                         SourceSensor.UAM_PREDICTION   -> BgType.UAM_PREDICTION
                         SourceSensor.ZT_PREDICTION    -> BgType.ZT_PREDICTION
+                        SourceSensor.MPC_MEAL_PREDICTION        -> BgType.MPC_MEAL_PREDICTION
+                        SourceSensor.MPC_FALSE_START_PREDICTION -> BgType.MPC_FALSE_START_PREDICTION
+                        SourceSensor.MPC_EXPECTED_PREDICTION    -> BgType.MPC_EXPECTED_PREDICTION
                         else                          -> BgType.IOB_PREDICTION
                     }
                 )

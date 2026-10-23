@@ -1,4 +1,4 @@
-package app.aaps.plugins.aps.slimFcl
+package app.aaps.plugins.aps.mpc
 
 import com.google.common.truth.Truth.assertThat
 import org.json.JSONArray
@@ -13,16 +13,16 @@ import kotlin.math.abs
  * inputs each step saw and what the replay decided. The state (impact being fitted, kept tails) builds
  * up inside the controller from the inputs, so a mistake in that part shows here too.
  */
-class SlimFclControllerGoldenTest {
+class MpcControllerGoldenTest {
 
     private fun JSONArray.toDoubles() = DoubleArray(length()) { if (isNull(it)) Double.NaN else getDouble(it) }
 
     @Test
     fun decisionsMatchTheReplay() {
-        val steps = JSONObject(File("src/androidHostTest/res/slimfcl/replay_steps.json").readText()).getJSONArray("steps")
+        val steps = JSONObject(File("src/androidHostTest/res/mpc/replay_steps.json").readText()).getJSONArray("steps")
         assertThat(steps.length()).isEqualTo(96)
-        val controller = SlimFclController()
-        val settings = SlimFclController.Settings()
+        val controller = MpcController()
+        val settings = MpcController.Settings()
         val mismatches = mutableListOf<String>()
         for (k in 0 until steps.length()) {
             val s = steps.getJSONObject(k)
@@ -39,9 +39,9 @@ class SlimFclControllerGoldenTest {
                 isfProfile = 46.8,
                 settings = settings
             )
-            val isf = 46.8 / SlimFclModel.aisfFactor(SlimFclModel.aisfStatus(view), target)
-            val mealSum = d.futures.meal.take(SlimFclController.HORIZON).sum()
-            val nonSum = d.futures.non.take(SlimFclController.HORIZON).sum()
+            val isf = 46.8 / MpcModel.aisfFactor(MpcModel.aisfStatus(view), target)
+            val mealSum = d.futures.meal.take(MpcController.HORIZON).sum()
+            val nonSum = d.futures.non.take(MpcController.HORIZON).sum()
             val step = s.getLong("i")
             if (abs(isf - s.getDouble("isf")) > 1e-9) mismatches += "step $step isf ${isf} != ${s.getDouble("isf")}"
             if (abs(d.mealChance - s.getDouble("P")) > 1e-9) mismatches += "step $step meal chance ${d.mealChance} != ${s.getDouble("P")}"

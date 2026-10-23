@@ -192,7 +192,10 @@ private val PREDICTION_SPOKEN_ORDER = listOf(
     BgType.IOB_PREDICTION to UiStrings.a11y_prediction_name_iob,
     BgType.A_COB_PREDICTION to UiStrings.a11y_prediction_name_acob,
     BgType.UAM_PREDICTION to UiStrings.a11y_prediction_name_uam,
-    BgType.ZT_PREDICTION to UiStrings.a11y_prediction_name_zt
+    BgType.ZT_PREDICTION to UiStrings.a11y_prediction_name_zt,
+    BgType.MPC_EXPECTED_PREDICTION to UiStrings.a11y_prediction_name_mpc_expected,
+    BgType.MPC_MEAL_PREDICTION to UiStrings.a11y_prediction_name_mpc_meal,
+    BgType.MPC_FALSE_START_PREDICTION to UiStrings.a11y_prediction_name_mpc_false_start
 )
 
 /** Series types available as BG graph overlays */

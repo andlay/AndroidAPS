@@ -1517,6 +1517,9 @@ class DataHandlerMobile(
             SourceSensor.A_COB_PREDICTION -> colors.aCobPrediction.toArgb()
             SourceSensor.UAM_PREDICTION   -> colors.uamPrediction.toArgb()
             SourceSensor.ZT_PREDICTION    -> colors.ztPrediction.toArgb()
+            SourceSensor.MPC_MEAL_PREDICTION        -> colors.mpcMealPrediction.toArgb()
+            SourceSensor.MPC_FALSE_START_PREDICTION -> colors.mpcFalseStartPrediction.toArgb()
+            SourceSensor.MPC_EXPECTED_PREDICTION    -> colors.mpcExpectedPrediction.toArgb()
             else                          -> android.graphics.Color.WHITE
         }
     }

@@ -4,7 +4,7 @@ import app.aaps.core.interfaces.plugin.PluginBase
 import app.aaps.plugins.aps.openAPSAMA.OpenAPSAMAPlugin
 import app.aaps.plugins.aps.openAPSAutoISF.OpenAPSAutoISFPlugin
 import app.aaps.plugins.aps.openAPSSMB.OpenAPSSMBPlugin
-import app.aaps.plugins.aps.slimFcl.SlimFclPlugin
+import app.aaps.plugins.aps.mpc.MpcPlugin
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.BindingContainer
 import dev.zacsweers.metro.ContributesTo
@@ -53,9 +53,9 @@ object ApsPluginRegistrations {
     @IntKey(230)
     fun openApsAutoIsfEntry(plugin: OpenAPSAutoISFPlugin): PluginBase = plugin
 
-    /** Shown only in the alpha build (see `SlimFclPlugin`), and harmless elsewhere: it refuses to run. */
+    /** Shown only in the alpha build (see `MpcPlugin`), and harmless elsewhere: it refuses to run. */
     @Provides
     @IntoMap
     @IntKey(235)
-    fun slimFclEntry(plugin: SlimFclPlugin): PluginBase = plugin
+    fun mpcEntry(plugin: MpcPlugin): PluginBase = plugin
 }

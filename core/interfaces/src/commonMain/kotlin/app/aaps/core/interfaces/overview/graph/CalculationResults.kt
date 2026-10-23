@@ -31,7 +31,10 @@ enum class BgType {
     COB_PREDICTION,  // COB-based prediction (filled concentric circles, orange)
     A_COB_PREDICTION,// Absorbed COB prediction (filled concentric circles, lighter orange)
     UAM_PREDICTION,  // Unannounced meals prediction (filled concentric circles, yellow)
-    ZT_PREDICTION    // Zero-temp prediction (filled concentric circles, cyan)
+    ZT_PREDICTION,   // Zero-temp prediction (filled concentric circles, cyan)
+    MPC_MEAL_PREDICTION,        // MPC: BG if the rise is a meal (orange)
+    MPC_FALSE_START_PREDICTION, // MPC: BG if the rise fades (blue)
+    MPC_EXPECTED_PREDICTION     // MPC: the two weighted by the meal chance (bold)
 }
 
 /**

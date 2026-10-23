@@ -1,5 +1,6 @@
 package app.aaps.plugins.sync.nsclientV3.workers
 
+import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.nsclient.NSClientRepository
@@ -32,11 +33,13 @@ class LoadBgRunner(
     private val nsClientSource: NSClientSource,
     private val nsIncomingDataProcessor: NsIncomingDataProcessor,
     private val storeDataForDb: StoreDataForDb,
-    private val nsClientRepository: NSClientRepository
+    private val nsClientRepository: NSClientRepository,
+    private val config: Config
 ) {
 
     suspend fun run(): WorkOutcome {
-        if (!nsClientSource.isEnabled() && !preferences.get(BooleanKey.NsClientAcceptCgmData) && !nsClientV3Plugin.doingFullSync)
+        // The alpha build always takes BG from Nightscout, so BG and treatments arrive together
+        if (!config.ALPHA && !nsClientSource.isEnabled() && !preferences.get(BooleanKey.NsClientAcceptCgmData) && !nsClientV3Plugin.doingFullSync)
             return WorkOutcome.Skipped("Load not enabled")
 
         val nsAndroidClient = nsClientV3Plugin.nsAndroidClient ?: return WorkOutcome.Failure("AndroidClient is null")

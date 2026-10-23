@@ -63,6 +63,9 @@ enum class SourceSensor(val text: String, val aliases: Set<String> = emptySet())
     COB_PREDICTION("COBPrediction"),
     UAM_PREDICTION("UAMPrediction"),
     ZT_PREDICTION("ZTPrediction"),
+    MPC_MEAL_PREDICTION("MPCMealPrediction"),
+    MPC_FALSE_START_PREDICTION("MPCFalseStartPrediction"),
+    MPC_EXPECTED_PREDICTION("MPCExpectedPrediction"),
     ;
 
     companion object {

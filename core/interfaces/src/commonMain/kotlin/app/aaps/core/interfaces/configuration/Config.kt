@@ -95,7 +95,7 @@ interface Config {
     val PUMPCONTROL: Boolean
 
     /**
-     * Alpha test build of the Slim FCL controller. It runs as an APS build (see [APS]) but only in
+     * Alpha test build of the MPC controller. It runs as an APS build (see [APS]) but only in
      * shadow mode: it reads the real BG and insulin, records what it would do and never doses.
      */
     val ALPHA: Boolean get() = false

@@ -100,7 +100,8 @@ class NsIncomingDataProcessor(
         // Objective0
         preferences.put(BooleanNonKey.ObjectivesBgIsAvailableInNs, true)
 
-        if (!nsClientSource.isEnabled() && !preferences.get(BooleanKey.NsClientAcceptCgmData) && !doFullSync) return false
+        // The alpha build takes BG from Nightscout too, so BG and treatments arrive together
+        if (!config.ALPHA && !nsClientSource.isEnabled() && !preferences.get(BooleanKey.NsClientAcceptCgmData) && !doFullSync) return false
 
         var latestDateInReceivedData: Long = 0
         aapsLogger.debug(LTag.NSCLIENT, "Received NS Data: $sgvs")
@@ -136,7 +137,7 @@ class NsIncomingDataProcessor(
      * @return true if there was an accepted calibration entry
      */
     fun processCalibrations(mbgs: List<NSMbgV3>, doFullSync: Boolean): Boolean {
-        if (!config.AAPSCLIENT && !preferences.get(BooleanKey.NsClientAcceptCgmData) && !doFullSync) return false
+        if (!config.AAPSCLIENT && !config.ALPHA && !preferences.get(BooleanKey.NsClientAcceptCgmData) && !doFullSync) return false
         if (mbgs.isEmpty()) return false
         val calibrationEntries = mbgs.map { it.toCAL() }
         aapsLogger.debug(LTag.NSCLIENT, "Received NS calibrations: ${calibrationEntries.size}")

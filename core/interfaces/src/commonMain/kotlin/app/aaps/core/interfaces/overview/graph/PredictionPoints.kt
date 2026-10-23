@@ -39,4 +39,7 @@ fun predictionPoints(
     curve(predictions.COB, BgType.COB_PREDICTION)
     curve(predictions.UAM, BgType.UAM_PREDICTION)
     curve(predictions.ZT, BgType.ZT_PREDICTION)
+    curve(predictions.mpcMeal, BgType.MPC_MEAL_PREDICTION)
+    curve(predictions.mpcFalseStart, BgType.MPC_FALSE_START_PREDICTION)
+    curve(predictions.mpcExpected, BgType.MPC_EXPECTED_PREDICTION)
 }

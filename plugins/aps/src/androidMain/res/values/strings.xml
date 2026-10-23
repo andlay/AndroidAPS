@@ -53,27 +53,93 @@
     <string name="description_loop">Activate or deactivate the implementation triggering the loop.</string>
     <string name="no_aps_selected">NO APS SELECTED OR PROVIDED RESULT</string>
     <string name="alpha_shadow_not_enacted">Shadow mode: decision recorded, not sent to the pump</string>
-    <string name="slim_fcl">Slim FCL (alpha)</string>
-    <string name="description_slim_fcl">Meal-aware controller from the closed-loop replay. Alpha build only: it runs in shadow mode and never doses.</string>
-    <string name="slim_fcl_alpha_only">Slim FCL runs only in the alpha build</string>
-    <string name="slim_fcl_virtual_pump_only">Slim FCL runs only with the virtual pump</string>
-    <string name="slim_fcl_no_recent_bg">Slim FCL: no recent BG</string>
-    <string name="slim_fcl_low_line_title">Low line</string>
-    <string name="slim_fcl_low_line_summary">Below this BG the cost of a low starts. A higher line gives fewer lows and less time in range.</string>
-    <string name="slim_fcl_high_line_title">High line</string>
-    <string name="slim_fcl_high_line_summary">Above this BG the cost of a high starts.</string>
-    <string name="slim_fcl_low_weight_title">Weight of lows</string>
-    <string name="slim_fcl_low_weight_summary">How much more a low costs than a high of the same size</string>
-    <string name="slim_fcl_room_boost_title">Room boost</string>
-    <string name="slim_fcl_room_boost_summary">The meal chance moves this share of the way to certain for each mmol/L of BG above the low line</string>
-    <string name="slim_fcl_trend_room_title">Trend room</string>
-    <string name="slim_fcl_trend_room_summary">When BG is falling, the room above the low line is measured from the BG this many minutes ahead. 0 = off</string>
-    <string name="slim_fcl_second_stage_title">Second stage</string>
-    <string name="slim_fcl_second_stage_summary">A second dose this many minutes later may be planned for each future. 0 = off</string>
-    <string name="slim_fcl_max_smb_title">Largest SMB</string>
-    <string name="slim_fcl_max_smb_summary">The largest SMB the controller may choose</string>
-    <string name="slim_fcl_max_iob_title">Max IOB</string>
-    <string name="slim_fcl_max_iob_summary">No SMB that takes IOB above this</string>
+    <string name="mpc">MPC (alpha)</string>
+    <string name="description_mpc">Meal-aware controller from the closed-loop replay. Alpha build only: it runs in shadow mode and never doses.</string>
+    <string name="mpc_alpha_only">MPC runs only in the alpha build</string>
+    <string name="mpc_virtual_pump_only">MPC runs only with the virtual pump</string>
+    <string name="mpc_no_recent_bg">MPC: no recent BG</string>
+    <string name="mpc_low_line_title">Low line</string>
+    <string name="mpc_low_line_summary">Below this BG the cost of a low starts. A higher line gives fewer lows and less time in range.</string>
+    <string name="mpc_high_line_title">High line</string>
+    <string name="mpc_high_line_summary">Above this BG the cost of a high starts.</string>
+    <string name="mpc_low_weight_title">How much worse a low is</string>
+    <string name="mpc_low_weight_summary">A low counts this many times more than a high of the same size</string>
+    <string name="mpc_room_boost_title">Room boost</string>
+    <string name="mpc_room_boost_summary">The meal chance moves this share of the way to certain for each mmol/L of BG above the low line</string>
+    <string name="mpc_trend_room_title">Trend room</string>
+    <string name="mpc_trend_room_summary">When BG is falling, the room above the low line is measured from the BG this many minutes ahead. 0 = off</string>
+    <string name="mpc_second_stage_title">Second stage</string>
+    <string name="mpc_second_stage_summary">A second dose this many minutes later may be planned for each future. 0 = off</string>
+    <string name="mpc_max_smb_title">Largest SMB</string>
+    <string name="mpc_max_smb_summary">The largest SMB the controller may choose</string>
+    <string name="mpc_max_iob_title">Max IOB</string>
+    <string name="mpc_max_iob_summary">No SMB that takes IOB above this</string>
+    <string name="mpc_meal_readiness_title">How readily to call a meal</string>
+    <string name="mpc_meal_readiness_summary" formatted="false">100% = as fitted to your data. 200% doubles the odds that a rise is called a meal, 50% halves them.</string>
+    <string name="mpc_typical_meal_title">Typical meal</string>
+    <string name="mpc_typical_meal_summary">Carbs of a typical meal. The fit of each rise is pulled toward this size.</string>
+    <string name="mpc_meal_size_spread_title">Meal size spread</string>
+    <string name="mpc_meal_size_spread_summary">How much meal size varies (plus or minus). A larger spread lets the fit follow the data more.</string>
+    <string name="mpc_rise_length_title">Typical rise length</string>
+    <string name="mpc_rise_length_summary">How long the carb effect of a typical meal lasts</string>
+    <string name="mpc_rise_length_spread_title">Rise length spread</string>
+    <string name="mpc_rise_length_spread_summary">How much the rise length varies (plus or minus)</string>
+    <string name="mpc_peak_position_title">Peak position</string>
+    <string name="mpc_peak_position_summary">Where the carb effect peaks, as a share of the rise: 0 = at the start, 1 = at the end</string>
+    <string name="mpc_half_width_title">Width at half height</string>
+    <string name="mpc_half_width_summary">How long the carb effect stays above half its peak, as a share of the rise. Smaller = a sharper peak.</string>
+    <string name="mpc_tail_half_life_title">Tail half-life</string>
+    <string name="mpc_tail_half_life_summary">After the peak, the carb effect still to come halves every this many minutes</string>
+    <string name="mpc_settings_safety">Safety and doses</string>
+    <string name="mpc_settings_aim">Average BG aim</string>
+    <string name="mpc_target_hba1c_title" formatted="false">Target HbA1c (%)</string>
+    <string name="mpc_target_hba1c_summary" formatted="false">0 = off. Once an hour the low line moves a little, so that the mean BG of the last 7 days goes toward the mean this HbA1c stands for. It stays between 10 mg/dL below and 25 mg/dL above the low line you set, and never goes down while more than 1% of readings are below 3.9 mmol/L. In shadow mode it learns from the BG of the app that really doses.</string>
+    <string name="mpc_step_down_title">Step-down when steady</string>
+    <string name="mpc_step_down_summary">0 = off. While BG has stayed within 1.5 mmol/L (27 mg/dL) for 90 min and no meal is seen, both lines go down 9 mg/dL every 30 min, at most by this much. Any change puts them straight back. 27 worked best on the replay.</string>
+    <string name="mpc_settings_meal_call">Meal call</string>
+    <string name="mpc_settings_meal_shape">Meal shape</string>
+    <string name="mpc_no_run_yet">No MPC run yet. It runs with the loop every 5 minutes.</string>
+    <string name="mpc_decision_title" comment="%1$s = time of the loop run, e.g. 14:05">Decision at %1$s (shadow mode, not sent to the pump)</string>
+    <string name="mpc_smb_units" comment="%1$.2f = SMB in units. Example: SMB 0.80 U">SMB %1$.2f U</string>
+    <string name="mpc_temp_zero" comment="%1$d = minutes">Zero temp for %1$d min</string>
+    <string name="mpc_temp_high" comment="%1$.2f = rate in U/h, %2$d = minutes. Example: High temp 3.30 U/h for 30 min">High temp %1$.2f U/h for %2$d min</string>
+    <string name="mpc_temp_normal" comment="%1$.2f = profile basal rate in U/h">Normal basal %1$.2f U/h</string>
+    <string name="mpc_meal_chance_line" comment="%1$d = meal chance from the data in percent, %2$d = meal chance after the room rule in percent. Example: Meal chance 23% from the rise, 61% with the room above the low line">Meal chance %1$d%% from the rise, %2$d%% with the room above the low line</string>
+    <string name="mpc_room_mmol" comment="%1$.1f = BG above the low line in mmol/L">Room above the low line: %1$.1f mmol/L</string>
+    <string name="mpc_room_mgdl" comment="%1$.0f = BG above the low line in mg/dL">Room above the low line: %1$.0f mg/dL</string>
+    <string name="mpc_lines_mmol" comment="%1$.1f = low line, %2$.1f = high line, both in mmol/L. Example: Lines in use: 6.4 to 8.1 mmol/L">Lines in use: %1$.1f to %2$.1f mmol/L</string>
+    <string name="mpc_lines_mgdl" comment="%1$.0f = low line, %2$.0f = high line, both in mg/dL. Example: Lines in use: 115 to 145 mg/dL">Lines in use: %1$.0f to %2$.0f mg/dL</string>
+    <string name="mpc_aim_mmol" comment="%1$.1f = target HbA1c in %, %2$+.1f = how far the aim has moved the low line, in mmol/L. Example: HbA1c aim 6.5%: low line -0.3 mmol/L from your setting">HbA1c aim %1$.1f%%: low line %2$+.1f mmol/L from your setting</string>
+    <string name="mpc_aim_mgdl" comment="%1$.1f = target HbA1c in %, %2$+.0f = how far the aim has moved the low line, in mg/dL. Example: HbA1c aim 6.5%: low line -5 mg/dL from your setting">HbA1c aim %1$.1f%%: low line %2$+.0f mg/dL from your setting</string>
+    <string name="mpc_step_down_mmol" comment="%1$.1f = how far both lines are lowered now, in mmol/L">BG steady: both lines %1$.1f mmol/L lower</string>
+    <string name="mpc_step_down_mgdl" comment="%1$.0f = how far both lines are lowered now, in mg/dL">BG steady: both lines %1$.0f mg/dL lower</string>
+    <string name="mpc_isf_mmol" comment="%1$.1f = ISF in mmol/L per U, %2$.2f = AutoISF factor. Example: ISF 2.1 mmol/L/U (AutoISF factor 1.23)">ISF %1$.1f mmol/L/U (AutoISF factor %2$.2f)</string>
+    <string name="mpc_isf_mgdl" comment="%1$.0f = ISF in mg/dL per U, %2$.2f = AutoISF factor">ISF %1$.0f mg/dL/U (AutoISF factor %2$.2f)</string>
+    <string name="mpc_iob_line" comment="%1$.2f = insulin on board in U">IOB %1$.2f U</string>
+    <string name="mpc_impact_none">No carb rise running</string>
+    <string name="mpc_impact_running" comment="%1$d = minutes since the rise started">Carb rise running for %1$d min, before its peak</string>
+    <string name="mpc_impact_after_peak" comment="%1$d = minutes since the rise started">Carb rise %1$d min old, past its peak</string>
+    <string name="mpc_bg_future_title">Where BG is going, next 3 hours</string>
+    <string name="mpc_legend_meal">If a meal</string>
+    <string name="mpc_legend_false_start">If no meal</string>
+    <string name="mpc_legend_expected">Expected</string>
+    <string name="mpc_legend_lines">Low and high line</string>
+    <string name="mpc_carb_effect_title">Carb effect: last 2 hours and next 3 hours</string>
+    <string name="mpc_carb_effect_unit_mmol">mmol/L per 5 min</string>
+    <string name="mpc_carb_effect_unit_mgdl">mg/dL per 5 min</string>
+    <string name="mpc_legend_seen">Seen (DEV)</string>
+    <string name="mpc_legend_model">Model</string>
+    <string name="mpc_options_title">Best dose options</string>
+    <string name="mpc_option_zero" comment="%1$.2f = SMB in units. Example: SMB 0.80 U, zero temp">SMB %1$.2f U, zero temp</string>
+    <string name="mpc_option_high" comment="%1$.2f = SMB in units">SMB %1$.2f U, high temp</string>
+    <string name="mpc_option_normal" comment="%1$.2f = SMB in units">SMB %1$.2f U, normal basal</string>
+    <string name="mpc_option_cost" comment="%1$d = cost of this option in percent of the chosen one. Example: cost 112%">cost %1$d%%</string>
+    <string name="mpc_option_chosen">chosen</string>
+    <string name="mpc_shape_title">Meal shape</string>
+    <string name="mpc_legend_carb_effect">Carb effect</string>
+    <string name="mpc_legend_carbs_taken_up">Carbs taken up</string>
+    <string name="mpc_shape_summary" comment="%1$.0f = typical meal in grams, %2$.0f = rise length in minutes, %3$.0f = minutes to the peak, %4$.0f = minutes above half height. Example: Typical meal 34 g over 94 min. Peak after 35 min, above half height for 46 min.">Typical meal %1$.0f g over %2$.0f min. Peak after %3$.0f min, above half height for %4$.0f min.</string>
+    <string name="mpc_shape_tail" comment="%1$.0f = minutes">After the peak is passed, the carb effect still to come halves every %1$.0f min.</string>
     <string name="ignore5m">Ignore 5m</string>
     <string name="ignore15m">Ignore 15m</string>
     <string name="ignore30m">Ignore 30m</string>
