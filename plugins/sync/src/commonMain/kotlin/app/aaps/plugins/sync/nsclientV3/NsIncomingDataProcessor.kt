@@ -301,7 +301,8 @@ class NsIncomingDataProcessor(
             val createdAt = store.getStartDate()
             val lastLocalChange = preferences.get(LongNonKey.LocalProfileLastChange)
             aapsLogger.debug(LTag.PROFILE, "Received profileStore: createdAt: $createdAt Local last modification: $lastLocalChange")
-            if (createdAt > lastLocalChange || createdAt % 1000 == 0L) { // whole second means edited in NS
+            // The alpha build never edits profiles: the store in NS, written by the app that doses, always wins
+            if (config.ALPHA || createdAt > lastLocalChange || createdAt % 1000 == 0L) { // whole second means edited in NS
                 // Only acknowledge the profile to NS after a successful import. If the import
                 // fails (storage exception), leave NS believing the profile wasn't synced so it
                 // re-pushes on the next sync round.
