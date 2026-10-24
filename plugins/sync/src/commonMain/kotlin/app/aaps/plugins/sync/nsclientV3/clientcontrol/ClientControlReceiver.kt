@@ -114,7 +114,7 @@ class ClientControlReceiver(
     private val persistenceLayer: PersistenceLayer,
     private val wizardBolusExecutor: WizardBolusExecutor,
     private val notificationManager: NotificationManager,
-    config: Config,
+    private val config: Config,
     private val bolusProgressData: BolusProgressData,
     private val commandQueue: CommandQueue,
     private val rh: TextResolver,
@@ -163,7 +163,7 @@ class ClientControlReceiver(
         // Master only: mirror the live progress of a CLIENT-initiated bolus back to that client so its (un-gated)
         // progress dialog lights up. Throttled to ~1/s; start + terminal frames sent promptly. The command queue
         // serializes delivery (one bolus at a time), so the armed clientId stays valid for the whole lifecycle.
-        if (!config.AAPSCLIENT) appScope.launch {
+        if (!config.AAPSCLIENT && !config.ALPHA) appScope.launch {
             var prev: BolusProgressState? = null
             var lastWrite = 0L
             bolusProgressData.state.collect { st ->
@@ -280,6 +280,8 @@ class ClientControlReceiver(
     }
 
     private suspend fun verifyAndAck(identifier: String, doc: JsonObject, now: Long): Unit = commandMutex.withLock {
+        // The alpha build is not the master: commands from paired clients are for the app that doses
+        if (config.ALPHA) return
         val client = nsClientV3Plugin().nsAndroidClient ?: return
         // Unrecognized / unverifiable docs are IGNORED, never deleted. A delete soft-deletes
         // (tombstones) the identifier on NS, so the next legitimate PUT to that same per-type slot

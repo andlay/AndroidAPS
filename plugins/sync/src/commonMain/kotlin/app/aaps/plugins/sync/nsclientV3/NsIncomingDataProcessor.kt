@@ -153,11 +153,14 @@ class NsIncomingDataProcessor(
     fun processTreatments(treatments: List<NSTreatment>, doFullSync: Boolean): Boolean {
         try {
             var latestDateInReceivedData: Long = 0
+            var skipped = 0
             for (treatment in treatments) {
                 aapsLogger.debug(LTag.NSCLIENT, "Received NS treatment: $treatment")
                 val date = treatment.date ?: continue
                 if (date > latestDateInReceivedData) latestDateInReceivedData = date
 
+                // One bad record must not stop the whole page: skip it and go on with the rest
+                try {
                 when (treatment) {
                     is NSBolus                  ->
                         if (preferences.get(BooleanKey.NsClientAcceptInsulin) || config.AAPSCLIENT || config.ALPHA || doFullSync)
@@ -183,8 +186,16 @@ class NsIncomingDataProcessor(
                         }
 
                     is NSTemporaryBasal         ->
-                        if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT || config.ALPHA || doFullSync)
+                        if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT || config.ALPHA || doFullSync) {
+                            // A temp basal of 0 min is how other uploaders write "cancel temp". AAPS ends a temp by
+                            // shortening it instead, and TB requires a duration, so such a record is skipped.
+                            if (treatment.duration <= 0L) {
+                                aapsLogger.debug(LTag.NSCLIENT, "Ignored TemporaryBasal with no duration $treatment")
+                                skipped++
+                                continue
+                            }
                             storeDataForDb.addToTemporaryBasals(treatment.toTemporaryBasal())
+                        }
 
                     is NSEffectiveProfileSwitch ->
                         if (preferences.get(BooleanKey.NsClientAcceptProfileSwitch) || config.AAPSCLIENT || config.ALPHA || doFullSync) {
@@ -229,12 +240,23 @@ class NsIncomingDataProcessor(
                             }
 
                     is NSExtendedBolus          ->
-                        if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT || config.ALPHA || doFullSync)
+                        if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT || config.ALPHA || doFullSync) {
+                            if (treatment.duration <= 0L) {
+                                aapsLogger.debug(LTag.NSCLIENT, "Ignored ExtendedBolus with no duration $treatment")
+                                skipped++
+                                continue
+                            }
                             treatment.toExtendedBolus().let { extendedBolus ->
                                 storeDataForDb.addToExtendedBoluses(extendedBolus)
                             }
+                        }
+                }
+                } catch (error: Exception) {
+                    aapsLogger.error(LTag.NSCLIENT, "Ignored NS treatment $treatment", error)
+                    skipped++
                 }
             }
+            if (skipped > 0) nsClientRepository.addLog("◄ SKIP", "$skipped of ${treatments.size} TRs could not be used")
             if (latestDateInReceivedData > 0)
                 nsClient.updateLatestTreatmentReceivedIfNewer(latestDateInReceivedData)
             return latestDateInReceivedData > 0
