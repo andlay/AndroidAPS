@@ -1185,12 +1185,19 @@ class OverviewDataCacheImpl(
         val profileAt = { t: Long -> profiles.lastOrNull { it.first <= t }?.second ?: profiles.first().second }
         val temporaryBasals = processedTbrEbData.getTempBasalsIncludingConvertedExtended(start, roundUpToMinute(endTime))
         val boluses = persistenceLayer.getBolusesFromTimeToTime(start, endTime, true).filter { it.isValid }
+        // the basal that was really running, per minute (the lookup suspends, so it is done here and not in the plan)
+        val realBasal = DoubleArray(((endTime - start) / 60_000L).toInt() + 1)
+        for (i in realBasal.indices) {
+            val t = start + i * 60_000L
+            val p = profileAt(t)
+            realBasal[i] = temporaryBasals.at(t)?.convertedToAbsolute(t, p) ?: p.getBasal(t)
+        }
         val plan = shadowPlan(
             decisions = shadowDecisions.filter { it.time <= endTime },
             from = start,
             to = endTime,
             profileBasalAt = { t -> profileAt(t).getBasal(t) },
-            realBasalAt = { t -> profileAt(t).let { p -> temporaryBasals.at(t)?.convertedToAbsolute(t, p) ?: p.getBasal(t) } },
+            realBasalAt = { t -> realBasal[((t - start) / 60_000L).toInt().coerceIn(0, realBasal.size - 1)] },
             realSmbs = boluses.filter { it.type == BS.Type.SMB }.map { it.timestamp to it.amount }
         )
         val manual = boluses.filter { it.type == BS.Type.NORMAL }
