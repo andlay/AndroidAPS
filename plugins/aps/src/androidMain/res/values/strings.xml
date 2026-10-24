@@ -53,80 +53,33 @@
     <string name="description_loop">Activate or deactivate the implementation triggering the loop.</string>
     <string name="no_aps_selected">NO APS SELECTED OR PROVIDED RESULT</string>
     <string name="alpha_shadow_not_enacted">Shadow mode: decision recorded, not sent to the pump</string>
-    <string name="mpc">MPC (alpha)</string>
-    <string name="description_mpc">Meal-aware controller from the closed-loop replay. Alpha build only: it runs in shadow mode and never doses.</string>
-    <string name="mpc_alpha_only">MPC runs only in the alpha build</string>
-    <string name="mpc_virtual_pump_only">MPC runs only with the virtual pump</string>
-    <string name="mpc_no_recent_bg">MPC: no recent BG</string>
-    <string name="mpc_low_line_title">Low line</string>
-    <string name="mpc_low_line_summary">Below this BG the cost of a low starts. A higher line gives fewer lows and less time in range.</string>
-    <string name="mpc_high_line_title">High line</string>
-    <string name="mpc_high_line_summary">Above this BG the cost of a high starts.</string>
-    <string name="mpc_room_boost_title">Room boost</string>
-    <string name="mpc_room_boost_summary">The meal chance moves this share of the way to certain for each mmol/L of BG above the low line</string>
-    <string name="mpc_trend_room_title">Trend room</string>
-    <string name="mpc_trend_room_summary">When BG is falling, the room above the low line is measured from the BG this many minutes ahead. 0 = off</string>
-    <string name="mpc_second_stage_title">Second stage</string>
-    <string name="mpc_second_stage_summary">A second dose this many minutes later may be planned for each future. 0 = off</string>
-    <string name="mpc_max_smb_title">Largest SMB</string>
-    <string name="mpc_max_smb_summary">The largest SMB the controller may choose</string>
-    <string name="mpc_max_iob_title">Max IOB</string>
-    <string name="mpc_max_iob_summary">No SMB that takes IOB above this</string>
-    <string name="mpc_meal_readiness_title">How readily to call a meal</string>
-    <string name="mpc_meal_readiness_summary" formatted="false">100% = as fitted to your data. 200% doubles the odds that a rise is called a meal, 50% halves them.</string>
+    <string name="mpc_settings_title">MPC meal SMBs</string>
+    <string name="mpc_meal_smb_title">MPC meal SMBs</string>
+    <string name="mpc_meal_smb_summary">The temp basal stays vanilla OpenAPS with its own SMBs off. When a meal is seen, MPC sizes the SMB. Max IOB, the SMB interval and the UAM max minutes still apply.</string>
+    <string name="mpc_even_target_title">Even target allows SMB</string>
+    <string name="mpc_even_target_summary">An even target (5.0, 5.4, 6.0 mmol/L or 100, 108 mg/dL) allows meal SMBs, an odd target (5.5 mmol/L or 99 mg/dL) stops them. A temp target can switch them on or off.</string>
     <string name="mpc_typical_meal_title">Typical meal</string>
     <string name="mpc_typical_meal_summary">Carbs of a typical meal. The fit of each rise is pulled toward this size.</string>
-    <string name="mpc_meal_size_spread_title">Meal size spread</string>
-    <string name="mpc_meal_size_spread_summary">How much meal size varies (plus or minus). A larger spread lets the fit follow the data more.</string>
     <string name="mpc_rise_length_title">Typical rise length</string>
     <string name="mpc_rise_length_summary">How long the carb effect of a typical meal lasts</string>
-    <string name="mpc_rise_length_spread_title">Rise length spread</string>
-    <string name="mpc_rise_length_spread_summary">How much the rise length varies (plus or minus)</string>
-    <string name="mpc_peak_position_title">Peak position</string>
-    <string name="mpc_peak_position_summary">Where the carb effect peaks, as a share of the rise: 0 = at the start, 1 = at the end</string>
-    <string name="mpc_half_width_title">Width at half height</string>
-    <string name="mpc_half_width_summary">How long the carb effect stays above half its peak, as a share of the rise. Smaller = a sharper peak.</string>
-    <string name="mpc_tail_half_life_title">Tail half-life</string>
-    <string name="mpc_tail_half_life_summary">After the peak, the carb effect still to come halves every this many minutes</string>
-    <string name="mpc_settings_safety">Safety and doses</string>
-    <string name="mpc_settings_aim">Aim over days</string>
-    <string name="mpc_aim_title">Aim over days</string>
-    <string name="mpc_aim_summary">Once an hour, moves the low line a little, from the BG of the last 7 days. In shadow mode the line is not moved, because MPC does not dose and so cannot change that BG. The MPC screen then shows which way it would go.</string>
-    <string name="mpc_aim_off">Off: the low line stays as set</string>
-    <string name="mpc_aim_hba1c">Mean BG of a target HbA1c</string>
-    <string name="mpc_aim_trade">Trade between lows and highs</string>
-    <string name="mpc_target_hba1c_title" formatted="false">Target HbA1c (%)</string>
-    <string name="mpc_target_hba1c_summary" formatted="false">The low line moves so that the mean BG of the last 7 days goes toward the mean this HbA1c stands for. It stays between 10 mg/dL below and 25 mg/dL above the low line you set, and never goes down while more than 1% of readings are below 3.9 mmol/L.</string>
-    <string name="mpc_trade_rate_title" formatted="false">Lows you accept per 1% less time high (%)</string>
-    <string name="mpc_trade_rate_summary" formatted="false">How much more time below 3.9 mmol/L you accept for each 1% less time above 10 mmol/L. 0.20 means: 1% less time high is worth 0.2% more time low. The rate is measured as time in 3.3 to 4.4 mmol/L against time in 9.4 to 10.6 mmol/L, and the low line moves until it matches your value. It stays between 20 mg/dL below and 30 mg/dL above the low line you set.</string>
-    <string name="mpc_step_down_title">Step-down when steady</string>
-    <string name="mpc_step_down_summary">0 = off. While BG has stayed within 1.5 mmol/L (27 mg/dL) for 90 min and no meal is seen, both lines go down 9 mg/dL every 30 min, at most by this much. Any change puts them straight back. 27 worked best on the replay.</string>
-    <string name="mpc_settings_meal_call">Meal call</string>
-    <string name="mpc_settings_meal_shape">Meal shape</string>
     <string name="mpc_no_run_yet">No MPC run yet. It runs with the loop every 5 minutes.</string>
-    <string name="mpc_decision_title" comment="%1$s = time of the loop run, e.g. 14:05">Decision at %1$s (shadow mode, not sent to the pump)</string>
+    <string name="mpc_decision_title" comment="%1$s = time of the loop run, e.g. 14:05">MPC meal SMB at %1$s</string>
     <string name="mpc_smb_units" comment="%1$.2f = SMB in units. Example: SMB 0.80 U">SMB %1$.2f U</string>
-    <string name="mpc_temp_zero" comment="%1$d = minutes">Zero temp for %1$d min</string>
-    <string name="mpc_temp_high" comment="%1$.2f = rate in U/h, %2$d = minutes. Example: High temp 3.30 U/h for 30 min">High temp %1$.2f U/h for %2$d min</string>
-    <string name="mpc_temp_normal" comment="%1$.2f = profile basal rate in U/h">Normal basal %1$.2f U/h</string>
-    <string name="mpc_meal_chance_line" comment="%1$d = meal chance from the data in percent, %2$d = meal chance after the room rule in percent. Example: Meal chance 23% from the rise, 61% with the room above the low line">Meal chance %1$d%% from the rise, %2$d%% with the room above the low line</string>
-    <string name="mpc_room_mmol" comment="%1$.1f = BG above the low line in mmol/L">Room above the low line: %1$.1f mmol/L</string>
-    <string name="mpc_room_mgdl" comment="%1$.0f = BG above the low line in mg/dL">Room above the low line: %1$.0f mg/dL</string>
-    <string name="mpc_lines_mmol" comment="%1$.1f = low line, %2$.1f = high line, both in mmol/L. Example: Lines in use: 6.4 to 8.1 mmol/L">Lines in use: %1$.1f to %2$.1f mmol/L</string>
-    <string name="mpc_lines_mgdl" comment="%1$.0f = low line, %2$.0f = high line, both in mg/dL. Example: Lines in use: 115 to 145 mg/dL">Lines in use: %1$.0f to %2$.0f mg/dL</string>
-    <string name="mpc_aim_hba1c_mmol" comment="%1$.1f = target HbA1c in %, %2$.1f = mean BG of the last 7 days, %3$.1f = mean BG this HbA1c stands for, both in mmol/L. Example: HbA1c aim 6.5%: mean BG 6.9 mmol/L, aim 7.8 mmol/L">HbA1c aim %1$.1f%%: mean BG %2$.1f mmol/L, aim %3$.1f mmol/L</string>
-    <string name="mpc_aim_hba1c_mgdl" comment="%1$.1f = target HbA1c in %, %2$.0f = mean BG of the last 7 days, %3$.0f = mean BG this HbA1c stands for, both in mg/dL. Example: HbA1c aim 6.5%: mean BG 124 mg/dL, aim 140 mg/dL">HbA1c aim %1$.1f%%: mean BG %2$.0f mg/dL, aim %3$.0f mg/dL</string>
-    <string name="mpc_aim_trade_line" comment="%1$.2f = more time low (in %) the user accepts per 1% less time high, %2$.2f = the same rate measured on the last 7 days. Example: Lows per 1% less time high: you accept 0.20%, measured 1.88%">Lows per 1%% less time high: you accept %1$.2f%%, measured %2$.2f%%</string>
-    <string name="mpc_aim_no_data">Aim: not enough BG in the last 7 days to measure</string>
-    <string name="mpc_aim_shadow_up">Shadow mode: the low line is not moved. With MPC dosing it would go up now.</string>
-    <string name="mpc_aim_shadow_down">Shadow mode: the low line is not moved. With MPC dosing it would go down now.</string>
-    <string name="mpc_aim_shadow_hold">Shadow mode: the low line is not moved. With MPC dosing it would stay where it is.</string>
-    <string name="mpc_aim_moved_mmol" comment="%1$+.1f = how far the aim has moved the low line, in mmol/L. Example: Aim: low line -0.3 mmol/L from your setting">Aim: low line %1$+.1f mmol/L from your setting</string>
-    <string name="mpc_aim_moved_mgdl" comment="%1$+.0f = how far the aim has moved the low line, in mg/dL. Example: Aim: low line -5 mg/dL from your setting">Aim: low line %1$+.0f mg/dL from your setting</string>
-    <string name="mpc_step_down_mmol" comment="%1$.1f = how far both lines are lowered now, in mmol/L">BG steady: both lines %1$.1f mmol/L lower</string>
-    <string name="mpc_step_down_mgdl" comment="%1$.0f = how far both lines are lowered now, in mg/dL">BG steady: both lines %1$.0f mg/dL lower</string>
-    <string name="mpc_isf_mmol" comment="%1$.1f = ISF in mmol/L per U, %2$.2f = AutoISF factor. Example: ISF 2.1 mmol/L/U (AutoISF factor 1.23)">ISF %1$.1f mmol/L/U (AutoISF factor %2$.2f)</string>
-    <string name="mpc_isf_mgdl" comment="%1$.0f = ISF in mg/dL per U, %2$.2f = AutoISF factor">ISF %1$.0f mg/dL/U (AutoISF factor %2$.2f)</string>
+    <string name="mpc_status_no_meal">No meal seen: vanilla temp basal only</string>
+    <string name="mpc_status_odd_target">Meal seen, but the target is odd: no SMB</string>
+    <string name="mpc_status_not_allowed">Meal seen, but an SMB is not allowed now</string>
+    <string name="mpc_status_smb">Meal seen: SMB</string>
+    <string name="mpc_status_wait">Meal seen: no SMB yet</string>
+    <string name="mpc_vanilla_temp" comment="%1$.2f = temp basal rate from vanilla OpenAPS in U/h, %2$.2f = profile basal rate in U/h. Example: Vanilla temp 0.45 U/h (profile basal 1.00 U/h)">Vanilla temp %1$.2f U/h (profile basal %2$.2f U/h)</string>
+    <string name="mpc_meal_chance_line" comment="%1$d = meal chance from the data in percent, %2$d = meal chance after the room rule in percent. Example: Meal chance 23% from the rise, 61% with the room above the target">Meal chance %1$d%% from the rise, %2$d%% with the room above the target</string>
+    <string name="mpc_room_mmol" comment="%1$.1f = BG above the target in mmol/L">Room above the target: %1$.1f mmol/L</string>
+    <string name="mpc_room_mgdl" comment="%1$.0f = BG above the target in mg/dL">Room above the target: %1$.0f mg/dL</string>
+    <string name="mpc_lines_mmol" comment="%1$.1f = target, %2$.1f = high line, both in mmol/L. Example: Target 5.5, high line 8.0 mmol/L">Target %1$.1f, high line %2$.1f mmol/L</string>
+    <string name="mpc_lines_mgdl" comment="%1$.0f = target, %2$.0f = high line, both in mg/dL. Example: Target 99, high line 144 mg/dL">Target %1$.0f, high line %2$.0f mg/dL</string>
+    <string name="mpc_even_target_on">Target is even: SMB allowed</string>
+    <string name="mpc_even_target_off">Target is odd: SMB off</string>
+    <string name="mpc_isf_mmol" comment="%1$.1f = profile ISF in mmol/L per U. Example: ISF 2.6 mmol/L/U">ISF %1$.1f mmol/L/U</string>
+    <string name="mpc_isf_mgdl" comment="%1$.0f = profile ISF in mg/dL per U. Example: ISF 47 mg/dL/U">ISF %1$.0f mg/dL/U</string>
     <string name="mpc_iob_line" comment="%1$.2f = insulin on board in U">IOB %1$.2f U</string>
     <string name="mpc_impact_none">No carb rise running</string>
     <string name="mpc_impact_running" comment="%1$d = minutes since the rise started">Carb rise running for %1$d min, before its peak</string>
@@ -135,16 +88,13 @@
     <string name="mpc_legend_meal">If a meal</string>
     <string name="mpc_legend_false_start">If no meal</string>
     <string name="mpc_legend_expected">Expected</string>
-    <string name="mpc_legend_lines">Low and high line</string>
+    <string name="mpc_legend_lines">Target and high line</string>
     <string name="mpc_carb_effect_title">Carb effect: last 2 hours and next 3 hours</string>
     <string name="mpc_carb_effect_unit_mmol">mmol/L per 5 min</string>
     <string name="mpc_carb_effect_unit_mgdl">mg/dL per 5 min</string>
     <string name="mpc_legend_seen">Seen (DEV)</string>
     <string name="mpc_legend_model">Model</string>
-    <string name="mpc_options_title">Best dose options</string>
-    <string name="mpc_option_zero" comment="%1$.2f = SMB in units. Example: SMB 0.80 U, zero temp">SMB %1$.2f U, zero temp</string>
-    <string name="mpc_option_high" comment="%1$.2f = SMB in units">SMB %1$.2f U, high temp</string>
-    <string name="mpc_option_normal" comment="%1$.2f = SMB in units">SMB %1$.2f U, normal basal</string>
+    <string name="mpc_options_title">Best SMB options</string>
     <string name="mpc_option_cost" comment="%1$d = cost of this option in percent of the chosen one. Example: cost 112%">cost %1$d%%</string>
     <string name="mpc_option_chosen">chosen</string>
     <string name="mpc_shape_title">Meal shape</string>

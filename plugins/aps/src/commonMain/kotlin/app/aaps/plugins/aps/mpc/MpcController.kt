@@ -5,82 +5,78 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * The MPC controller, ported 1:1 from the closed-loop replay (`replay.js`, strategy `mpc`).
+ * MPC meal SMBs: an extension of the vanilla OpenAPS SMB algorithm, ported 1:1 from the closed-loop replay
+ * (`replay.js`, the design chosen in the loop study).
  *
- * Every 5 minutes:
+ * Vanilla determine-basal sets the temp basal as always, with its own SMBs off. Every 5 minutes this controller:
  * 1. DEV = CGM change + the effect of the loop's own insulin. A run of 15 min mean DEV above 1 is a carb
  *    impact; a clear dip inside the run starts a new one.
  * 2. The current impact is fitted with a beta pulse. Earlier impacts that still run keep their tails.
- * 3. Two futures for the next 3 h: meal (the pulse, or an exponential tail after the peak) and false start
- *    (DEV fades to zero).
- * 4. Meal chance from a small logistic, moved toward 1 when BG has room above the low line.
- * 5. Every SMB 0..cap by 0.1 U with a 30 min temp (normal, zero, high) is scored over the futures, with a
- *    second dose later chosen per future. The lowest expected cost wins.
+ * 3. Futures for the next 3 h: [SCENARIOS] meal sizes that fit the DEV so far (or an exponential tail after
+ *    the peak), and a false start (DEV fades to zero).
+ * 4. Meal chance from a small logistic, moved toward 1 when BG has room above the target.
+ * 5. Only when a meal is seen (chance at least 10 %, or BG at 10 mmol/L or more, in the last 30 min): every SMB
+ *    0..cap by 0.1 U is scored over the futures with vanilla's temp, and a second dose 20 min later chosen per
+ *    future. The lowest expected cost wins. The second stage is how the plan can wait for the meal to show itself.
  *
- * The controller keeps state between steps (the impact being fitted and the tails of earlier ones), so
- * it must see each 5 min step once and in order. [step] makes that safe: a second call for the same step
- * reuses the futures of the first.
+ * Cost per 5 min step: [MealSmbSettings.lowWeight] x (target - BG)^2 below the target, (BG - high line)^2 above it.
+ *
+ * The controller keeps state between steps (the impact being fitted, the tails of earlier ones, when a meal
+ * was last seen), so it must see each 5 min step once and in order. A second call for the same step reuses the
+ * futures of the first.
  */
 class MpcController {
 
-    class Settings(
-        /** mg/dL: cost [lowWeight] x (line - BG)^2 below it */
-        val lowLine: Double = 115.0,
-        /** mg/dL: cost (BG - line)^2 above it */
-        val highLine: Double = 145.0,
+    class MealSmbSettings(
+        /** mg/dL: the profile target. Cost [lowWeight] x (target - BG)^2 below it, and the room rule is measured from it. */
+        val target: Double,
+        /** mg/dL above the target where the cost of being high starts */
+        val highAbove: Double = HIGH_ABOVE_TARGET,
         val lowWeight: Double = 1000.0,
-        /** The meal chance moves this share of the way to 1 for each mmol/L of BG above the low line. */
+        /** The meal chance moves this share of the way to 1 for each mmol/L of BG above the target. */
         val roomBoost: Double = 0.35,
-        /** When BG is falling, the room is measured from the BG this many minutes ahead. 0 = off. */
-        val trendRoomMinutes: Double = 15.0,
-        /** A second dose this many minutes later may be planned per future. 0 = off. */
+        /** A second dose this many minutes later is planned per future. */
         val secondStageMinutes: Int = 20,
-        /** Largest SMB, U */
-        val maxSmb: Double = 3.0,
-        val maxIob: Double = 5.0,
-        /** U/h of the high temp option */
-        val highTempRate: Double = 3.3,
-        /** No SMB below this BG, mg/dL */
-        val smbMinBg: Double = 77.0,
+        /** Largest SMB, U (AAPS: UAM max minutes of basal) */
+        val maxSmb: Double,
+        /** U (AAPS max IOB) */
+        val maxIob: Double,
         /** Shape of a carb impact and the meal call */
-        val shape: MpcModel.Shape = MpcModel.Shape.FITTED,
-        /** Step-down: while BG is steady, lower both lines by up to this much (mg/dL). 0 = off. */
-        val stepDownMax: Double = 0.0
+        val shape: MpcModel.Shape = MpcModel.Shape.FITTED
     )
 
     /**
      * The carb-impact futures (mg/dL per 5 min, step 1 ahead first) and what they came from.
+     * [scenarios]: the meal sizes that fit so far, equal weight; null after the peak or with no impact.
      * [dev]: DEV seen, newest first. [fitted]: the model over the same steps (current fit plus kept tails).
      * [impactAge]: steps since the current impact started, or -1 when none runs.
      */
     class Futures(
         val meal: DoubleArray, val non: DoubleArray, val mealChance: Double,
         val dev: DoubleArray = DoubleArray(0), val fitted: DoubleArray = DoubleArray(0),
-        val impactAge: Int = -1, val afterPeak: Boolean = false
+        val impactAge: Int = -1, val afterPeak: Boolean = false, val scenarios: List<DoubleArray>? = null
     )
 
-    /** One dose option and its expected cost. [mode]: 0 normal basal, 1 zero temp, -1 high temp. */
-    class Option(val mode: Int, val units: Double, val cost: Double)
+    /** One SMB size and its expected cost */
+    class Option(val units: Double, val cost: Double)
 
-    class Decision(
-        /** U/h: 0 (zero temp), the profile basal (normal) or [Settings.highTempRate] */
-        val rate: Double,
-        val duration: Int,
-        /** SMB in U, rounded to 0.05 */
+    class MealSmb(
+        /** SMB in U, rounded to 0.05; 0 when no meal is seen */
         val units: Double,
+        /** True when a meal was seen in the last 30 min, so the SMB was chosen by the plan */
+        val mealSeen: Boolean,
         /** Meal chance before and after the room rule */
         val mealChance: Double,
         val weightedMealChance: Double,
-        /** Predicted BG (mg/dL) every 5 min for the chosen dose, in the meal and in the false-start future */
+        /** Predicted BG (mg/dL) every 5 min for the chosen SMB with vanilla's temp: meal, false start, and their mix */
         val predictedMeal: DoubleArray,
         val predictedFalseStart: DoubleArray,
+        val predictedExpected: DoubleArray,
         val futures: Futures,
-        /** BG above the low line the room rule used, mg/dL */
-        val room: Double = 0.0,
-        /** The best options, lowest cost first */
-        val options: List<Option> = emptyList(),
-        /** How far the step-down has lowered the lines, mg/dL */
-        val stepDown: Double = 0.0
+        /** BG above the target the room rule used, mg/dL */
+        val room: Double,
+        /** The best SMB sizes, lowest cost first (empty when no meal is seen) */
+        val options: List<Option>
     )
 
     private class Current(val start: Long, val fit: MpcModel.Fit, val p: Double)
@@ -90,41 +86,14 @@ class MpcController {
     private var frozen = mutableListOf<Frozen>()
     private var lastStep: Long? = null
     private var lastFutures: Futures? = null
-    private var shift = 0.0
-    private var steadySince = -1L
-    private var lastShiftStep: Long? = null
+    private var lastMealSeen = Long.MIN_VALUE / 2
 
     fun reset() {
-        cur = null; frozen = mutableListOf(); lastStep = null; lastFutures = null; shift = 0.0; steadySince = -1L; lastShiftStep = null
+        cur = null; frozen = mutableListOf(); lastStep = null; lastFutures = null; lastMealSeen = Long.MIN_VALUE / 2
     }
 
     /**
-     * Step-down of the low and high lines (as in the replay prototype): BG steady for the last 90 min (range at most
-     * 27 mg/dL), no meal in sight (chance below 30 %, expected carb effect below 30 mg/dL over 3 h) and BG at least
-     * 15 mg/dL above the lowered low line. Then the lines go down 9 mg/dL per 30 steady minutes, up to [max]. Any miss
-     * puts them straight back.
-     */
-    private fun updateStepDown(step: Long, view: DoubleArray, fut: Futures, lowLine: Double, max: Double) {
-        if (max <= 0) {
-            shift = 0.0; return
-        }
-        if (step == lastShiftStep) return
-        lastShiftStep = step
-        val last = view.take(STEADY_STEPS).filter { it.isFinite() }
-        val expected = fut.meal.indices.sumOf { j -> fut.mealChance * fut.meal[j] + (1 - fut.mealChance) * fut.non[j] }
-        val steady = last.size >= STEADY_STEPS - 3 && last.max() - last.min() <= 27 && fut.mealChance < 0.3 && expected < 30 &&
-            view[0] >= lowLine - shift + 15
-        if (!steady) {
-            shift = 0.0; steadySince = -1L; return
-        }
-        if (steadySince < 0) steadySince = step
-        if (step - steadySince >= 6 && shift < max) {
-            shift = min(max, shift + 9); steadySince = step
-        }
-    }
-
-    /**
-     * The two carb-impact futures for [step] (5 min steps since epoch).
+     * The carb-impact futures for [step] (5 min steps since epoch).
      * [view]: smoothed BG newest first, 5 min apart, NaN where missing (26 values = 2 h 5 min).
      * [pastActivity]: the loop's insulin activity (U/min) at now, now - 5 min, ... (at least view.size - 1 values).
      * [isf]: profile ISF, mg/dL per U.
@@ -171,6 +140,7 @@ class MpcController {
         val meal = DoubleArray(48) { j -> frozenAt(step + 1 + j) }
         val non = meal.copyOf()
         var p = 0.0
+        var scenarios: List<DoubleArray>? = null
         var age = -1
         var past = false
         val fitted = DoubleArray(lb) { j -> frozenAt(step - j) }
@@ -203,81 +173,75 @@ class MpcController {
                 meal[j] += mealJ
                 non[j] += if (afterPeak) mealJ else if (j < dn) d0 * (1 - (j + 1).toDouble() / dn) else 0.0
             }
+            if (!afterPeak) scenarios = MpcModel.scenarios(ys, kk, shape, SCENARIOS).map { sc ->
+                DoubleArray(48) { j -> frozenAt(step + 1 + j) + MpcModel.pulse(kk + 1 + j + 0.5, sc.amp, sc.length, shape) }
+            }
             val chance = MpcModel.mealChance(ys[ys.size - 1], area, kk, shape)
             p = if (afterPeak) 1.0 else chance
             cur = Current(startStep, fit, chance)
             age = kk; past = afterPeak
             for (j in 0..kk) fitted[j] += MpcModel.pulse((kk - j) + 0.5, fit.amp, fit.length, shape)
         }
-        return Futures(meal, non, p, dev, fitted, age, past).also { lastStep = step; lastFutures = it }
+        return Futures(meal, non, p, dev, fitted, age, past, scenarios).also { lastStep = step; lastFutures = it }
     }
 
     /**
-     * Choose the dose for this step.
-     * [view] as in [futures]. [futureActivity]: activity (U/min) of the insulin already given, at now + 5 min x j,
-     * j = 0..[HORIZON]. [iob] U, [basal] profile basal U/h, [target] mg/dL, [isfProfile] mg/dL per U.
+     * The meal SMB for this step.
+     * [view], [pastActivity] as in [futures]. [futureActivity]: activity (U/min) of the insulin already given, at
+     * now + 5 min x j, j = 0..[HORIZON]. [iob] U, [basal] profile basal U/h, [tempRate] U/h: vanilla's temp for the
+     * next 30 min. [isf] profile ISF, mg/dL per U. [smbAllowed]: vanilla allows an SMB now (settings, constraints,
+     * SMB interval, even target).
      */
-    fun step(
+    fun mealSmb(
         step: Long, view: DoubleArray, pastActivity: DoubleArray, futureActivity: DoubleArray,
-        iob: Double, basal: Double, target: Double, isfProfile: Double, settings: Settings
-    ): Decision {
-        val fut = futures(step, view, pastActivity, isfProfile, settings.shape)
-        updateStepDown(step, view, fut, settings.lowLine, settings.stepDownMax)
-        val isf = isfProfile / MpcModel.aisfFactor(MpcModel.aisfStatus(view), target)
+        iob: Double, basal: Double, tempRate: Double, isf: Double, smbAllowed: Boolean, settings: MealSmbSettings
+    ): MealSmb {
+        val fut = futures(step, view, pastActivity, isf, settings.shape)
         val bg0 = view[0]
-        val trend = (view[0] - view[3]) / 3
-        return decide(bg0, trend, futureActivity, basal, iob, bg0 >= settings.smbMinBg, fut, isf, settings, settings.lowLine - shift, settings.highLine - shift)
-    }
-
-    private fun decide(
-        bg0: Double, trend: Double, futureActivity: DoubleArray, basal: Double, iob: Double, smbAllowed: Boolean,
-        fut: Futures, isf: Double, st: Settings, lowLine: Double, highLine: Double
-    ): Decision {
-        val rc = st.secondStageMinutes / 5
-        val maxU = if (smbAllowed) max(0.0, min(st.maxSmb, st.maxIob - iob)) else 0.0
-        // more room above the low line (BG now, or trendRoomMinutes ahead when falling) = readier to call a meal
-        val room = (if (st.trendRoomMinutes > 0 && trend < 0) bg0 + trend * st.trendRoomMinutes / 5 else bg0) - lowLine
-        val pm = fut.mealChance + (1 - fut.mealChance) * min(1.0, max(0.0, st.roomBoost * room / 18))
-        val list = listOf(fut.meal to pm, fut.non to 1 - pm)
+        if (fut.mealChance >= MEAL_SEEN_CHANCE || bg0 >= MEAL_SEEN_BG) lastMealSeen = max(lastMealSeen, step)
+        val mealSeen = step - lastMealSeen < MEAL_SEEN_STEPS
+        val lowLine = settings.target
+        val highLine = settings.target + settings.highAbove
+        val room = bg0 - lowLine
+        val pm = fut.mealChance + (1 - fut.mealChance) * min(1.0, max(0.0, settings.roomBoost * room / 18))
+        val list = fut.scenarios?.let { sc -> sc.map { it to pm * (1.0 / sc.size) } + listOf(fut.non to 1 - pm) }   // as the replay: Pm x (1 / n)
+            ?: listOf(fut.meal to pm, fut.non to 1 - pm)
         val act = { j: Int -> futureActivity.getOrNull(j) ?: 0.0 }
+        val tempU = tempRate - basal
+        val rc = settings.secondStageMinutes / 5
+        val maxU = if (smbAllowed && mealSeen) max(0.0, min(settings.maxSmb, settings.maxIob - iob)) else 0.0
         var bestCost = 0.0
         var bestU = 0.0
-        var bestMode = 0
         var found = false
         val options = mutableListOf<Option>()
-        for (mode in intArrayOf(0, 1, -1)) {             // 0 normal basal, 1 zero temp, -1 high temp for 30 min
-            val tempU = if (mode == 1) -basal else if (mode == -1) st.highTempRate - basal else 0.0
-            if (mode == -1 && iob + tempU / 2 > st.maxIob) continue
-            var u = 0.0
-            while (u <= maxU + 1e-9) {
-                var cost = 0.0
-                for ((f, wgt) in list) {
-                    if (wgt <= 0) continue
-                    var bestC = Double.POSITIVE_INFINITY
-                    val u1Max = (if (rc > 0) max(0.0, min(st.maxSmb, maxU - u)) else 0.0) + 1e-9
-                    var u1 = 0.0
-                    while (u1 <= u1Max) {                // the second stage, per future
-                        var bgp = bg0
-                        var c = 0.0
-                        for (j in 1..HORIZON) {
-                            val a = act(j) + u * UNIT_ACT[j] + tempU * ZT[j] + (if (rc > 0 && j > rc) u1 * UNIT_ACT[j - rc] else 0.0)
-                            bgp += (f.getOrNull(j - 1) ?: 0.0) - isf * 5 * a
-                            if (bgp < lowLine) c += st.lowWeight * ((lowLine - bgp) * (lowLine - bgp))
-                            if (bgp > highLine) c += (bgp - highLine) * (bgp - highLine)
-                        }
-                        if (c < bestC) bestC = c
-                        u1 += 0.25
+        var u = 0.0
+        while (u <= maxU + 1e-9) {
+            var cost = 0.0
+            for ((f, wgt) in list) {
+                if (wgt <= 0) continue
+                var bestC = Double.POSITIVE_INFINITY
+                val u1Max = (if (rc > 0) max(0.0, min(settings.maxSmb, maxU - u)) else 0.0) + 1e-9
+                var u1 = 0.0
+                while (u1 <= u1Max) {                    // the second stage, per future
+                    var bgp = bg0
+                    var c = 0.0
+                    for (j in 1..HORIZON) {
+                        val a = act(j) + u * UNIT_ACT[j] + tempU * ZT[j] + (if (rc > 0 && j > rc) u1 * UNIT_ACT[j - rc] else 0.0)
+                        bgp += (f.getOrNull(j - 1) ?: 0.0) - isf * 5 * a
+                        if (bgp < lowLine) c += settings.lowWeight * ((lowLine - bgp) * (lowLine - bgp))
+                        if (bgp > highLine) c += (bgp - highLine) * (bgp - highLine)
                     }
-                    cost += wgt * bestC
+                    if (c < bestC) bestC = c
+                    u1 += 0.25
                 }
-                options += Option(mode, MpcModel.roundHalfUp(u * 20) / 20, cost)
-                if (!found || cost < bestCost) {
-                    found = true; bestCost = cost; bestU = u; bestMode = mode
-                }
-                u += 0.1
+                cost += wgt * bestC
             }
+            options += Option(MpcModel.roundHalfUp(u * 20) / 20, cost)
+            if (!found || cost < bestCost) {
+                found = true; bestCost = cost; bestU = u
+            }
+            u += 0.1
         }
-        val tempU = if (bestMode == 1) -basal else if (bestMode == -1) st.highTempRate - basal else 0.0
         val path = { f: DoubleArray ->
             var bgp = bg0
             DoubleArray(HORIZON) { k ->
@@ -285,18 +249,19 @@ class MpcController {
                 bgp += f[j - 1] - isf * 5 * (act(j) + bestU * UNIT_ACT[j] + tempU * ZT[j]); bgp
             }
         }
-        return Decision(
-            rate = if (bestMode == 1) 0.0 else if (bestMode == -1) st.highTempRate else basal,
-            duration = 30,
-            units = MpcModel.roundHalfUp(bestU * 20) / 20,
+        val pMeal = path(fut.meal)
+        val pNon = path(fut.non)
+        return MealSmb(
+            units = if (mealSeen) MpcModel.roundHalfUp(bestU * 20) / 20 else 0.0,
+            mealSeen = mealSeen,
             mealChance = fut.mealChance,
             weightedMealChance = pm,
-            predictedMeal = path(fut.meal),
-            predictedFalseStart = path(fut.non),
+            predictedMeal = pMeal,
+            predictedFalseStart = pNon,
+            predictedExpected = DoubleArray(HORIZON) { k -> pm * pMeal[k] + (1 - pm) * pNon[k] },
             futures = fut,
             room = room,
-            options = options.sortedBy { it.cost }.take(5),
-            stepDown = shift
+            options = if (mealSeen) options.sortedBy { it.cost }.take(5) else emptyList()
         )
     }
 
@@ -311,8 +276,16 @@ class MpcController {
         /** 3 h in 5 min steps */
         const val HORIZON = 36
 
-        /** Steady window of the step-down: 90 min */
-        private const val STEADY_STEPS = 18
+        /** Meal sizes the plan is scored over */
+        const val SCENARIOS = 3
+
+        /** A meal is seen at this chance, or at this BG (mg/dL), and stays seen for 30 min */
+        const val MEAL_SEEN_CHANCE = 0.1
+        const val MEAL_SEEN_BG = 180.0
+        private const val MEAL_SEEN_STEPS = 6
+
+        /** The cost of being high starts this far above the target, mg/dL (2.5 mmol/L) */
+        const val HIGH_ABOVE_TARGET = 45.0
 
         /** The replay's insulin model (Fiasp as set in the profile): DIA 5 h, peak 55 min. */
         val CURVE = MpcModel.Curve(5.0, 55.0)

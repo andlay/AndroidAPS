@@ -2,6 +2,7 @@ package app.aaps.plugins.aps.openAPSSMB
 
 import androidx.collection.LongSparseArray
 import androidx.collection.forEach
+import androidx.compose.runtime.Composable
 import app.aaps.core.data.aps.SMBDefaults
 import app.aaps.core.data.model.BS
 import app.aaps.core.data.model.GlucoseUnit
@@ -14,7 +15,11 @@ import app.aaps.core.interfaces.aps.APSResult
 import app.aaps.core.interfaces.aps.AutosensResult
 import app.aaps.core.interfaces.aps.CurrentTemp
 import app.aaps.core.interfaces.aps.GlucoseStatus
+import app.aaps.core.interfaces.aps.IobTotal
+import app.aaps.core.interfaces.aps.MealData
 import app.aaps.core.interfaces.aps.OapsProfile
+import app.aaps.core.interfaces.aps.Predictions
+import app.aaps.core.interfaces.aps.RT
 import app.aaps.core.interfaces.bgQualityCheck.BgQualityCheck
 import app.aaps.core.interfaces.concurrent.AapsLock
 import app.aaps.core.interfaces.concurrent.withLock
@@ -64,11 +69,16 @@ import app.aaps.core.ui.compose.icons.IcPluginOpenAPS
 import app.aaps.core.ui.compose.preference.PreferenceSubScreenDef
 import app.aaps.core.utils.MidnightUtils
 import app.aaps.plugins.aps.ApsStrings
+import app.aaps.plugins.aps.compose.OpenAPSComposeContent
 import app.aaps.plugins.aps.openAPS.PostDosePredictions
 import app.aaps.plugins.aps.openAPS.applySmbMinBg
 import app.aaps.plugins.aps.events.EventOpenAPSUpdateGui
 import app.aaps.plugins.aps.events.EventResetOpenAPSGui
 import app.aaps.plugins.aps.keys.ApsIntentKey
+import app.aaps.plugins.aps.mpc.MpcBooleanKey
+import app.aaps.plugins.aps.mpc.MpcCards
+import app.aaps.plugins.aps.mpc.MpcDoubleKey
+import app.aaps.plugins.aps.mpc.MpcMealSmb
 import app.aaps.plugins.aps.openAPS.TddStatus
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
@@ -78,6 +88,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlin.math.floor
 import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
 
 @SingleIn(AppScope::class)
 @Inject
@@ -110,11 +122,12 @@ open class OpenAPSSMBPlugin(
     PluginDescription()
         .mainType(PluginType.APS)
         .composeContent { plugin ->
-            app.aaps.plugins.aps.compose.OpenAPSComposeContent(
+            OpenAPSComposeContent(
                 apsPlugin = plugin as APS,
                 rxBus = rxBus,
                 rh = rh,
-                dateUtil = dateUtil
+                dateUtil = dateUtil,
+                header = (plugin as OpenAPSSMBPlugin).mpcHeader()
             )
         }
         .icon(IcPluginOpenAPS)
@@ -123,9 +136,17 @@ open class OpenAPSSMBPlugin(
         .showInList { config.APS || config.AAPSCLIENT }   // AAPSCLIENT: visible so a client can select the master's APS
         .description(ApsStrings.description_smb)
         .setDefault(),
-    ownPreferences = ApsIntentKey.entries,
+    ownPreferences = ApsIntentKey.entries + MpcBooleanKey.entries + MpcDoubleKey.entries,
     aapsLogger, rh, preferences, notificationManager
 ), APS, PluginConstraints {
+
+    /** MPC meal SMBs: sizes the SMB when a meal is seen, around vanilla's temp (off by default) */
+    private val mpcMealSmb = MpcMealSmb(preferences, iobCobCalculator, processedTbrEbData, persistenceLayer)
+
+    /** The MPC cards above the usual result, while MPC meal SMBs are on */
+    internal fun mpcHeader(): (@Composable () -> Unit) = {
+        if (preferences.get(MpcBooleanKey.MealSmb)) MpcCards(mpcMealSmb.details, mpcMealSmb.readableShape(), dateUtil)
+    }
 
     override suspend fun onStart() {
         super.onStart()
@@ -490,6 +511,8 @@ open class OpenAPSSMBPlugin(
         aapsLogger.debug(LTag.APS, "flatBGsDetected:    $flatBGsDetected")
         aapsLogger.debug(LTag.APS, "DynIsfMode:         $dynIsfMode")
 
+        // MPC meal SMBs: vanilla decides the temp with its own SMBs off; MPC sizes the SMB below
+        val mpcOn = preferences.get(MpcBooleanKey.MealSmb)
         determineBasalSMB.determine_basal(
             glucose_status = glucoseStatus,
             currenttemp = currentTemp,
@@ -497,11 +520,12 @@ open class OpenAPSSMBPlugin(
             profile = oapsProfile,
             autosens_data = autosensResult,
             meal_data = mealData,
-            microBolusAllowed = microBolusAllowed,
+            microBolusAllowed = microBolusAllowed && !mpcOn,
             currentTime = now,
             flatBGsDetected = flatBGsDetected,
             dynIsfMode = effectiveDynIsfMode
         ).also {
+            if (mpcOn) addMpcMealSmb(it, profile, oapsProfile, mealData, iobArray, currentTemp, microBolusAllowed, now)
             // The ISF the curves were made with: dynamic ISF, or the profile ISF with autosens
             val predictionSens = if (effectiveDynIsfMode) oapsProfile.variable_sens else oapsProfile.sens / (it.sensitivityRatio ?: autosensResult.ratio)
             it.predBGsAfterDose = PostDosePredictions.afterDose(it, currentTemp, oapsProfile.current_basal, predictionSens) { units, minutesAgo ->
@@ -523,6 +547,39 @@ open class OpenAPSSMBPlugin(
         }
 
         rxBus.send(EventOpenAPSUpdateGui())
+    }
+
+    /**
+     * MPC meal SMB on top of vanilla's result [rt] (made with SMBs off). The SMB obeys vanilla's own rules: its SMB
+     * settings and constraints (enable_smb), the SMB interval, max IOB and the UAM max minutes of basal, plus the
+     * even/odd target rule. The temp basal stays vanilla's.
+     */
+    private suspend fun addMpcMealSmb(
+        rt: RT, profile: Profile, oapsProfile: OapsProfile, mealData: MealData, iobArray: Array<IobTotal>,
+        currentTemp: CurrentTemp, microBolusAllowed: Boolean, now: Long
+    ) {
+        val vanillaSmb = determineBasalSMB.enable_smb(oapsProfile, microBolusAllowed, mealData, oapsProfile.target_bg)
+        val lastBolusAge = (now - iobArray[0].lastBolusTime) / 1000.0
+        val smbInterval = min(10, max(1, oapsProfile.SMBInterval)) * 60.0
+        val tempRate = rt.rate?.takeIf { (rt.duration ?: 0) > 0 } ?: if (currentTemp.duration > 0) currentTemp.rate else oapsProfile.current_basal
+        val result = mpcMealSmb.decide(
+            now = now, profile = profile, units = profileFunction.getUnits(), targetMgdl = oapsProfile.target_bg, tempRate = tempRate,
+            smbAllowed = vanillaSmb && lastBolusAge > smbInterval - 6.0,
+            maxIob = oapsProfile.max_iob,
+            maxSmb = Round.roundTo(oapsProfile.current_basal * oapsProfile.maxUAMSMBBasalMinutes / 60.0, 0.1),
+            bolusStep = oapsProfile.bolus_increment
+        ) ?: return
+        if (result.units > 0) rt.units = result.units
+        // SMBs are on when vanilla allows them and, with the even/odd rule, the target is even
+        val evenRule = preferences.get(MpcBooleanKey.EvenTargetSmb)
+        rt.smbEnabled = vanillaSmb && (!evenRule || MpcMealSmb.evenTarget(oapsProfile.target_bg, profileFunction.getUnits()))
+        rt.smbReason = result.reason
+        rt.reason.append("; ").append(result.reason)
+        rt.predBGs = (rt.predBGs ?: Predictions()).apply {
+            mpcMeal = result.predictedMeal
+            mpcFalseStart = result.predictedFalseStart
+            mpcExpected = result.predictedExpected
+        }
     }
 
     override fun getGlucoseStatusData(allowOldData: Boolean): GlucoseStatus? = glucoseStatusCalculatorSMB.getGlucoseStatusData(allowOldData)
@@ -616,6 +673,11 @@ open class OpenAPSSMBPlugin(
             IntKey.ApsUamMaxMinutesOfBasalToLimitSmb,
             BooleanKey.ApsUseUam,
             IntKey.ApsCarbsRequestThreshold,
+            PreferenceSubScreenDef(
+                key = "mpc_meal_smb",
+                title = ApsStrings.mpc_settings_title,
+                items = listOf(MpcBooleanKey.MealSmb, MpcBooleanKey.EvenTargetSmb, MpcDoubleKey.TypicalMeal, MpcDoubleKey.RiseLength)
+            ),
             PreferenceSubScreenDef(
                 key = "absorption_smb_advanced",
                 title = CoreUiStrings.advanced_settings_title,

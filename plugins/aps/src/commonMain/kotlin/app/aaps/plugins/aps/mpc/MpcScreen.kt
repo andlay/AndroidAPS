@@ -8,13 +8,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,98 +37,63 @@ import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.ui.compose.AapsCard
 import app.aaps.core.ui.compose.AapsSpacing
 import app.aaps.core.ui.compose.AapsTheme
-import app.aaps.core.ui.compose.ComposablePluginContent
-import app.aaps.core.ui.compose.ToolbarConfig
 import app.aaps.core.ui.compose.stringResource
 import app.aaps.plugins.aps.ApsStrings
+import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
-import kotlin.math.max
 import kotlin.math.log10
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
-class MpcComposeContent(private val plugin: MpcPlugin, private val dateUtil: DateUtil) : ComposablePluginContent {
-
-    @Composable
-    override fun Render(setToolbarConfig: (ToolbarConfig) -> Unit, onNavigateBack: () -> Unit, onSettings: (() -> Unit)?) {
-        val details by plugin.details.collectAsStateWithLifecycle()
-        MpcScreen(details, plugin.readableShape(), dateUtil)
-    }
-}
-
 /** One curve or bar set of a chart. x in minutes from now, y in chart units. */
 private class Curve(val points: List<Pair<Double, Double>>, val color: Color, val width: Float = 2f, val fill: Boolean = false, val dashed: Boolean = false, val bars: Boolean = false)
 
+/** The MPC meal SMB cards, shown at the top of the OpenAPS SMB screen when MPC meal SMBs are on */
 @Composable
-fun MpcScreen(details: MpcDetails?, shape: MpcShapeSettings, dateUtil: DateUtil) {
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(AapsSpacing.medium),
-        verticalArrangement = Arrangement.spacedBy(AapsSpacing.medium)
-    ) {
-        if (details == null) {
+fun MpcCards(details: StateFlow<MpcDetails?>, shape: MpcShapeSettings, dateUtil: DateUtil) {
+    val d by details.collectAsStateWithLifecycle()
+    Column(verticalArrangement = Arrangement.spacedBy(AapsSpacing.medium)) {
+        val run = d
+        if (run == null) {
             AapsCard(modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(ApsStrings.mpc_no_run_yet), modifier = Modifier.padding(AapsSpacing.large))
             }
         } else {
-            DecisionCard(details, dateUtil)
-            BgFutureCard(details)
-            CarbEffectCard(details)
-            OptionsCard(details)
+            DecisionCard(run, dateUtil)
+            BgFutureCard(run)
+            CarbEffectCard(run)
+            OptionsCard(run)
         }
         ShapeCard(shape)
     }
 }
 
-/** What the aim over days measured, and what it did with the low line or, in shadow mode, would do */
-@Composable
-private fun AimLines(a: MpcAimState, d: MpcDetails) {
-    Text(
-        when {
-            a.measured.isNaN()     -> stringResource(ApsStrings.mpc_aim_no_data)
-            a.aim == MpcAim.HBA1C  ->
-                if (d.mmol) stringResource(ApsStrings.mpc_aim_hba1c_mmol, a.targetHbA1c, a.measured / 18, a.wanted / 18)
-                else stringResource(ApsStrings.mpc_aim_hba1c_mgdl, a.targetHbA1c, a.measured, a.wanted)
-            else                   -> stringResource(ApsStrings.mpc_aim_trade_line, a.wanted, a.measured)
-        }
-    )
-    if (a.steering) {
-        val moved = d.lowLine + d.stepDown - d.setLowLine
-        Text(if (d.mmol) stringResource(ApsStrings.mpc_aim_moved_mmol, moved / 18) else stringResource(ApsStrings.mpc_aim_moved_mgdl, moved))
-    } else if (!a.measured.isNaN()) {
-        Text(
-            stringResource(
-                when {
-                    a.step > 0.05  -> ApsStrings.mpc_aim_shadow_up
-                    a.step < -0.05 -> ApsStrings.mpc_aim_shadow_down
-                    else           -> ApsStrings.mpc_aim_shadow_hold
-                }
-            )
-        )
-    }
-}
-
 @Composable
 private fun DecisionCard(d: MpcDetails, dateUtil: DateUtil) {
+    val chance = (d.weightedMealChance * 100).roundToInt()
     AapsCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(AapsSpacing.large), verticalArrangement = Arrangement.spacedBy(AapsSpacing.small)) {
             Text(stringResource(ApsStrings.mpc_decision_title, dateUtil.timeString(d.time)), style = MaterialTheme.typography.titleMedium)
             Text(stringResource(ApsStrings.mpc_smb_units, d.units), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text(
                 when {
-                    d.rate == 0.0     -> stringResource(ApsStrings.mpc_temp_zero, d.duration)
-                    d.rate > d.basal  -> stringResource(ApsStrings.mpc_temp_high, d.rate, d.duration)
-                    else              -> stringResource(ApsStrings.mpc_temp_normal, d.basal)
+                    !d.mealSeen                 -> stringResource(ApsStrings.mpc_status_no_meal)
+                    d.evenRule && !d.evenTarget -> stringResource(ApsStrings.mpc_status_odd_target)
+                    !d.smbAllowed               -> stringResource(ApsStrings.mpc_status_not_allowed)
+                    d.units > 0                 -> stringResource(ApsStrings.mpc_status_smb)
+                    else                        -> stringResource(ApsStrings.mpc_status_wait)
                 },
                 style = MaterialTheme.typography.titleSmall
             )
-            Text(stringResource(ApsStrings.mpc_meal_chance_line, (d.mealChance * 100).roundToInt(), (d.weightedMealChance * 100).roundToInt()))
+            Text(stringResource(ApsStrings.mpc_vanilla_temp, d.tempRate, d.basal))
+            Text(stringResource(ApsStrings.mpc_meal_chance_line, (d.mealChance * 100).roundToInt(), chance))
             Text(if (d.mmol) stringResource(ApsStrings.mpc_room_mmol, d.room / 18) else stringResource(ApsStrings.mpc_room_mgdl, d.room))
-            Text(if (d.mmol) stringResource(ApsStrings.mpc_lines_mmol, d.lowLine / 18, d.highLine / 18) else stringResource(ApsStrings.mpc_lines_mgdl, d.lowLine, d.highLine))
-            d.aim?.let { a -> AimLines(a, d) }
-            if (d.stepDown > 0) Text(if (d.mmol) stringResource(ApsStrings.mpc_step_down_mmol, d.stepDown / 18) else stringResource(ApsStrings.mpc_step_down_mgdl, d.stepDown))
+            Text(if (d.mmol) stringResource(ApsStrings.mpc_lines_mmol, d.target / 18, d.highLine / 18) else stringResource(ApsStrings.mpc_lines_mgdl, d.target, d.highLine))
+            if (d.evenRule) Text(stringResource(if (d.evenTarget) ApsStrings.mpc_even_target_on else ApsStrings.mpc_even_target_off))
             Text(
                 when {
                     d.impactAge < 0 -> stringResource(ApsStrings.mpc_impact_none)
@@ -139,7 +101,7 @@ private fun DecisionCard(d: MpcDetails, dateUtil: DateUtil) {
                     else            -> stringResource(ApsStrings.mpc_impact_running, d.impactAge * 5)
                 }
             )
-            Text(if (d.mmol) stringResource(ApsStrings.mpc_isf_mmol, d.isf / 18, d.aisfFactor) else stringResource(ApsStrings.mpc_isf_mgdl, d.isf, d.aisfFactor))
+            Text(if (d.mmol) stringResource(ApsStrings.mpc_isf_mmol, d.isf / 18) else stringResource(ApsStrings.mpc_isf_mgdl, d.isf))
             Text(stringResource(ApsStrings.mpc_iob_line, d.iob))
         }
     }
@@ -151,7 +113,7 @@ private fun BgFutureCard(d: MpcDetails) {
     val k = if (d.mmol) 1 / 18.0 else 1.0
     val ahead = { a: DoubleArray -> listOf(0.0 to d.bg * k) + a.mapIndexed { j, v -> (j + 1) * 5.0 to v * k } }
     val all = d.predictedMeal + d.predictedFalseStart + d.bg
-    val yMin = min(all.min(), d.lowLine - 10) * k
+    val yMin = min(all.min(), d.target - 10) * k
     val yMax = max(all.max(), d.highLine + 10) * k
     val curves = listOf(
         Curve(ahead(d.predictedFalseStart), c.mpcFalseStartPrediction),
@@ -161,7 +123,7 @@ private fun BgFutureCard(d: MpcDetails) {
     ChartCard(
         title = stringResource(ApsStrings.mpc_bg_future_title),
         curves = curves, xMin = 0.0, xMax = 180.0, yMin = yMin, yMax = yMax, xStep = 30.0,
-        hLines = listOf(d.lowLine * k to c.bgLow, d.highLine * k to c.bgHigh), decimals = if (d.mmol) 1 else 0,
+        hLines = listOf(d.target * k to c.bgLow, d.highLine * k to c.bgHigh), decimals = if (d.mmol) 1 else 0,
         legend = listOf(
             stringResource(ApsStrings.mpc_legend_expected) to c.mpcExpectedPrediction,
             stringResource(ApsStrings.mpc_legend_meal) to c.mpcMealPrediction,
@@ -211,11 +173,7 @@ private fun OptionsCard(d: MpcDetails) {
             d.options.forEachIndexed { i, o ->
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(
-                        when (o.mode) {
-                            1    -> stringResource(ApsStrings.mpc_option_zero, o.units)
-                            -1   -> stringResource(ApsStrings.mpc_option_high, o.units)
-                            else -> stringResource(ApsStrings.mpc_option_normal, o.units)
-                        },
+                        stringResource(ApsStrings.mpc_smb_units, o.units),
                         fontWeight = if (i == 0) FontWeight.Bold else FontWeight.Normal
                     )
                     Text(

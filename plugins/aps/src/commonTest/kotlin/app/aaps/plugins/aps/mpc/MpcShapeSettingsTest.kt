@@ -9,24 +9,28 @@ class MpcShapeSettingsTest {
     private fun close(a: Double, b: Double, tol: Double) = assertTrue(abs(a - b) <= tol * maxOf(1.0, abs(b)), "$a != $b")
 
     @Test
-    fun defaultsAreTheFittedShape() {
-        // the preference defaults, read back through the conversion, give the fitted model (ISF and carb ratio of the replay)
+    fun defaultsAreTheFittedShapeTwentyPercentHigherAndLonger() {
+        // the two meal settings at their defaults, with the fixed rest of the shape: the fitted model with the
+        // carb effect 20 % higher and 20 % longer (ISF and carb ratio of the replay)
+        val f = MpcModel.Shape.FITTED
+        val fixed = MpcMealSmb.FIXED_SHAPE
+        close(MpcDoubleKey.TypicalMeal.defaultValue, fixed.typicalGrams * 1.44, 1e-3)
+        close(MpcDoubleKey.RiseLength.defaultValue, fixed.typicalMinutes * 1.2, 1e-3)
         val readable = MpcShapeSettings(
-            peakPosition = MpcDoubleKey.PeakPosition.defaultValue,
-            halfWidth = MpcDoubleKey.HalfWidth.defaultValue,
+            peakPosition = fixed.peakPosition,
+            halfWidth = fixed.halfWidth,
             typicalMinutes = MpcDoubleKey.RiseLength.defaultValue,
-            lengthSpreadPct = MpcDoubleKey.RiseLengthSpread.defaultValue,
+            lengthSpreadPct = fixed.lengthSpreadPct,
             typicalGrams = MpcDoubleKey.TypicalMeal.defaultValue,
-            sizeSpreadPct = MpcDoubleKey.MealSizeSpread.defaultValue,
-            readinessPct = MpcIntKey.MealReadiness.defaultValue.toDouble(),
-            tailHalfLifeMinutes = MpcDoubleKey.TailHalfLife.defaultValue
+            sizeSpreadPct = fixed.sizeSpreadPct,
+            readinessPct = fixed.readinessPct,
+            tailHalfLifeMinutes = fixed.tailHalfLifeMinutes
         )
         val s = readable.toShape(isf = 46.8, ic = 13.92)
-        val f = MpcModel.Shape.FITTED
         close(s.a, f.a, 1e-6); close(s.b, f.b, 1e-6)
-        close(s.height, f.height, 1e-4); close(s.heightSd, f.heightSd, 1e-9)
-        close(s.length, f.length, 1e-9); close(s.lengthSd, f.lengthSd, 1e-9)
-        close(s.mealBias, 0.0, 1e-12); close(s.tailTau, f.tailTau, 1e-9)
+        close(s.height, f.height * 1.2, 1e-3); close(s.heightSd, f.heightSd, 1e-9)
+        close(s.length, f.length * 1.2, 1e-3); close(s.lengthSd, f.lengthSd, 1e-9)
+        close(s.mealBias, f.mealBias, 1e-9); close(s.tailTau, f.tailTau, 1e-9)
     }
 
     @Test
