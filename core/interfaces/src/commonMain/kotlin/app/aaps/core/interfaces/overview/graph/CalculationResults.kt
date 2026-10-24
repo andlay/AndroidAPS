@@ -133,6 +133,27 @@ data class IobGraphData(
 )
 
 /**
+ * Alpha build: the insulin the shadow loop decided on, as if it had been given - its SMBs, its temp
+ * basals and the IOB of those plus the manual boluses that were really given.
+ * Drawn as a second IOB / basal graph below the real one.
+ */
+data class ShadowDosingGraphData(
+    val iob: IobGraphData,
+    val treatments: TreatmentGraphData,
+    val basal: BasalGraphData
+) {
+
+    companion object {
+
+        val EMPTY = ShadowDosingGraphData(
+            IobGraphData(emptyList(), emptyList()),
+            TreatmentGraphData(emptyList(), emptyList(), emptyList(), emptyList()),
+            BasalGraphData(emptyList(), emptyList(), 0.0)
+        )
+    }
+}
+
+/**
  * Absolute IOB graph data: absolute IOB line only
  */
 data class AbsIobGraphData(

@@ -212,6 +212,7 @@
     <string name="a11y_prediction_name_acob" comment="Spoken name of the prediction from already absorbed carbs, shown by the AMA algorithm only.">Absorbed COB prediction</string>
     <string name="a11y_prediction_name_uam" comment="Spoken name of the prediction for a meal the user did not enter. UAM is the term AAPS users know.">UAM prediction</string>
     <string name="a11y_prediction_name_mpc_expected" comment="Spoken name of the MPC controller's expected BG: the meal and the no-meal curves weighted by the chance of a meal.">MPC expected</string>
+    <string name="shadow_iob_basal" comment="Name of the alpha build graph that shows the insulin the shadow loop would have given: its IOB, SMBs and basal.">Shadow IOB / BAS</string>
     <string name="a11y_prediction_name_mpc_meal" comment="Spoken name of the MPC controller's BG curve if the current rise is a meal.">MPC if a meal</string>
     <string name="a11y_prediction_name_mpc_false_start" comment="Spoken name of the MPC controller's BG curve if the current rise fades and is not a meal.">MPC if no meal</string>
     <string name="a11y_prediction_name_zt" comment="Spoken name of the prediction for what happens with no insulin at all, the zero-temp curve.">Zero temp prediction</string>

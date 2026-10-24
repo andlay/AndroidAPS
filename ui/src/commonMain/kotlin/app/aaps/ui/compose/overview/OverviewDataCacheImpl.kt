@@ -53,6 +53,7 @@ import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import app.aaps.core.interfaces.overview.graph.HeartRateGraphData
 import app.aaps.core.interfaces.overview.graph.HeldLoopRun
 import app.aaps.core.interfaces.overview.graph.IobGraphData
+import app.aaps.core.interfaces.overview.graph.ShadowDosingGraphData
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
 import app.aaps.core.interfaces.overview.graph.PredictedDeviationsGraphData
 import app.aaps.core.interfaces.overview.graph.ProfileDisplayData
@@ -122,6 +123,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Implementation of OverviewDataCache using MutableStateFlow.
@@ -285,6 +287,8 @@ class OverviewDataCacheImpl(
     override val epsGraphFlow: StateFlow<List<EpsGraphPoint>> = _epsGraphFlow.asStateFlow()
     private val _basalGraphFlow = MutableStateFlow(BasalGraphData(emptyList(), emptyList(), 0.0))
     override val basalGraphFlow: StateFlow<BasalGraphData> = _basalGraphFlow.asStateFlow()
+    private val _shadowDosingFlow = MutableStateFlow(ShadowDosingGraphData.EMPTY)
+    override val shadowDosingFlow: StateFlow<ShadowDosingGraphData> = _shadowDosingFlow.asStateFlow()
     private val _targetLineFlow = MutableStateFlow(TargetLineData(emptyList()))
     override val targetLineFlow: StateFlow<TargetLineData> = _targetLineFlow.asStateFlow()
     private val _runningModeGraphFlow = MutableStateFlow(RunningModeGraphData(emptyList()))
@@ -304,6 +308,7 @@ class OverviewDataCacheImpl(
     private val runningModeRebuildMutex = Mutex()
     private val targetLineRebuildMutex = Mutex()
     private val basalRebuildMutex = Mutex()
+    private val shadowRebuildMutex = Mutex()
 
     init {
         // Scope-agnostic: always bridge calculation progress into the flow.
@@ -326,6 +331,7 @@ class OverviewDataCacheImpl(
                     rebuildBasalGraph()
                     rebuildHeartRateGraph()
                     rebuildStepsGraph()
+                    rebuildShadowDosingGraph()
                 }
         }
 
@@ -341,6 +347,8 @@ class OverviewDataCacheImpl(
                     rebuildRunningModeGraph()
                     rebuildTargetLine()
                     rebuildBasalGraph()
+                    // a new loop run is a new shadow decision
+                    rebuildShadowDosingGraph()
                 }
         }
 
@@ -1153,6 +1161,69 @@ class OverviewDataCacheImpl(
     // NSClient status rebuild
     // =========================================================================
 
+    /** Shadow decisions already read, by time: the stored results are large, so each one is decoded once */
+    private var shadowDecisions = listOf<ShadowDecision>()
+
+    /**
+     * Alpha build: what the shadow loop would have given (see [shadowPlan]), with its IOB. The manual boluses are the
+     * real ones; the loop's own SMBs and temps are the shadow ones. The IOB is computed with the active insulin.
+     */
+    private suspend fun rebuildShadowDosingGraph() = shadowRebuildMutex.withLock {
+        if (!config.ALPHA || !observeDatabase) return
+        val (fromTime, toTime) = graphTimeRange() ?: return
+        val endTime = min(dateUtil.now(), toTime)
+        val iCfg = profileFunction.getProfile()?.iCfg ?: return
+        val start = fromTime - iCfg.insulinEndTime
+        // only the decisions not read yet
+        val kept = shadowDecisions.filter { it.time >= start }
+        val readFrom = max(start, (kept.lastOrNull()?.time ?: 0L) + 1)
+        val read = persistenceLayer.getApsResults(readFrom, endTime).map { ShadowDecision(it.date, it.isTempBasalRequested, it.rate, it.duration, it.smb) }
+        shadowDecisions = (kept + read).sortedBy { it.time }
+        val profiles = profileBoundariesIn(persistenceLayer.getEffectiveProfileSwitchesFromTimeToTime(start, endTime, true), start)
+            .let { listOf(start) + it }.mapNotNull { t -> profileFunction.getProfile(t)?.let { t to it } }
+        if (profiles.isEmpty()) return
+        val profileAt = { t: Long -> profiles.lastOrNull { it.first <= t }?.second ?: profiles.first().second }
+        val temporaryBasals = processedTbrEbData.getTempBasalsIncludingConvertedExtended(start, roundUpToMinute(endTime))
+        val boluses = persistenceLayer.getBolusesFromTimeToTime(start, endTime, true).filter { it.isValid }
+        val plan = shadowPlan(
+            decisions = shadowDecisions.filter { it.time <= endTime },
+            from = start,
+            to = endTime,
+            profileBasalAt = { t -> profileAt(t).getBasal(t) },
+            realBasalAt = { t -> profileAt(t).let { p -> temporaryBasals.at(t)?.convertedToAbsolute(t, p) ?: p.getBasal(t) } },
+            realSmbs = boluses.filter { it.type == BS.Type.SMB }.map { it.timestamp to it.amount }
+        )
+        val manual = boluses.filter { it.type == BS.Type.NORMAL }
+        val doses = (manual.map { it.timestamp to it.amount } + plan.smbs + plan.netParts).sortedBy { it.first }
+        val iob = mutableListOf<GraphDataPoint>()
+        var t = fromTime - fromTime % 300_000L
+        while (t <= endTime) {
+            var sum = 0.0
+            for ((time, units) in doses) {
+                if (time > t) break
+                if (t - time >= iCfg.insulinEndTime) continue
+                sum += iCfg.iobCalcForTreatment(BS(timestamp = time, amount = units, type = BS.Type.SMB, iCfg = iCfg), t).iobContrib
+            }
+            iob += GraphDataPoint(t, sum)
+            t += 300_000L
+        }
+        val bolusStep = activePlugin.activePump.pumpDescription.bolusStep
+        val markers = (manual.map { it.timestamp to it.amount to BolusType.NORMAL } + plan.smbs.map { it to BolusType.SMB })
+            .filter { it.first.first >= fromTime }
+            .map { (dose, type) ->
+                BolusGraphPoint(dose.first, dose.second, type, true, decimalFormatter.toPumpSupportedBolusWithUnits(dose.second, bolusStep))
+            }
+        val shown = plan.basal.filter { it.first >= fromTime }
+        val actual = (plan.basal.lastOrNull { it.first < fromTime }?.let { listOf(GraphDataPoint(fromTime, it.second)) } ?: emptyList()) +
+            shown.map { GraphDataPoint(it.first, it.second) }
+        val profileBasal = _basalGraphFlow.value.profileBasal
+        _shadowDosingFlow.value = ShadowDosingGraphData(
+            iob = IobGraphData(iob, emptyList()),
+            treatments = TreatmentGraphData(markers, emptyList(), emptyList(), emptyList()),
+            basal = BasalGraphData(profileBasal, actual, max(_basalGraphFlow.value.maxBasal, actual.maxOfOrNull { it.value } ?: 0.0))
+        )
+    }
+
     private fun rebuildNsClientStatus() {
         val now = dateUtil.now()
         val pumpItem = processedDeviceStatusData.pumpData?.let { pumpData ->
@@ -1296,6 +1367,7 @@ class OverviewDataCacheImpl(
         _treatmentGraphFlow.value = TreatmentGraphData(emptyList(), emptyList(), emptyList(), emptyList())
         _epsGraphFlow.value = emptyList()
         _basalGraphFlow.value = BasalGraphData(emptyList(), emptyList(), 0.0)
+        _shadowDosingFlow.value = ShadowDosingGraphData.EMPTY
         _targetLineFlow.value = TargetLineData(emptyList())
         _runningModeGraphFlow.value = RunningModeGraphData(emptyList())
         _nsClientStatusFlow.value = AapsClientStatusData()

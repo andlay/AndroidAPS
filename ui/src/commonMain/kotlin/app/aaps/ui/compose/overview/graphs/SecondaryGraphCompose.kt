@@ -159,6 +159,8 @@ fun SecondaryGraphCompose(
     inspect: GraphInspectState? = null,
     /** Gets this graph's x layout on every draw, for a pinch on another graph (see GraphForwardToBg.kt). */
     geometryHolder: GraphGeometryHolder? = null,
+    /** Alpha build: draw the IOB, SMBs and basal of the shadow loop instead of the real ones (IOB only) */
+    shadow: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val dateUtil = LocalDateUtil.current
@@ -208,9 +210,10 @@ fun SecondaryGraphCompose(
     val hasCob = primaryType == SeriesType.COB
 
     // Collect flows for primary series (includes share flow for DEV and BGI if together on the same graph with shareAxis true)
-    val iobData = if (hasIob) viewModel.iobGraphFlow.collectAsStateWithLifecycle().value else null
+    val shadowData = if (shadow && hasIob) viewModel.shadowDosingFlow.collectAsStateWithLifecycle().value else null
+    val iobData = if (shadowData != null) shadowData.iob else if (hasIob) viewModel.iobGraphFlow.collectAsStateWithLifecycle().value else null
     val cobData = if (hasCob) viewModel.cobGraphFlow.collectAsStateWithLifecycle().value else null
-    val treatmentData = if (hasIob || hasCob) viewModel.treatmentGraphFlow.collectAsStateWithLifecycle().value else null
+    val treatmentData = if (shadowData != null) shadowData.treatments else if (hasIob || hasCob) viewModel.treatmentGraphFlow.collectAsStateWithLifecycle().value else null
     val absIobData = if (primaryType == SeriesType.ABS_IOB) viewModel.absIobGraphFlow.collectAsStateWithLifecycle().value else null
     val bgiData = if (SeriesType.BGI in primaryTypes) viewModel.bgiGraphFlow.collectAsStateWithLifecycle().value else null
     val deviationsData = if (SeriesType.DEVIATIONS in primaryTypes) viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value else null
@@ -235,7 +238,7 @@ fun SecondaryGraphCompose(
     val needsActivity = primaryType == SeriesType.ACTIVITY || (activityOverlay && hasIob)
     val activityData = if (needsActivity) viewModel.activityGraphFlow.collectAsStateWithLifecycle().value else null
     // Basal overlay only when IOB is primary and single-axis (no room for basal with dual-axis)
-    val basalData = if (hasIob && !isDualAxis) viewModel.basalGraphFlow.collectAsStateWithLifecycle().value else null
+    val basalData = if (hasIob && !isDualAxis) shadowData?.basal ?: viewModel.basalGraphFlow.collectAsStateWithLifecycle().value else null
 
     // Collect flow for secondary (right axis) series - (emptyList() if DEV and BGI together)
     val secondaryLineData = if (!isDualAxis) emptyList() else when (secondaryType) {

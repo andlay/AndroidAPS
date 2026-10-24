@@ -60,6 +60,7 @@ import app.aaps.core.interfaces.overview.graph.SecondaryGraph
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.keys.interfaces.TextRef
 import app.aaps.core.ui.CoreUiStrings
+import app.aaps.core.ui.compose.LocalConfig
 import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.LocalDecimalFormatter
 import app.aaps.core.ui.compose.LocalProfileUtil
@@ -335,6 +336,10 @@ fun GraphsSection(
     // Fixed IOB graph - non-interactive, synced from BG
     val iobScrollState = rememberVicoScrollState(scrollEnabled = false, initialScroll = Scroll.Absolute.End)
     val iobZoomState = rememberVicoZoomState(zoomEnabled = false, initialZoom = startZoom)
+    // Alpha build: the shadow IOB graph below it, synced from BG the same way
+    val isAlpha = LocalConfig.current.ALPHA
+    val shadowScrollState = rememberVicoScrollState(scrollEnabled = false, initialScroll = Scroll.Absolute.End)
+    val shadowZoomState = rememberVicoZoomState(zoomEnabled = false, initialZoom = startZoom)
 
     // Active graph count — rememberUpdatedState so coroutines always read the latest value
     // without writing to state during composition. Unattached states are no-ops for
@@ -355,7 +360,7 @@ fun GraphsSection(
     // Keys include ALL state objects — identical pattern to the original working sync
     LaunchedEffect(
         bgScrollState, bgZoomState, beltScrollState, beltZoomState,
-        iobScrollState, iobZoomState,
+        iobScrollState, iobZoomState, shadowScrollState, shadowZoomState,
         sec0scroll, sec0zoom, sec1scroll, sec1zoom,
         sec2scroll, sec2zoom, sec3scroll, sec3zoom,
         sec4scroll, sec4zoom
@@ -377,12 +382,14 @@ fun GraphsSection(
                 if (zoom != syncedZoom || count != syncedCount) {
                     beltZoomState.zoom(Zoom.fixed(zoom))
                     iobZoomState.zoom(Zoom.fixed(zoom))
+                    if (isAlpha) shadowZoomState.zoom(Zoom.fixed(zoom))
                     for (i in 0 until count) secZoomStates[i].zoom(Zoom.fixed(zoom))
                     syncedZoom = zoom
                     syncedCount = count
                 }
                 beltScrollState.scroll(Scroll.Absolute.pixels(scroll))
                 iobScrollState.scroll(Scroll.Absolute.pixels(scroll))
+                if (isAlpha) shadowScrollState.scroll(Scroll.Absolute.pixels(scroll))
                 for (i in 0 until count) secScrollStates[i].scroll(Scroll.Absolute.pixels(scroll))
             }
     }
@@ -439,6 +446,7 @@ fun GraphsSection(
             buildList {
                 add(beltScrollState.value to beltZoomState.value)
                 add(iobScrollState.value to iobZoomState.value)
+                if (isAlpha) add(shadowScrollState.value to shadowZoomState.value)
                 for (i in 0 until count) {
                     add(secScrollStates[i].value to secZoomStates[i].value)
                 }
@@ -456,10 +464,12 @@ fun GraphsSection(
                     val count = activeCount
                     beltZoomState.zoom(Zoom.fixed(bgZoom))
                     iobZoomState.zoom(Zoom.fixed(bgZoom))
+                    if (isAlpha) shadowZoomState.zoom(Zoom.fixed(bgZoom))
                     for (i in 0 until count) secZoomStates[i].zoom(Zoom.fixed(bgZoom))
                     // No wait between zoom and scroll, see the sync above
                     beltScrollState.scroll(Scroll.Absolute.pixels(bgScroll))
                     iobScrollState.scroll(Scroll.Absolute.pixels(bgScroll))
+                    if (isAlpha) shadowScrollState.scroll(Scroll.Absolute.pixels(bgScroll))
                     for (i in 0 until count) secScrollStates[i].scroll(Scroll.Absolute.pixels(bgScroll))
                 }
             }
@@ -685,6 +695,35 @@ fun GraphsSection(
                 },
                 onDismiss = { editingIobOverlays = false }
             )
+        }
+
+        // Alpha build: the same graph for what the shadow loop decided (its SMBs and temps, and the IOB they give)
+        if (isAlpha) {
+            Box(modifier = Modifier.pullUp(GRAPH_OVERLAP)) {
+                SecondaryGraphCompose(
+                    viewModel = graphViewModel,
+                    seriesTypes = listOf(SeriesType.IOB),
+                    scrollState = shadowScrollState,
+                    zoomState = shadowZoomState,
+                    derivedTimeRange = derivedTimeRange,
+                    nowTimestamp = nowTimestamp,
+                    inspect = inspect,
+                    geometryHolder = graphGeometry,
+                    shadow = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(graphConfig.iobHeight.dp - REMOVED_TIME_LABELS_HEIGHT)
+                        .then(rememberForwardToBgInput(graphGeometry, bgScrollState, bgZoomState, inspect, graphViewModel::onGraphInteraction))
+                )
+                GraphNameRow(
+                    name = stringResource(UiStrings.shadow_iob_basal),
+                    editName = stringResource(UiStrings.shadow_iob_basal),
+                    onEdit = null,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 4.dp, bottom = GRAPH_NAME_BOTTOM_PADDING)
+                )
+            }
         }
 
         // Secondary graphs — config-driven (labels start at "Graph 2")

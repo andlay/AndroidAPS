@@ -1,6 +1,8 @@
 package app.aaps.core.interfaces.overview.graph
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Cache for overview data. Populated reactively by observing database changes, observed by ViewModels via StateFlow.
@@ -121,6 +123,9 @@ interface OverviewDataCache {
     // Basal graph: profile basal (dashed) + actual delivered basal (solid + fill)
     val basalGraphFlow: StateFlow<BasalGraphData>
 
+    /** Alpha build only: what the shadow loop would have given. Empty in every other build. */
+    val shadowDosingFlow: StateFlow<ShadowDosingGraphData> get() = NO_SHADOW_DOSING
+
     // Target line: step-function showing target midpoint (TT or profile default)
     val targetLineFlow: StateFlow<TargetLineData>
 
@@ -134,3 +139,5 @@ interface OverviewDataCache {
 
     fun reset()
 }
+
+private val NO_SHADOW_DOSING: StateFlow<ShadowDosingGraphData> = MutableStateFlow(ShadowDosingGraphData.EMPTY).asStateFlow()

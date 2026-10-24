@@ -140,6 +140,7 @@ class GraphViewModel(
     val treatmentGraphFlow = cache.treatmentGraphFlow
     val epsGraphFlow = cache.epsGraphFlow
     val basalGraphFlow = cache.basalGraphFlow
+    val shadowDosingFlow = cache.shadowDosingFlow
     val targetLineFlow = cache.targetLineFlow
     val runningModeGraphFlow = cache.runningModeGraphFlow
 
