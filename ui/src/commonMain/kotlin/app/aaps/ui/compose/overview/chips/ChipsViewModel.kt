@@ -136,7 +136,7 @@ class ChipsViewModel(
             result == null                                     -> ""
             !result.isTempBasalRequested                       -> rh.gs(CoreUiStrings.loop_decision_keep_temp)
             result.duration == 0                               -> rh.gs(CoreUiStrings.loop_decision_cancel_temp)
-            result.usePercent                                  -> rh.gs(CoreUiStrings.loop_decision_temp, rh.gs(CoreUiStrings.format_percent, result.percent), result.duration)
+            result.usePercent                                  -> rh.gs(CoreUiStrings.loop_decision_temp, rh.gs(CoreUiStrings.units_format_percent, result.percent), result.duration)
             else                                               -> rh.gs(CoreUiStrings.loop_decision_temp, rh.gs(CoreUiStrings.pump_base_basal_rate, result.rate), result.duration)
         }
         val decisionSmb = when {

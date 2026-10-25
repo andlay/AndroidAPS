@@ -636,7 +636,7 @@ private fun PillExtra(extra: InspectExtra) {
             val text = when (extra.type) {
                 SeriesType.ABS_IOB                           -> stringResource(InterfacesStrings.format_insulin_units, v)
                 SeriesType.DEV_CARBS                         -> stringResource(InterfacesStrings.format_carbs, v.roundToInt())
-                SeriesType.SENSITIVITY, SeriesType.MEAL_CHANCE -> stringResource(CoreUiStrings.format_percent, v.roundToInt())
+                SeriesType.SENSITIVITY, SeriesType.MEAL_CHANCE -> stringResource(CoreUiStrings.units_format_percent, v.roundToInt())
                 SeriesType.MEAL_CARBS                        -> stringResource(InterfacesStrings.format_carbs, v.roundToInt())
                 SeriesType.ACTIVITY                          -> decimalFormatter.to3Decimal(v)
                 SeriesType.HEART_RATE, SeriesType.STEPS      -> decimalFormatter.to0Decimal(v)
