@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.Color
  * @property aCobPrediction Color for absorbed COB predictions (lighter orange)
  * @property uamPrediction Color for UAM (unannounced meals) predictions (yellow)
  * @property ztPrediction Color for zero-temp predictions (cyan)
+ * @property graphGrid Color for the grid lines on the overview graphs, translucent so a band drawn under them shows through
  */
 data class GeneralColors(
     val activeInsulinText: Color,
@@ -85,6 +86,7 @@ data class GeneralColors(
     /** Alpha build: the IOB and the basal of the shadow loop, opposite the blue IOB and the cyan basal */
     val shadowIob: Color,
     val shadowBasal: Color,
+    val graphGrid: Color,
     // Loop mode colors
     val loopClosed: Color,
     val loopOpened: Color,
@@ -151,6 +153,7 @@ val LightGeneralColors = GeneralColors(
     mpcExpectedPrediction = Color(0xFF212121),   // near black: MPC, weighted by the meal chance
     shadowIob = Color(0xFFE59400),               // amber: shadow IOB, opposite the blue IOB
     shadowBasal = Color(0xFFD4B000),             // yellow: shadow basal, opposite the cyan basal
+    graphGrid = Color(0x80CAC4D0),           // Material outlineVariant at 50%
     // Loop mode colors
     loopClosed = Color(0xFF00C03E),          // green for closed loop
     loopOpened = Color(0xFF4983D7),          // blue for open loop
@@ -213,6 +216,7 @@ val DarkGeneralColors = GeneralColors(
     mpcExpectedPrediction = Color(0xFFF5F5F5),   // near white: MPC, weighted by the meal chance (dark mode)
     shadowIob = Color(0xFFFFB74D),               // amber: shadow IOB, opposite the blue IOB (dark mode)
     shadowBasal = Color(0xFFFFEE58),             // yellow: shadow basal, opposite the cyan basal (dark mode)
+    graphGrid = Color(0x40938F99),           // Material outline at 25%: outlineVariant at 50% was barely visible on the dark surface
     // Loop mode colors (same in both modes)
     loopClosed = Color(0xFF00C03E),          // green for closed loop
     loopOpened = Color(0xFF4983D7),          // blue for open loop

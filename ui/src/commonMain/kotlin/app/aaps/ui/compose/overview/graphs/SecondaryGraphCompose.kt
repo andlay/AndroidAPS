@@ -584,8 +584,9 @@ fun SecondaryGraphCompose(
             )
         }
     }
-    val decorations = remember(nowLine, activityPeakLine, profileIsfLine, visibleRangeReporter, inspectLine, geometryReporter) {
-        listOfNotNull(nowLine, activityPeakLine, profileIsfLine, visibleRangeReporter, inspectLine, geometryReporter)
+    val clockChanges = rememberClockChangeDecoration(minTimestamp, maxTimestamp)
+    val decorations = remember(nowLine, activityPeakLine, profileIsfLine, visibleRangeReporter, clockChanges, inspectLine, geometryReporter) {
+        listOfNotNull(nowLine, activityPeakLine, profileIsfLine, visibleRangeReporter, clockChanges, inspectLine, geometryReporter)
     }
 
     val leftRangeProvider = remember(maxX, axes.left) {
@@ -716,7 +717,7 @@ fun SecondaryGraphCompose(
         style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
         minWidth = TextComponent.MinWidth.fixed(30.dp)
     )
-    val startAxisGuideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+    val startAxisGuideline = LineComponent(fill = Fill(AapsTheme.generalColors.graphGrid))
     val startAxis =
         if (SeriesType.VAR_SENSITIVITY in sides.left) VerticalAxis.rememberStart(
             valueFormatter = isfFormatter, itemPlacer = startAxisItemPlacer, label = startAxisLabel, guideline = startAxisGuideline, size = GRAPH_AXIS_SIZE
@@ -749,7 +750,7 @@ fun SecondaryGraphCompose(
         itemPlacer = bottomAxisItemPlacer,
         label = null,
         tick = null,
-        guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+        guideline = LineComponent(fill = Fill(AapsTheme.generalColors.graphGrid))
     )
 
     // Press and hold works here too. The marker draws nothing, it only hands the time under the

@@ -545,8 +545,11 @@ fun BgGraphCompose(
     // Where insulin activity will peak, while that is still ahead
     val activityPeak = remember(showActivity, activityData, nowTimestamp) { if (showActivity) futureActivityPeak(activityData.activityPrediction, nowTimestamp) else null }
     val activityPeakLine = rememberActivityPeakLine(minTimestamp, activityPeak, activityColor)
+    val clockChanges = rememberClockChangeDecoration(minTimestamp, maxTimestamp, showIcon = true)
 
-    val decorations = remember(inRangeBox, nowLine, activityPeakLine, inspectLine) { listOfNotNull(inRangeBox, nowLine, activityPeakLine, inspectLine) }
+    val decorations = remember(inRangeBox, nowLine, activityPeakLine, clockChanges, inspectLine) {
+        listOfNotNull(inRangeBox, nowLine, activityPeakLine, clockChanges, inspectLine)
+    }
 
     // =========================================================================
     // Range providers — hoisted out of rememberCartesianChart so keys are re-evaluated on recomposition
@@ -606,7 +609,7 @@ fun BgGraphCompose(
                     style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
                     minWidth = TextComponent.MinWidth.fixed(30.dp)
                 ),
-                guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))),
+                guideline = LineComponent(fill = Fill(AapsTheme.generalColors.graphGrid)),
                 size = GRAPH_AXIS_SIZE
             ),
             bottomAxis = HorizontalAxis.rememberBottom(
@@ -615,7 +618,7 @@ fun BgGraphCompose(
                 label = rememberTextComponent(
                     style = TextStyle(color = MaterialTheme.colorScheme.onSurface)
                 ),
-                guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+                guideline = LineComponent(fill = Fill(AapsTheme.generalColors.graphGrid))
             ),
             decorations = decorations,
             getXStep = { _, _, _ -> 1.0 },
