@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import app.aaps.core.interfaces.navigation.ElementType
 import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.compose.AapsSpacing
@@ -83,6 +84,8 @@ internal fun IobChip(
                     // One line: a value split over two lines ("0.96" / "U") makes the whole row taller
                     maxLines = 1,
                     softWrap = false,
+                    // When the row is too narrow, show that the value goes on instead of cutting it off
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(start = if (showIcon) AapsSpacing.medium else 0.dp)
                 )
             }
