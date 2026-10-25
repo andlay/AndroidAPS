@@ -3,7 +3,9 @@ package app.aaps.workflow
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.SourceSensor
 import app.aaps.core.data.time.T
+import app.aaps.core.interfaces.aps.APSResult
 import app.aaps.core.interfaces.aps.Loop
+import app.aaps.core.interfaces.aps.RT
 import app.aaps.core.interfaces.configuration.Config
 import app.aaps.core.interfaces.iob.IobCobCalculator
 import app.aaps.core.interfaces.logging.AAPSLogger
@@ -12,6 +14,11 @@ import app.aaps.core.interfaces.nsclient.ProcessedDeviceStatusData
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgRange
 import app.aaps.core.interfaces.overview.graph.BgType
+import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
+import app.aaps.core.interfaces.overview.graph.PredictedDeviationsGraphData
+import app.aaps.core.interfaces.overview.graph.predictionPoints
+import app.aaps.core.interfaces.overview.graph.toGraphData
+import app.aaps.core.interfaces.profile.ProfileFunction
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.scenes.SceneExpiryCheck
 import app.aaps.core.interfaces.widget.WidgetUpdater
@@ -49,7 +56,9 @@ class PostCalculationRunner(
     private val processedDeviceStatusData: ProcessedDeviceStatusData,
     private val profileUtil: ProfileUtil,
     private val preferences: Preferences,
-    private val sceneExpiryCheck: SceneExpiryCheck
+    private val sceneExpiryCheck: SceneExpiryCheck,
+    private val graphConfigRepository: GraphConfigRepository,
+    private val profileFunction: ProfileFunction
 ) : CalculationPhase {
 
     /** Runs the phase that follows the prepare pass. [isStopped] is asked between steps. */
@@ -120,7 +129,7 @@ class PostCalculationRunner(
         }
     }
 
-    private fun preparePredictions(data: PostCalculationData) {
+    private suspend fun preparePredictions(data: PostCalculationData) {
         val apsResult = if (config.APS) loop.lastRun?.constraintsProcessed else processedDeviceStatusData.getAPSResult()
         val predictionsAvailable = if (config.APS) loop.lastRun?.request?.hasPredictions == true else config.AAPSCLIENT
         // Align to the next local hour boundary. Local, not UTC: zones like +05:30 do not line up
@@ -147,6 +156,8 @@ class PostCalculationRunner(
             data.overviewData.endTime = data.overviewData.toTime
         }
 
+        shownActivityHorizon(Clock.System.now().toEpochMilliseconds())?.let { data.overviewData.endTime = max(data.overviewData.endTime, it) }
+
         val highMarkInUnits = preferences.get(UnitDoubleKey.OverviewHighMark)
         val lowMarkInUnits = preferences.get(UnitDoubleKey.OverviewLowMark)
 
@@ -168,14 +179,23 @@ class PostCalculationRunner(
                         SourceSensor.A_COB_PREDICTION -> BgType.A_COB_PREDICTION
                         SourceSensor.UAM_PREDICTION   -> BgType.UAM_PREDICTION
                         SourceSensor.ZT_PREDICTION    -> BgType.ZT_PREDICTION
+                        SourceSensor.MPC_MEAL_PREDICTION        -> BgType.MPC_MEAL_PREDICTION
+                        SourceSensor.MPC_FALSE_START_PREDICTION -> BgType.MPC_FALSE_START_PREDICTION
+                        SourceSensor.MPC_EXPECTED_PREDICTION    -> BgType.MPC_EXPECTED_PREDICTION
                         else                          -> BgType.IOB_PREDICTION
                     }
                 )
             }
             ?.sortedBy { it.timestamp }
             ?: emptyList()
+        // The same curves with the dose of the run added, drawn smaller
+        val afterDose = (apsResult?.rawData() as? RT)?.predBGsAfterDose
+        val afterDosePoints =
+            if (apsResult == null || afterDose == null) emptyList()
+            else predictionPoints(afterDose, apsResult.date, afterDose = true, lowMark = lowMarkInUnits, highMark = highMarkInUnits) { profileUtil.fromMgdlToUnits(it) }
 
-        data.cache.updatePredictions(predictionDataPoints)
+        data.cache.updatePredictions(predictionDataPoints + afterDosePoints)
+        data.cache.updatePredictedDeviations(predictedDeviations(apsResult))
 
         // Extend cached time range to include prediction horizon
         data.cache.timeRangeFlow.value?.let { current ->
@@ -183,4 +203,10 @@ class PostCalculationRunner(
         }
     }
 
+    /** The deviations the run expects, see `PredictedDeviations`, as graph points in the user's units. */
+    private fun predictedDeviations(apsResult: APSResult?): PredictedDeviationsGraphData =
+        (apsResult?.rawData() as? RT)?.predDevs.toGraphData(apsResult?.date ?: 0L, apsResult?.glucoseStatus?.date) { profileUtil.fromMgdlToUnits(it) }
+
+    private suspend fun shownActivityHorizon(now: Long): Long? =
+        activityHorizon(now, graphConfigRepository.graphConfigFlow.value, profileFunction.getProfile()?.iCfg?.insulinEndTime)
 }

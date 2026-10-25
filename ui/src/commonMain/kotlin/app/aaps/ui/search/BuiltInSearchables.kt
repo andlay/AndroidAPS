@@ -104,6 +104,7 @@ class BuiltInSearchables(
             ),
 
             BooleanKey.OverviewShowNotesInDialogs,
+            BooleanKey.OverviewShowSmbStatusIcon,
             StringKey.GeneralDarkMode
         ),
         icon = Icons.Outlined.Palette

@@ -28,6 +28,9 @@ enum class IsfStep { UP, DOWN, SAME }
  * @param isfFrom the profile ISF for the chip, empty when the algorithm uses it unchanged
  * @param isfTo the ISF in use for the chip, empty when the algorithm uses the profile ISF unchanged
  * @param isfStep which way the step from [isfFrom] to [isfTo] goes
+ * @param factorText how much more insulin the ISF in use gives than the profile ISF, as profile ISF
+ *   divided by ISF in use: "1.50" is 50% more insulin. Empty when the algorithm uses the profile ISF
+ * @param factorStep [IsfStep.UP] when [factorText] is above 1 (more insulin), [IsfStep.DOWN] below 1
  * @param lines one translated line per value, in reading order; empty when nothing is known
  * @param ratio the last autosens ratio, 1.0 when unknown
  * @param isEnabled whether autosens is switched on, on this phone or, for a client, on the master
@@ -38,6 +41,8 @@ data class SensitivityOverviewData(
     val isfFrom: String = "",
     val isfTo: String = "",
     val isfStep: IsfStep = IsfStep.SAME,
+    val factorText: String = "",
+    val factorStep: IsfStep = IsfStep.SAME,
     val lines: List<String> = emptyList(),
     val ratio: Double = 1.0,
     val isEnabled: Boolean = true,

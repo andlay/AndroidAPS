@@ -88,7 +88,8 @@ class DataSyncSelectorV3(
         // master writes the records. What is left on a client stays on the phone: a note like "AndroidAPS started",
         // or a change it would only send back (a record from NS shortened or removed here). Its NS token may also
         // be allowed to write to settings only.
-        if (!config.AAPSCLIENT && preferences.get(BooleanKey.NsClientUploadData) && !isPaused) {
+        // The alpha build only reads too: the app that doses owns the Nightscout data.
+        if (!config.AAPSCLIENT && !config.ALPHA && preferences.get(BooleanKey.NsClientUploadData) && !isPaused) {
             queueCounter.bolusesRemaining = (persistenceLayer.getLastBolusId() ?: 0L) - preferences.get(NsclientLongKey.BolusLastSyncedId)
             queueCounter.carbsRemaining = (persistenceLayer.getLastCarbsId() ?: 0L) - preferences.get(NsclientLongKey.CarbsLastSyncedId)
             queueCounter.bcrRemaining = (persistenceLayer.getLastBolusCalculatorResultId() ?: 0L) - preferences.get(NsclientLongKey.BolusCalculatorLastSyncedId)

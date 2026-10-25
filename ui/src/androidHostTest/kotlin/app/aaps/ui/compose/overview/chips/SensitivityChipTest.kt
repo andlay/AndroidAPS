@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -57,6 +58,26 @@ class SensitivityChipTest {
         compose.onNodeWithText("6.8").assertIsDisplayed()
         // The arrow says what the step MEANS, so a screen reader hears the direction and not the
         // name of the glyph. The step is given, never read back out of the two texts above.
+        compose.onNodeWithContentDescription("Up").assertIsDisplayed()
+    }
+
+    @Test
+    fun showsTheInsulinFactorInPlaceOfTheIsfValues() {
+        compose.setContent {
+            MaterialTheme {
+                SensitivityChip(
+                    state = SensitivityUiState(
+                        isfFrom = "5.5", isfTo = "3.7", isfStep = IsfStep.DOWN, factorText = "1.50", factorStep = IsfStep.UP,
+                        ratio = 1.0, isEnabled = true, hasData = true
+                    ),
+                    onClick = {}
+                )
+            }
+        }
+
+        compose.onNodeWithText("1.50").assertIsDisplayed()
+        compose.onAllNodesWithText("5.5").assertCountEquals(0)
+        // More insulin points up, although the ISF value went down
         compose.onNodeWithContentDescription("Up").assertIsDisplayed()
     }
 

@@ -84,7 +84,8 @@ class DexcomPlugin(
 ), BgSource, DexcomBoyda {
 
     init {
-        if (!config.AAPSCLIENT) {
+        // A client and the alpha build take BG from Nightscout instead (see NSClientSourcePlugin)
+        if (!config.AAPSCLIENT && !config.ALPHA) {
             pluginDescription.setDefault()
         }
     }

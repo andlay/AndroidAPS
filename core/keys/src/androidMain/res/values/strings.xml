@@ -8,6 +8,8 @@
     <!-- Overview preferences -->
     <string name="pref_title_keep_screen_on">Keep screen on</string>
     <string name="pref_summary_keep_screen_on">Prevent Android to turn screen off. It will consume lot of energy when not plugged to power outlet.</string>
+    <string name="pref_title_show_smb_status_icon">Show SMB status icon</string>
+    <string name="pref_summary_show_smb_status_icon">Shows a triangle in the status bar: filled when SMBs are switched on, outline only when they are off (for example open loop, SMB disabled or a target that turns SMB off).</string>
     <string name="pref_title_show_treatment_button">Show treatment button</string>
     <string name="pref_title_show_wizard_button">Show wizard button</string>
     <string name="pref_title_show_insulin_button">Show insulin button</string>
@@ -224,7 +226,7 @@
     <string name="pref_title_carbs_request_threshold">Carbs required threshold</string>
     <string name="carbs_req_threshold_summary">Minimum grams of carbs to display a carbs suggestion alert. Carbs suggestions below this number will not trigger a notification.</string>
     <string name="pref_title_half_basal_exercise_target">Half basal exercise target</string>
-    <string name="half_basal_exercise_target_summary">Set to a number, e.g. 160, which means when temp target is 160 mg/dL and High temptarget raises sensitivity=true, run 50%% basal at this level (120 = 75%%; 140 = 60%%).</string>
+    <string name="half_basal_exercise_target_summary">For example 160 mg/dL (8.9 mmol/L): when the temp target is at this level and High temptarget raises sensitivity is on, run 50%% basal. A temp target of 120 mg/dL (6.7 mmol/L) gives 75%%, 140 mg/dL (7.8 mmol/L) gives 60%%.</string>
     <string name="pref_title_iob_threshold_percent">IOB threshold percent</string>
     <string name="openapsama_iob_threshold_percent_summary" formatted="false">Percentage of maxIOB above which SMBs are disabled.\nDefault value: 100%\nWith 100% this feature is effectively disabled.</string>
     <string name="pref_title_dynisf_adjustment_factor">DynamicISF adjustment factor</string>
@@ -422,6 +424,10 @@
 
     <!-- UnitDoubleKey: APS preferences -->
     <string name="pref_title_lgs_threshold">LGS threshold</string>
+    <string name="pref_title_smb_min_bg">Minimum BG for SMB</string>
+    <string name="pref_summary_smb_min_bg">No SMB while the current BG is below this value. Temp basals still work. 0 = off.</string>
+    <string name="pref_title_smb_min_percent_of_target">Minimum BG for SMB, % of target</string>
+    <string name="pref_summary_smb_min_percent_of_target">No SMB while the current BG is below this percentage of the current target, temp targets included. Example: 120 with target 5.0 gives 6.0. If both minimums are set, the higher one is used. 0 = off.</string>
     <string name="lgs_threshold_summary">BG value below which insulin is suspended. Default value uses standard target model. User can set value between 60mg/dl (3.3mmol/l) and 100mg/dl(5.5mmol/l). Values below 65/3.6 result in use of default model</string>
 
     <!-- IntentKey preferences -->

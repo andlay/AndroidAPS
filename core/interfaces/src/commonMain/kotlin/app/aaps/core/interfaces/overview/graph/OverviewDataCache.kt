@@ -1,6 +1,8 @@
 package app.aaps.core.interfaces.overview.graph
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Cache for overview data. Populated reactively by observing database changes, observed by ViewModels via StateFlow.
@@ -80,6 +82,13 @@ interface OverviewDataCache {
     val deviationsGraphFlow: StateFlow<DeviationsGraphData>
     fun updateDeviationsGraph(data: DeviationsGraphData)
 
+    // Deviations the newest loop run expects, drawn after now on the deviations graph
+    val predictedDeviationsFlow: StateFlow<PredictedDeviationsGraphData>
+    fun updatePredictedDeviations(data: PredictedDeviationsGraphData)
+
+    /** The loop run made for the BG reading at [timestamp] (up to 5 minutes before it is accepted), or null. Reads the database. */
+    suspend fun loopRunAt(timestamp: Long): HeldLoopRun?
+
     // Ratio graph: autosens ratio percentage line
     val ratioGraphFlow: StateFlow<RatioGraphData>
     fun updateRatioGraph(data: RatioGraphData)
@@ -114,6 +123,9 @@ interface OverviewDataCache {
     // Basal graph: profile basal (dashed) + actual delivered basal (solid + fill)
     val basalGraphFlow: StateFlow<BasalGraphData>
 
+    /** Alpha build only: what the shadow loop would have given. Empty in every other build. */
+    val shadowDosingFlow: StateFlow<ShadowDosingGraphData> get() = NO_SHADOW_DOSING
+
     // Target line: step-function showing target midpoint (TT or profile default)
     val targetLineFlow: StateFlow<TargetLineData>
 
@@ -127,3 +139,5 @@ interface OverviewDataCache {
 
     fun reset()
 }
+
+private val NO_SHADOW_DOSING: StateFlow<ShadowDosingGraphData> = MutableStateFlow(ShadowDosingGraphData.EMPTY).asStateFlow()

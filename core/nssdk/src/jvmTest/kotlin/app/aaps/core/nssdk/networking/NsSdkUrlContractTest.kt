@@ -103,6 +103,26 @@ class NsSdkUrlContractTest {
             .isEqualTo("/api/v3/treatments/history/1700000000000?limit=250")
     }
 
+    /** Nocturne answers the history call with HTTP 500: the client searches by modification time instead. */
+    @Test
+    fun `treatments history that fails falls back to a search by modification time`() = runTest {
+        server.enqueue(MockResponse.Builder().code(500).body("""{"status":500,"message":"Internal server error"}""").build())
+        server.enqueue(
+            MockResponse.Builder().code(200).body(
+                """{"status":200,"result":[
+                  {"identifier":"a","eventType":"Temp Basal","date":1700000100000,"srvModified":1700000100001,"duration":5,"absolute":1.7,"insulin":0.14},
+                  {"identifier":"b","eventType":"Correction Bolus","date":1700000200000,"srvModified":1700000200002,"insulin":0.3}]}"""
+            ).build()
+        )
+
+        val response = client.getTreatmentsModifiedSince(1700000000000, 250)
+
+        assertThat(server.takeRequest().target).isEqualTo("/api/v3/treatments/history/1700000000000?limit=250")
+        assertThat(server.takeRequest().target).isEqualTo("/api/v3/treatments?sort=srvModified&srvModified\$gt=1700000000000&limit=250")
+        assertThat(response.values).hasSize(2)
+        assertThat(response.lastServerModified).isEqualTo(1700000200002)
+    }
+
     // ---------------------------------------------------------------- profile
 
     /**

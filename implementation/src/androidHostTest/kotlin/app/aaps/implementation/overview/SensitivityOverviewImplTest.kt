@@ -78,6 +78,10 @@ class SensitivityOverviewImplTest : TestBaseWithProfile() {
     private fun effectiveIsfLine(ratio: Double): String =
         baseText.gs(CoreUiStrings.isf_effective, effectiveProfile.getProfileIsfMgdl() / ratio)
 
+    /** Profile ISF / effective ISF, which is the ratio itself. */
+    private fun factorLine(ratio: Double): String =
+        baseText.gs(CoreUiStrings.isf_insulin_factor, decimalFormatter.to2Decimal(ratio))
+
     @Test
     fun `without an autosens result only the profile ISF is known`() = runBlocking {
         whenever(ads.getLastAutosensData(any(), any(), any())).thenReturn(null)
@@ -104,7 +108,7 @@ class SensitivityOverviewImplTest : TestBaseWithProfile() {
         assertThat(data.hasData).isTrue()
         assertThat(data.ratio).isEqualTo(1.2)
         assertThat(data.asText).isEqualTo("120%")
-        assertThat(data.lines).containsExactly("Autosens Value: 120%", profileIsfLine(), effectiveIsfLine(1.2)).inOrder()
+        assertThat(data.lines).containsExactly("Autosens Value: 120%", profileIsfLine(), effectiveIsfLine(1.2), factorLine(1.2)).inOrder()
     }
 
     /**
@@ -118,7 +122,7 @@ class SensitivityOverviewImplTest : TestBaseWithProfile() {
 
         val data = sut.build()
 
-        assertThat(data.lines).containsExactly("Autosens Value: 80%", profileIsfLine(), effectiveIsfLine(0.8)).inOrder()
+        assertThat(data.lines).containsExactly("Autosens Value: 80%", profileIsfLine(), effectiveIsfLine(0.8), factorLine(0.8)).inOrder()
         assertThat(effectiveProfile.getProfileIsfMgdl() / 0.8).isGreaterThan(effectiveProfile.getProfileIsfMgdl())
         // The chip shows the same step, pointing up, not only the percentage.
         assertThat(data.isfFrom).isEqualTo(decimalFormatter.to1Decimal(effectiveProfile.getProfileIsfMgdl()))
@@ -134,6 +138,23 @@ class SensitivityOverviewImplTest : TestBaseWithProfile() {
         val data = sut.build()
 
         assertThat(data.isfStep).isEqualTo(IsfStep.DOWN)
+    }
+
+    @Test
+    fun `the insulin factor is above 1 when the ISF in use gives more insulin`() = runBlocking {
+        autosensRatio(1.2)
+        ratioUsedByLoop(1.2)
+
+        val more = sut.build()
+        assertThat(more.factorText).isEqualTo(decimalFormatter.to2Decimal(1.2))
+        // More insulin points up, although the ISF value itself goes down
+        assertThat(more.factorStep).isEqualTo(IsfStep.UP)
+
+        autosensRatio(0.8)
+        ratioUsedByLoop(0.8)
+        val less = sut.build()
+        assertThat(less.factorText).isEqualTo(decimalFormatter.to2Decimal(0.8))
+        assertThat(less.factorStep).isEqualTo(IsfStep.DOWN)
     }
 
     /**
@@ -215,7 +236,7 @@ class SensitivityOverviewImplTest : TestBaseWithProfile() {
         val data = sut.build()
 
         assertThat(data.lines).containsExactly(
-            "Autosens Value: 100%", profileIsfLine(), effectiveIsfLine(0.7), "Autosens in algorithm: 70%"
+            "Autosens Value: 100%", profileIsfLine(), effectiveIsfLine(0.7), factorLine(0.7), "Autosens in algorithm: 70%"
         ).inOrder()
     }
 
@@ -231,7 +252,7 @@ class SensitivityOverviewImplTest : TestBaseWithProfile() {
 
         val data = sut.build()
 
-        assertThat(data.lines).containsExactly("Autosens Value: 85%", profileIsfLine(), effectiveIsfLine(0.8488)).inOrder()
+        assertThat(data.lines).containsExactly("Autosens Value: 85%", profileIsfLine(), effectiveIsfLine(0.8488), factorLine(0.8488)).inOrder()
     }
 
     /** Foreign device status data: a zero would divide by zero, so it counts as no ratio at all. */

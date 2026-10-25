@@ -105,6 +105,9 @@ data class GlucoseValue(
         COB_PREDICTION,
         UAM_PREDICTION,
         ZT_PREDICTION,
+        MPC_MEAL_PREDICTION,
+        MPC_FALSE_START_PREDICTION,
+        MPC_EXPECTED_PREDICTION,
         ;
     }
 }

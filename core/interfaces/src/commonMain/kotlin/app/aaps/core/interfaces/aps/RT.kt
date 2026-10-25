@@ -39,13 +39,36 @@ data class RT(
     var duration: Int? = null,
     var rate: Double? = null,
     var predBGs: Predictions? = null,
+    /** The deviation each curve in [predBGs] expects at each future step. Null for runs before it was stored. */
+    var predDevs: PredictedDeviations? = null,
+    /**
+     * The curves of [predBGs] with the dose this run asks for added: the SMB in [units] and the change
+     * from the running temp basal to the one in [rate] and [duration]. [predBGs] are made before the
+     * decision, so they leave that dose out. Null when the run asks for no change, or before it was stored.
+     */
+    var predBGsAfterDose: Predictions? = null,
+    /** The lowest BG the run expects, which sets insulinReq. Null for runs before it was stored. */
+    var minPredBG: Double? = null,
     var COB: Double? = null,
     var IOB: Double? = null,
     var variable_sens: Double? = null,
     var isfMgdlForCarbs: Double? = null, // used to pass to AAPS client
 
     var consoleLog: MutableList<String>? = null,
-    var consoleError: MutableList<String>? = null
+    var consoleError: MutableList<String>? = null,
+    /** AutoISF only: the ISF factors of this run, for the AutoISF graph. Null for other algorithms. */
+    var autoIsfFactors: AutoIsfFactors? = null,
+    /** MPC meal SMBs: what the run saw (meal chance, carbs still to come). Null when MPC meal SMBs are off. */
+    var mpc: MpcRunValues? = null,
+    /**
+     * Whether SMBs were switched on for this run: allowed by the settings, the constraints, the
+     * target (an odd target switches them off) and, in AutoISF, the IOB threshold (iobTH). The checks
+     * that stop one SMB inside a run (a low prediction, a fast rise) do not count. Null when the run
+     * ended before it was known.
+     */
+    var smbEnabled: Boolean? = null,
+    /** The algorithm's log line that says why SMBs are on or off, see [smbEnabled]. Null when there was none. */
+    var smbReason: String? = null
 ) {
 
     fun serialize() = Json.encodeToString(serializer(), this)

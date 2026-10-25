@@ -25,11 +25,13 @@ import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.aaps.core.data.ui.MarkerTier
+import app.aaps.core.interfaces.overview.graph.GraphDataPoint
 import com.patrykandpatrick.vico.compose.cartesian.CartesianDrawingContext
 import com.patrykandpatrick.vico.compose.cartesian.CartesianMeasuringContext
 import com.patrykandpatrick.vico.compose.cartesian.Scroll
 import com.patrykandpatrick.vico.compose.cartesian.VicoScrollState
 import com.patrykandpatrick.vico.compose.cartesian.axis.Axis
+import com.patrykandpatrick.vico.compose.cartesian.axis.BaseAxis
 import com.patrykandpatrick.vico.compose.cartesian.axis.HorizontalAxis
 import com.patrykandpatrick.vico.compose.cartesian.axis.VerticalAxis
 import com.patrykandpatrick.vico.compose.cartesian.data.CartesianValueFormatter
@@ -145,6 +147,69 @@ fun rememberBottomAxisItemPlacer(minTimestamp: Long): HorizontalAxis.ItemPlacer 
  * Default zoom level for graphs - shows 6 hours of data (360 minutes).
  */
 const val DEFAULT_GRAPH_ZOOM_MINUTES = 360.0
+
+/**
+ * Width of the left axis of every overview graph: the 30 dp label, the 4 dp tick and the 1 dp axis
+ * line. Fixed, not measured: a measured axis grows with its widest label (steps in the thousands,
+ * activity with three decimals), and that graph's plot then no longer lines up in time with the
+ * others, which the pixel-based scroll sync depends on. A label that is wider is drawn past the edge.
+ */
+val GRAPH_AXIS_SIZE = BaseAxis.Size.Fixed(35.dp)
+
+// =========================================================================
+// Shapes for bars and broken lines (x in minutes, as the graphs use)
+// =========================================================================
+
+/** Usual time between points: the median gap, or 5 minutes when there are too few points. */
+internal fun typicalGap(points: List<Pair<Double, Double>>): Double {
+    val gaps = points.zipWithNext { a, b -> b.first - a.first }.filter { it > 0.0 }.sorted()
+    return if (gaps.isEmpty()) DEFAULT_GAP_MINUTES else gaps[gaps.size / 2]
+}
+
+private const val DEFAULT_GAP_MINUTES = 5.0
+
+/** A line is broken where two points are further apart than this many usual gaps... */
+private const val LINE_GAP_FACTOR = 3.0
+
+/** ...and at least this many minutes, so a line never jumps across a time with no data. */
+private const val MIN_LINE_GAP_MINUTES = 15.0
+
+/** The points as runs without a gap, so a line is not drawn across a time with no data. */
+internal fun splitAtGaps(points: List<Pair<Double, Double>>): List<List<Pair<Double, Double>>> {
+    if (points.isEmpty()) return emptyList()
+    val maxGap = maxOf(MIN_LINE_GAP_MINUTES, LINE_GAP_FACTOR * typicalGap(points))
+    val runs = mutableListOf<MutableList<Pair<Double, Double>>>(mutableListOf(points.first()))
+    for ((previous, point) in points.zipWithNext()) {
+        if (point.first - previous.first > maxGap) runs.add(mutableListOf())
+        runs.last().add(point)
+    }
+    return runs
+}
+
+/**
+ * The points as bars for a Square line with an area fill, the same shape as the DEV bars: each
+ * value is held from its point to the next one, so bars next to each other touch. Where the next
+ * point is further away than the usual gap (a gap in the data), the bar ends after the usual gap
+ * and the line drops to zero, so a bar is never stretched over a time with no data. The last bar
+ * also ends after the usual gap.
+ */
+internal fun barPoints(points: List<Pair<Double, Double>>): List<Pair<Double, Double>> {
+    // x has to grow strictly, so a second point at the same time is dropped
+    val sorted = points.sortedBy { it.first }.fold(mutableListOf<Pair<Double, Double>>()) { acc, p ->
+        if (acc.isEmpty() || p.first > acc.last().first) acc.add(p)
+        acc
+    }
+    if (sorted.isEmpty()) return emptyList()
+    val typical = typicalGap(sorted)
+    val out = ArrayList<Pair<Double, Double>>(sorted.size + 1)
+    for ((index, point) in sorted.withIndex()) {
+        out.add(point)
+        val end = point.first + typical
+        val next = sorted.getOrNull(index + 1)
+        if (next == null || next.first > end) out.add(end to 0.0)
+    }
+    return out
+}
 
 /**
  * Maximum zoom-in level — never show fewer than this many minutes.
@@ -500,7 +565,7 @@ internal data class TieredPointProvider(
  * Transparent connecting line with small filled circle points in the given color.
  * Each prediction type (IOB, COB, UAM, ZT, aCOB) uses a different color.
  */
-fun createPredictionLine(color: Color): LineCartesianLayer.Line =
+fun createPredictionLine(color: Color, pointSize: Dp = 4.dp): LineCartesianLayer.Line =
     LineCartesianLayer.Line(
         fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
         areaFill = null,
@@ -510,7 +575,7 @@ fun createPredictionLine(color: Color): LineCartesianLayer.Line =
                     fill = Fill(color),
                     shape = CircleShape
                 ),
-                size = 4.dp
+                size = pointSize
             )
         )
     )
@@ -526,6 +591,54 @@ fun createPredictionLine(color: Color): LineCartesianLayer.Line =
  * @param dashLengthPx Dash segment length in pixels
  * @param gapLengthPx Gap between dashes in pixels
  */
+/**
+ * Variable sensitivity is drawn upside down: a lower ISF means more insulin for the same BG, so it is
+ * drawn higher. The values are negated before drawing and the axis labels negate them back.
+ */
+fun invertIsf(points: List<GraphDataPoint>): List<GraphDataPoint> = points.map { GraphDataPoint(it.timestamp, -it.value) }
+
+/**
+ * A dashed horizontal line across the whole graph at [y], on the axis at [axisPosition]. Nothing is
+ * drawn when [y] is outside that axis' range.
+ */
+class HorizontalDashedLine(
+    private val y: Double,
+    private val color: Color,
+    private val axisPosition: Axis.Position.Vertical = Axis.Position.Vertical.Start,
+    private val strokeWidthPx: Float = 2f,
+    private val dashLengthPx: Float = 6f,
+    private val gapLengthPx: Float = 4f
+) : Decoration {
+
+    override fun drawOverLayers(context: CartesianDrawingContext) {
+        with(context) {
+            val yRange = ranges.getYRange(axisPosition)
+            if (yRange.length == 0.0 || y < yRange.minY || y > yRange.maxY) return
+            val canvasY = layerBounds.bottom - ((y - yRange.minY) / yRange.length).toFloat() * layerBounds.height
+            with(mutableDrawScope) {
+                drawLine(
+                    color = this@HorizontalDashedLine.color,
+                    start = Offset(layerBounds.left, canvasY),
+                    end = Offset(layerBounds.right, canvasY),
+                    strokeWidth = strokeWidthPx,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(dashLengthPx, gapLengthPx), 0f)
+                )
+            }
+        }
+    }
+
+    override fun equals(other: Any?): Boolean =
+        this === other ||
+            other is HorizontalDashedLine && y == other.y && color == other.color && axisPosition == other.axisPosition
+
+    override fun hashCode(): Int {
+        var result = y.hashCode()
+        result = 31 * result + color.hashCode()
+        result = 31 * result + axisPosition.hashCode()
+        return result
+    }
+}
+
 class NowLine(
     private val nowX: Double,
     private val color: Color,
@@ -585,6 +698,29 @@ class NowLine(
 fun rememberNowLine(minTimestamp: Long, nowTimestamp: Long, color: Color): NowLine {
     return remember(minTimestamp, nowTimestamp, color) {
         NowLine(nowX = timestampToX(nowTimestamp, minTimestamp), color = color)
+    }
+}
+
+/**
+ * When insulin activity will be highest, if that is still ahead: the time of the highest point of
+ * [prediction] after [now]. Null when activity is already falling (the peak has passed), when it
+ * never rises above zero, or when there are fewer than two future points.
+ */
+fun futureActivityPeak(prediction: List<GraphDataPoint>, now: Long): Long? {
+    val future = prediction.filter { it.timestamp > now }
+    if (future.size < 2) return null
+    val peak = future.maxBy { it.value }
+    return if (peak.value > 0.0 && peak.value > future.first().value) peak.timestamp else null
+}
+
+/**
+ * Remember a dashed line at the future insulin activity peak (see [futureActivityPeak]), or null
+ * when there is none. Drawn like [NowLine], in the activity colour, with a different dash.
+ */
+@Composable
+fun rememberActivityPeakLine(minTimestamp: Long, peakTimestamp: Long?, color: Color): NowLine? {
+    return remember(minTimestamp, peakTimestamp, color) {
+        peakTimestamp?.let { NowLine(nowX = timestampToX(it, minTimestamp), color = color, dashLengthPx = 3f, gapLengthPx = 5f) }
     }
 }
 

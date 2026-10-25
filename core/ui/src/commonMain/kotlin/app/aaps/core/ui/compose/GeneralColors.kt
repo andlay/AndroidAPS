@@ -79,6 +79,12 @@ data class GeneralColors(
     val aCobPrediction: Color,
     val uamPrediction: Color,
     val ztPrediction: Color,
+    val mpcMealPrediction: Color,
+    val mpcFalseStartPrediction: Color,
+    val mpcExpectedPrediction: Color,
+    /** Alpha build: the IOB and the basal of the shadow loop, opposite the blue IOB and the cyan basal */
+    val shadowIob: Color,
+    val shadowBasal: Color,
     // Loop mode colors
     val loopClosed: Color,
     val loopOpened: Color,
@@ -140,6 +146,11 @@ val LightGeneralColors = GeneralColors(
     aCobPrediction = Color(0x80FB8C00),      // lighter orange for absorbed COB (50% alpha)
     uamPrediction = Color(0xFFC9BD60),       // yellow-ish for UAM predictions (matches uamColor attr)
     ztPrediction = Color(0xFF00D2D2),        // cyan for zero-temp predictions (matches ztColor attr)
+    mpcMealPrediction = Color(0xFFFB8C00),       // orange: MPC, if the rise is a meal
+    mpcFalseStartPrediction = Color(0xFF1E88E5), // blue: MPC, if the rise fades
+    mpcExpectedPrediction = Color(0xFF212121),   // near black: MPC, weighted by the meal chance
+    shadowIob = Color(0xFFE59400),               // amber: shadow IOB, opposite the blue IOB
+    shadowBasal = Color(0xFFD4B000),             // yellow: shadow basal, opposite the cyan basal
     // Loop mode colors
     loopClosed = Color(0xFF00C03E),          // green for closed loop
     loopOpened = Color(0xFF4983D7),          // blue for open loop
@@ -197,6 +208,11 @@ val DarkGeneralColors = GeneralColors(
     aCobPrediction = Color(0x80FFB74D),      // lighter orange for absorbed COB (50% alpha, dark mode)
     uamPrediction = Color(0xFFE6D39A),       // lighter yellow for UAM predictions (dark mode)
     ztPrediction = Color(0xFF4DD4D4),        // lighter cyan for zero-temp predictions (dark mode)
+    mpcMealPrediction = Color(0xFFFFB74D),       // orange: MPC, if the rise is a meal (dark mode)
+    mpcFalseStartPrediction = Color(0xFF64B5F6), // blue: MPC, if the rise fades (dark mode)
+    mpcExpectedPrediction = Color(0xFFF5F5F5),   // near white: MPC, weighted by the meal chance (dark mode)
+    shadowIob = Color(0xFFFFB74D),               // amber: shadow IOB, opposite the blue IOB (dark mode)
+    shadowBasal = Color(0xFFFFEE58),             // yellow: shadow basal, opposite the cyan basal (dark mode)
     // Loop mode colors (same in both modes)
     loopClosed = Color(0xFF00C03E),          // green for closed loop
     loopOpened = Color(0xFF4983D7),          // blue for open loop

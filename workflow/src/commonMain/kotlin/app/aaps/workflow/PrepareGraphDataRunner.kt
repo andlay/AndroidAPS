@@ -17,6 +17,8 @@ import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.nsclient.ProcessedDeviceStatusData
 import app.aaps.core.interfaces.overview.graph.AbsIobGraphData
+import app.aaps.core.interfaces.overview.graph.AutoIsfFactorPoint
+import app.aaps.core.interfaces.overview.graph.MpcPoint
 import app.aaps.core.interfaces.overview.graph.ActivityGraphData
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.BgRange
@@ -155,6 +157,15 @@ class PrepareGraphDataRunner(
      */
     internal fun carbsForBucket(windowCarbs: List<CA>, bgTime: Long): List<CA> =
         windowCarbs.filter { it.timestamp in (bgTime - T.mins(5).msecs() + 1)..bgTime }
+
+    /**
+     * BGI, deviations and deviation slopes are BG changes per 5 minutes in mg/dL, the unit oref works in.
+     * The secondary graphs print these numbers on their axis, so convert them to the user's units here,
+     * the same way BG and VSENS are converted. Without this an mmol/L user reads mg/dL values (a deviation
+     * of 18 instead of 1.0). Only the graph values change; autosens, COB and the APS keep using mg/dL.
+     * `internal` so it can be unit-tested.
+     */
+    internal fun glucoseChangeInUnits(valueInMgdl: Double): Double = profileUtil.fromMgdlToUnits(valueInMgdl)
 
     // ---------- Phase 1 helpers (LoadBgDataWorker logic) ----------
 
@@ -736,11 +747,20 @@ class PrepareGraphDataRunner(
         val bgiListCompose: MutableList<GraphDataPoint> = ArrayList()
         val bgiPredictionListCompose: MutableList<GraphDataPoint> = ArrayList()
         val deviationsListCompose: MutableList<DeviationDataPoint> = ArrayList()
+        val devCarbsSteps: MutableList<DevCarbsStep> = ArrayList()
         val ratioListCompose: MutableList<GraphDataPoint> = ArrayList()
         val dsMaxListCompose: MutableList<GraphDataPoint> = ArrayList()
         val dsMinListCompose: MutableList<GraphDataPoint> = ArrayList()
 
         val adsData = data.iobCobCalculator.ads.clone()
+        val bucketed = adsData.getBucketedDataTableCopy().orEmpty()
+        // Readings AAPS made up to fill a gap: the DEV carbs total must not count a long gap
+        val filledTimes = bucketed
+            .filter { it.filledGap }
+            .mapTo(HashSet()) { adsData.roundUpTime(it.timestamp) }
+        time = gridStartThrough(fromTime, endTime, bucketed.firstOrNull()?.timestamp)
+        // Sensitivity of the newest autosens data, for the BGI after now
+        var lastSens: Double? = null
 
         while (time <= endTime) {
             if (isStopped()) return
@@ -765,9 +785,9 @@ class PrepareGraphDataRunner(
                     cobFailOverListCompose.add(CobFailOverPoint(time, autosensData.cob))
                 }
 
-                val bgiCompose: Double = iob.activity * autosensData.sens * 5.0
+                val bgiCompose: Double = glucoseChangeInUnits(iob.activity * autosensData.sens * 5.0)
                 if (time <= now) bgiListCompose.add(GraphDataPoint(time, bgiCompose))
-                else bgiPredictionListCompose.add(GraphDataPoint(time, bgiCompose))
+                lastSens = autosensData.sens
 
                 val deviationType = when {
                     autosensData.type == "uam"          -> DeviationType.UAM
@@ -777,16 +797,30 @@ class PrepareGraphDataRunner(
                     autosensData.pastSensitivity == "-" -> DeviationType.NEGATIVE
                     else                                -> DeviationType.EQUAL
                 }
-                deviationsListCompose.add(DeviationDataPoint(time, autosensData.deviation, deviationType))
+                deviationsListCompose.add(DeviationDataPoint(time, glucoseChangeInUnits(autosensData.deviation), deviationType))
+                // In carbs the same way autosens turns a deviation into absorbed carbs, but without COB
+                if (autosensData.sens > 0.0) {
+                    val carbs = autosensData.deviation * profile.getIc(autosensData.time) / autosensData.sens
+                    devCarbsSteps.add(DevCarbsStep(time, autosensData.time, carbs, autosensData.time in filledTimes))
+                }
 
                 ratioListCompose.add(GraphDataPoint(time, 100.0 * (autosensData.autosensResult.ratio - 1)))
 
-                dsMaxListCompose.add(GraphDataPoint(time, autosensData.slopeFromMaxDeviation))
-                dsMinListCompose.add(GraphDataPoint(time, autosensData.slopeFromMinDeviation))
+                dsMaxListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(autosensData.slopeFromMaxDeviation)))
+                dsMinListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(autosensData.slopeFromMinDeviation)))
             }
 
             if (time <= now) activityListCompose.add(GraphDataPoint(time, iob.activity))
-            else activityPredictionListCompose.add(GraphDataPoint(time, iob.activity))
+            else {
+                // The future starts at the last point of the past, so the two lines join
+                if (activityPredictionListCompose.isEmpty()) activityListCompose.lastOrNull()?.let { activityPredictionListCompose.add(it) }
+                activityPredictionListCompose.add(GraphDataPoint(time, iob.activity))
+                // There is no autosens data in the future: the BGI uses the last known sensitivity, as the loop does
+                lastSens?.let { sens ->
+                    if (bgiPredictionListCompose.isEmpty()) bgiListCompose.lastOrNull()?.let { bgiPredictionListCompose.add(it) }
+                    bgiPredictionListCompose.add(GraphDataPoint(time, glucoseChangeInUnits(iob.activity * sens * 5.0)))
+                }
+            }
 
             time += 5 * 60 * 1000L
         }
@@ -815,10 +849,15 @@ class PrepareGraphDataRunner(
             )
         )
         data.cache.updateBgiGraph(BgiGraphData(bgi = bgiListCompose, bgiPrediction = bgiPredictionListCompose))
-        data.cache.updateDeviationsGraph(DeviationsGraphData(deviations = deviationsListCompose))
+        data.cache.updateDeviationsGraph(DeviationsGraphData(deviations = deviationsListCompose, devCarbs = devCarbsRuns(devCarbsSteps)))
         data.cache.updateRatioGraph(RatioGraphData(ratio = ratioListCompose))
         data.cache.updateDevSlopeGraph(DevSlopeGraphData(dsMax = dsMaxListCompose, dsMin = dsMinListCompose))
-        data.cache.updateVarSensGraph(VarSensGraphData(varSens = varSensListCompose))
+        val autoIsfListCompose = persistenceLayer.getAutoIsfFactors(fromTime, endTime)
+            .map { AutoIsfFactorPoint(it.timestamp, it.acce, it.bg, it.pp, it.dura, it.applied) }
+        val profileIsf = profileFunction.getProfile()?.let { profileUtil.fromMgdlToUnits(it.getProfileIsfMgdl()) }
+        val mpcListCompose = persistenceLayer.getMpcValues(fromTime, endTime)
+            .map { MpcPoint(it.timestamp, it.mealChance * 100, it.weightedMealChance * 100, it.carbsIfMeal, it.carbsIfNoMeal, it.carbsExpected) }
+        data.cache.updateVarSensGraph(VarSensGraphData(varSens = varSensListCompose, autoIsf = autoIsfListCompose, profileIsf = profileIsf, mpc = mpcListCompose))
 
         data.signals.emitProgress(CalculationWorkflow.ProgressData.PREPARE_IOB_AUTOSENS_DATA, 100)
     }

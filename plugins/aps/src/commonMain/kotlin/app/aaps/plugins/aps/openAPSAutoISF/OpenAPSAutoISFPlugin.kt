@@ -4,6 +4,7 @@ import androidx.collection.LongSparseArray
 import androidx.collection.forEach
 import app.aaps.core.data.aps.SMBDefaults
 import app.aaps.core.data.configuration.Constants
+import app.aaps.core.data.model.BS
 import app.aaps.core.data.model.GlucoseUnit
 import app.aaps.core.data.model.getPassedDurationToTimeInMinutes
 import app.aaps.core.data.plugin.PluginType
@@ -11,6 +12,7 @@ import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.InterfacesStrings
 import app.aaps.core.interfaces.aps.APS
 import app.aaps.core.interfaces.aps.APSResult
+import app.aaps.core.interfaces.aps.AutoIsfFactors
 import app.aaps.core.interfaces.aps.AutosensResult
 import app.aaps.core.interfaces.aps.CurrentTemp
 import app.aaps.core.interfaces.aps.GlucoseStatus
@@ -62,6 +64,8 @@ import app.aaps.core.ui.compose.icons.IcPluginOpenAPS
 import app.aaps.core.ui.compose.preference.PreferenceSubScreenDef
 import app.aaps.core.utils.MidnightUtils
 import app.aaps.plugins.aps.ApsStrings
+import app.aaps.plugins.aps.openAPS.PostDosePredictions
+import app.aaps.plugins.aps.openAPS.applySmbMinBg
 import app.aaps.plugins.aps.events.EventOpenAPSUpdateGui
 import app.aaps.plugins.aps.events.EventResetOpenAPSGui
 import app.aaps.plugins.aps.keys.ApsIntentKey
@@ -309,12 +313,15 @@ open class OpenAPSAutoISFPlugin(
         val mealData = iobCobCalculator.getMealDataWithWaitingForCalculationFinish()
         val iobData = iobArray[0]
         val profile_percentage = if (profile is ProfileSealed.EPS) profile.value.originalPercentage else 100
-        val microBolusAllowed = constraintsChecker.isSMBModeEnabled(ConstraintObject(tempBasalFallback.not(), aapsLogger)).also { inputConstraints.copyReasons(it) }.value()
+        var microBolusAllowed = constraintsChecker.isSMBModeEnabled(ConstraintObject(tempBasalFallback.not(), aapsLogger)).also { inputConstraints.copyReasons(it) }.value()
+        microBolusAllowed = applySmbMinBg(microBolusAllowed, glucoseStatus.glucose, targetBg, preferences, profileUtil, rh, aapsLogger, inputConstraints, this)
 
+        var runAutoIsfFactors: AutoIsfFactors? = null
         if (autoIsfMode) {
             consoleError = mutableListOf()
             consoleLog = mutableListOf()
             variableSensitivity = autoISF(profile)
+            runAutoIsfFactors = lastAutoIsfFactors
         }
         val oapsProfile = OapsProfileAutoIsf(
             dia = 0.0, // not used
@@ -456,6 +463,12 @@ open class OpenAPSAutoISFPlugin(
             auto_isf_consoleError = consoleError,
             auto_isf_consoleLog = consoleLog
         ).also {
+            it.autoIsfFactors = runAutoIsfFactors
+            // The ISF the curves were made with: the AutoISF one, or the profile ISF with autosens
+            val predictionSens = if (autoIsfMode) oapsProfile.variable_sens else oapsProfile.sens / (it.sensitivityRatio ?: autosensResult.ratio)
+            it.predBGsAfterDose = PostDosePredictions.afterDose(it, currentTemp, oapsProfile.current_basal, predictionSens) { units, minutesAgo ->
+                profile.iCfg.iobCalcForTreatment(BS(timestamp = 0L, amount = units, type = BS.Type.SMB, iCfg = profile.iCfg), (minutesAgo * 60_000).toLong()).activityContrib
+            }
             val determineBasalResult = apsResultProvider().with(it)
             // Preserve input data
             determineBasalResult.inputConstraints = inputConstraints
@@ -548,7 +561,11 @@ open class OpenAPSAutoISFPlugin(
     fun convert_bg_to_units(value: Double, profile: OapsProfileAutoIsf): Double =
         if (profile.out_units == "mmol/L") value * Constants.MGDL_TO_MMOLL else value
 
+    /** The factors of the last [autoISF] call, null when the weights are off. For the AutoISF graph. */
+    private var lastAutoIsfFactors: AutoIsfFactors? = null
+
     suspend fun autoISF(profile: Profile): Double {
+        lastAutoIsfFactors = null
         val sens = profile.getProfileIsfMgdl()
         val glucose_status = glucoseStatusCalculatorAutoIsf.getGlucoseStatusData(allowOldData = false)
 
@@ -678,6 +695,7 @@ open class OpenAPSAutoISFPlugin(
                 consoleError.add("bg_ISF adaptation lifted to ${round(liftISF, 2)} as bg accelerates already")
             }
             final_ISF = withinISFlimits(liftISF, autoISF_min, maxISFReduction, sensitivityRatio, origin_sens, isTempTarget, high_temptarget_raises_sensitivity, target_bg)
+            lastAutoIsfFactors = AutoIsfFactors(acce = acce_ISF, bg = bg_ISF, pp = 1.0, dura = 1.0, applied = final_ISF)
             return min(720.0, round(sens / final_ISF, 1))         // observe ISF maximum of 720(?)
         } else if (bg_ISF > 1.0) {
             sens_modified = true
@@ -731,11 +749,13 @@ open class OpenAPSAutoISFPlugin(
                 liftISF = liftISF * acce_ISF
             }
             final_ISF = withinISFlimits(liftISF, autoISF_min, maxISFReduction, sensitivityRatio, origin_sens, isTempTarget, high_temptarget_raises_sensitivity, target_bg)
+            lastAutoIsfFactors = AutoIsfFactors(acce = acce_ISF, bg = bg_ISF, pp = pp_ISF, dura = dura_ISF, applied = final_ISF)
             return round(sens / final_ISF, 1)
         }
         consoleError.add("----------------------------------")
         consoleError.add("end AutoISF")
         consoleError.add("----------------------------------")
+        lastAutoIsfFactors = AutoIsfFactors(acce = acce_ISF, bg = bg_ISF, pp = pp_ISF, dura = dura_ISF, applied = sensitivityRatio)
         return round(sens / sensitivityRatio, 1)     // nothing changed
     }
 
@@ -950,6 +970,8 @@ open class OpenAPSAutoISFPlugin(
             BooleanKey.ApsUseSmbWithCob,
             BooleanKey.ApsUseSmbWithLowTt,
             BooleanKey.ApsUseSmbAfterCarbs,
+            UnitDoubleKey.ApsSmbMinBg,
+            IntKey.ApsSmbMinPercentOfTarget,
             BooleanKey.ApsUseUam,
             IntKey.ApsMaxSmbFrequency,
             IntKey.ApsMaxMinutesOfBasalToLimitSmb,

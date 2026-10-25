@@ -105,7 +105,8 @@ class RunningConfigurationPublisher(
     }
 
     fun start(scope: CoroutineScope) {
-        if (!config.APS) return
+        // The alpha build only reads Nightscout: the app that doses owns these documents
+        if (!config.APS || config.ALPHA) return
         if (job != null) return
         job = scope.launch {
             // Publish on connect, not blindly at plugin start (the NS connection may not be ready yet,

@@ -34,6 +34,7 @@
     <string name="max_basal_multiplier">max basal multiplier</string>
     <string name="max_daily_basal_multiplier">max daily basal multiplier</string>
     <string name="smb_disabled_in_preferences">SMB disabled in preferences</string>
+    <string name="smb_disabled_below_min_bg" comment="%1$s=current BG with unit, %2$s=the minimum BG for SMB with unit. Example: SMB disabled: BG 5.2 mmol/L is below the SMB minimum of 6.0 mmol/L">SMB disabled: BG %1$s is below the SMB minimum of %2$s</string>
     <string name="uam_disabled_in_preferences">UAM disabled in preferences</string>
     <string name="autosens_disabled_in_preferences">Autosens disabled in preferences</string>
 
@@ -51,6 +52,56 @@
     <string name="zero_basal_not_set">The pump did not accept the zero temp basal. It may still be giving basal insulin. Check the pump.</string>
     <string name="description_loop">Activate or deactivate the implementation triggering the loop.</string>
     <string name="no_aps_selected">NO APS SELECTED OR PROVIDED RESULT</string>
+    <string name="alpha_shadow_not_enacted">Shadow mode: decision recorded, not sent to the pump</string>
+    <string name="mpc_settings_title">MPC meal SMBs</string>
+    <string name="mpc_meal_smb_title">MPC meal SMBs</string>
+    <string name="mpc_meal_smb_summary">The temp basal stays vanilla OpenAPS with its own SMBs off. When a meal is seen, MPC sizes the SMB. Max IOB, the SMB interval and the UAM max minutes still apply.</string>
+    <string name="mpc_even_target_title">Even target allows SMB</string>
+    <string name="mpc_even_target_summary">An even target (5.0, 5.4, 6.0 mmol/L or 100, 108 mg/dL) allows meal SMBs, an odd target (5.5 mmol/L or 99 mg/dL) stops them. A temp target can switch them on or off.</string>
+    <string name="mpc_typical_meal_title">Typical meal</string>
+    <string name="mpc_typical_meal_summary">Carbs of a typical meal. The fit of each rise is pulled toward this size.</string>
+    <string name="mpc_rise_length_title">Typical rise length</string>
+    <string name="mpc_rise_length_summary">How long the carb effect of a typical meal lasts</string>
+    <string name="mpc_no_run_yet">No MPC run yet. It runs with the loop every 5 minutes.</string>
+    <string name="mpc_decision_title" comment="%1$s = time of the loop run, e.g. 14:05">MPC meal SMB at %1$s</string>
+    <string name="mpc_smb_units" comment="%1$.2f = SMB in units. Example: SMB 0.80 U">SMB %1$.2f U</string>
+    <string name="mpc_status_no_meal">No meal seen: vanilla temp basal only</string>
+    <string name="mpc_status_odd_target">Meal seen, but the target is odd: no SMB</string>
+    <string name="mpc_status_not_allowed">Meal seen, but an SMB is not allowed now</string>
+    <string name="mpc_status_smb">Meal seen: SMB</string>
+    <string name="mpc_status_wait">Meal seen: no SMB yet</string>
+    <string name="mpc_vanilla_temp" comment="%1$.2f = temp basal rate from vanilla OpenAPS in U/h, %2$.2f = profile basal rate in U/h. Example: Vanilla temp 0.45 U/h (profile basal 1.00 U/h)">Vanilla temp %1$.2f U/h (profile basal %2$.2f U/h)</string>
+    <string name="mpc_meal_chance_line" comment="%1$d = meal chance from the data in percent, %2$d = meal chance after the room rule in percent. Example: Meal chance 23% from the rise, 61% with the room above the target">Meal chance %1$d%% from the rise, %2$d%% with the room above the target</string>
+    <string name="mpc_room_mmol" comment="%1$.1f = BG above the target in mmol/L">Room above the target: %1$.1f mmol/L</string>
+    <string name="mpc_room_mgdl" comment="%1$.0f = BG above the target in mg/dL">Room above the target: %1$.0f mg/dL</string>
+    <string name="mpc_lines_mmol" comment="%1$.1f = target, %2$.1f = high line, both in mmol/L. Example: Target 5.5, high line 8.0 mmol/L">Target %1$.1f, high line %2$.1f mmol/L</string>
+    <string name="mpc_lines_mgdl" comment="%1$.0f = target, %2$.0f = high line, both in mg/dL. Example: Target 99, high line 144 mg/dL">Target %1$.0f, high line %2$.0f mg/dL</string>
+    <string name="mpc_even_target_on">Target is even: SMB allowed</string>
+    <string name="mpc_even_target_off">Target is odd: SMB off</string>
+    <string name="mpc_isf_mmol" comment="%1$.1f = profile ISF in mmol/L per U. Example: ISF 2.6 mmol/L/U">ISF %1$.1f mmol/L/U</string>
+    <string name="mpc_isf_mgdl" comment="%1$.0f = profile ISF in mg/dL per U. Example: ISF 47 mg/dL/U">ISF %1$.0f mg/dL/U</string>
+    <string name="mpc_iob_line" comment="%1$.2f = insulin on board in U">IOB %1$.2f U</string>
+    <string name="mpc_impact_none">No carb rise running</string>
+    <string name="mpc_impact_running" comment="%1$d = minutes since the rise started">Carb rise running for %1$d min, before its peak</string>
+    <string name="mpc_impact_after_peak" comment="%1$d = minutes since the rise started">Carb rise %1$d min old, past its peak</string>
+    <string name="mpc_bg_future_title">Where BG is going, next 3 hours</string>
+    <string name="mpc_legend_meal">If a meal</string>
+    <string name="mpc_legend_false_start">If no meal</string>
+    <string name="mpc_legend_expected">Expected</string>
+    <string name="mpc_legend_lines">Target and high line</string>
+    <string name="mpc_carb_effect_title">Carb effect: last 2 hours and next 3 hours</string>
+    <string name="mpc_carb_effect_unit_mmol">mmol/L per 5 min</string>
+    <string name="mpc_carb_effect_unit_mgdl">mg/dL per 5 min</string>
+    <string name="mpc_legend_seen">Seen (DEV)</string>
+    <string name="mpc_legend_model">Model</string>
+    <string name="mpc_options_title">Best SMB options</string>
+    <string name="mpc_option_cost" comment="%1$d = cost of this option in percent of the chosen one. Example: cost 112%">cost %1$d%%</string>
+    <string name="mpc_option_chosen">chosen</string>
+    <string name="mpc_shape_title">Meal shape</string>
+    <string name="mpc_legend_carb_effect">Carb effect</string>
+    <string name="mpc_legend_carbs_taken_up">Carbs taken up</string>
+    <string name="mpc_shape_summary" comment="%1$.0f = typical meal in grams, %2$.0f = rise length in minutes, %3$.0f = minutes to the peak, %4$.0f = minutes above half height. Example: Typical meal 34 g over 94 min. Peak after 35 min, above half height for 46 min.">Typical meal %1$.0f g over %2$.0f min. Peak after %3$.0f min, above half height for %4$.0f min.</string>
+    <string name="mpc_shape_tail" comment="%1$.0f = minutes">After the peak is passed, the carb effect still to come halves every %1$.0f min.</string>
     <string name="ignore5m">Ignore 5m</string>
     <string name="ignore15m">Ignore 15m</string>
     <string name="ignore30m">Ignore 30m</string>

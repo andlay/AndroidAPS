@@ -19,8 +19,20 @@ enum class SeriesType {
     COB,
     BGI,
     DEVIATIONS,
+
+    /** Running total of the deviations in grams of carbs, without COB (see [DeviationsGraphData.devCarbs]). */
+    DEV_CARBS,
     SENSITIVITY,
     VAR_SENSITIVITY,
+
+    /** AutoISF factors of each loop run, and the factor that was applied (see [VarSensGraphData.autoIsf]). */
+    AUTOISF,
+
+    /** MPC meal SMBs: the meal chance of each loop run, from the rise and with the room above target (see [VarSensGraphData.mpc]). */
+    MEAL_CHANCE,
+
+    /** MPC meal SMBs: carbs still to come in grams, if a meal, if no meal and expected (see [VarSensGraphData.mpc]). */
+    MEAL_CARBS,
     DEV_SLOPE,
     HEART_RATE,
     STEPS,

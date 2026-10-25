@@ -1,5 +1,6 @@
 package app.aaps.persistentNotification
 
+import app.aaps.core.data.model.RM
 import app.aaps.core.interfaces.rx.events.EventAutosensCalculationFinished
 import app.aaps.core.interfaces.rx.events.EventRefreshOverview
 import app.aaps.shared.tests.TestBase
@@ -25,7 +26,7 @@ class PersistentNotificationPluginTest : TestBase() {
     fun prepare() {
         sut = PersistentNotificationPlugin(
             aapsLogger, mock(), mock(), mock(), mock(), mock(), mock(), mock(), rxBus, mock(), mock(), mock(),
-            mock(), mock(), mock(), mock(), mock(), mock(), mock(), mock(), mock(), mock(), mock()
+            mock(), mock(), mock(), mock(), mock(), mock(), mock(), mock(), mock(), mock(), mock(), mock()
         )
     }
 
@@ -128,5 +129,31 @@ class PersistentNotificationPluginTest : TestBase() {
     fun `nothing to show gives no samsung texts`() {
         assertThat(PersistentNotificationPlugin.samsungLiveTexts(null, null, null, null)).isNull()
         assertThat(PersistentNotificationPlugin.samsungLiveTexts("x", " ", "y", "z")).isNull()
+    }
+
+    @Test
+    fun `SMB icon is on only for closed loop with SMBs switched on and a recent run`() {
+        val now = 10_000_000L
+        val recent = now - 5 * 60_000L
+        assertThat(PersistentNotificationPlugin.smbOn(RM.Mode.CLOSED_LOOP, true, recent, now)).isTrue()
+        // SMBs switched off by settings or by the target
+        assertThat(PersistentNotificationPlugin.smbOn(RM.Mode.CLOSED_LOOP, false, recent, now)).isFalse()
+        // Not known, for example an algorithm without SMBs
+        assertThat(PersistentNotificationPlugin.smbOn(RM.Mode.CLOSED_LOOP, null, recent, now)).isFalse()
+        // Not closed loop
+        assertThat(PersistentNotificationPlugin.smbOn(RM.Mode.OPEN_LOOP, true, recent, now)).isFalse()
+        assertThat(PersistentNotificationPlugin.smbOn(RM.Mode.CLOSED_LOOP_LGS, true, recent, now)).isFalse()
+        assertThat(PersistentNotificationPlugin.smbOn(RM.Mode.DISCONNECTED_PUMP, true, recent, now)).isFalse()
+        // No run yet, or the last run is old
+        assertThat(PersistentNotificationPlugin.smbOn(RM.Mode.CLOSED_LOOP, true, null, now)).isFalse()
+        assertThat(PersistentNotificationPlugin.smbOn(RM.Mode.CLOSED_LOOP, true, now - 16 * 60_000L, now)).isFalse()
+    }
+
+    @Test
+    fun `a loop run counts as recent for 15 minutes`() {
+        val now = 10_000_000L
+        assertThat(PersistentNotificationPlugin.isRecent(now - 15 * 60_000L, now)).isTrue()
+        assertThat(PersistentNotificationPlugin.isRecent(now - 15 * 60_000L - 1, now)).isFalse()
+        assertThat(PersistentNotificationPlugin.isRecent(null, now)).isFalse()
     }
 }

@@ -31,7 +31,10 @@ enum class BgType {
     COB_PREDICTION,  // COB-based prediction (filled concentric circles, orange)
     A_COB_PREDICTION,// Absorbed COB prediction (filled concentric circles, lighter orange)
     UAM_PREDICTION,  // Unannounced meals prediction (filled concentric circles, yellow)
-    ZT_PREDICTION    // Zero-temp prediction (filled concentric circles, cyan)
+    ZT_PREDICTION,   // Zero-temp prediction (filled concentric circles, cyan)
+    MPC_MEAL_PREDICTION,        // MPC: BG if the rise is a meal (orange)
+    MPC_FALSE_START_PREDICTION, // MPC: BG if the rise fades (blue)
+    MPC_EXPECTED_PREDICTION     // MPC: the two weighted by the meal chance (bold)
 }
 
 /**
@@ -52,6 +55,7 @@ data class BgDataPoint(
     val range: BgRange,            // Range classification (high/in-range/low)
     val type: BgType,              // Type determines rendering style and color
     val filledGap: Boolean = false, // For bucketed data - if true, render semi-transparent
+    val afterDose: Boolean = false, // For predictions - the curve with the dose of the loop run added (see RT.predBGsAfterDose)
 )
 
 // ============================================================================
@@ -129,6 +133,27 @@ data class IobGraphData(
 )
 
 /**
+ * Alpha build: the insulin the shadow loop decided on, as if it had been given - its SMBs, its temp
+ * basals and the IOB of those plus the manual boluses that were really given.
+ * Drawn as a second IOB / basal graph below the real one.
+ */
+data class ShadowDosingGraphData(
+    val iob: IobGraphData,
+    val treatments: TreatmentGraphData,
+    val basal: BasalGraphData
+) {
+
+    companion object {
+
+        val EMPTY = ShadowDosingGraphData(
+            IobGraphData(emptyList(), emptyList()),
+            TreatmentGraphData(emptyList(), emptyList(), emptyList(), emptyList()),
+            BasalGraphData(emptyList(), emptyList(), 0.0)
+        )
+    }
+}
+
+/**
  * Absolute IOB graph data: absolute IOB line only
  */
 data class AbsIobGraphData(
@@ -160,10 +185,44 @@ data class BgiGraphData(
 )
 
 /**
- * Deviations graph data: deviation bars with color types
+ * Deviations graph data: deviation bars with color types, and the DEV carbs graph.
+ *
+ * @param devCarbs running total of the deviations in grams of carbs, without COB: one list per run, each
+ *   starting with a point at 0. A run is drawn on its own, green above zero and red below.
  */
 data class DeviationsGraphData(
-    val deviations: List<DeviationDataPoint>
+    val deviations: List<DeviationDataPoint>,
+    val devCarbs: List<List<GraphDataPoint>> = emptyList()
+)
+
+/**
+ * The deviations the newest loop run expects, one bar every 5 minutes after the run, in the user's
+ * units per 5 minutes like [DeviationsGraphData.deviations]. A list is empty when the run made no such
+ * curve (see `app.aaps.core.interfaces.aps.PredictedDeviations`).
+ */
+data class PredictedDeviationsGraphData(
+    val iob: List<GraphDataPoint> = emptyList(),
+    val cob: List<GraphDataPoint> = emptyList(),
+    val uam: List<GraphDataPoint> = emptyList()
+)
+
+/**
+ * One past loop run, as the graphs show it while the user holds a point (see [OverviewDataCache.loopRunAt]).
+ *
+ * @param timestamp when the run was made
+ * @param deviations the deviations it expected, as bars
+ * @param eventualBg eventual BG in the user's units
+ * @param minPredBg lowest expected BG in the user's units; null for runs before it was stored
+ * @param insulinReq insulin it asked for, U
+ * @param smb SMB it asked for, U
+ */
+data class HeldLoopRun(
+    val timestamp: Long,
+    val deviations: PredictedDeviationsGraphData,
+    val eventualBg: Double?,
+    val minPredBg: Double?,
+    val insulinReq: Double?,
+    val smb: Double?
 )
 
 /**
@@ -183,9 +242,37 @@ data class DevSlopeGraphData(
 
 /**
  * Variable sensitivity graph data: sensitivity line from APS results
+ *
+ * @param autoIsf the AutoISF factors of each loop run that has them (AutoISF with the weights on)
+ * @param profileIsf the ISF of the running profile now, in the user's units, before autosens, dynamic
+ *   ISF or AutoISF change it. Null when there is no profile.
  */
 data class VarSensGraphData(
-    val varSens: List<GraphDataPoint>
+    val varSens: List<GraphDataPoint>,
+    val autoIsf: List<AutoIsfFactorPoint> = emptyList(),
+    val profileIsf: Double? = null,
+    /** MPC meal SMBs, one point per loop run (also read from the loop results, like [autoIsf]) */
+    val mpc: List<MpcPoint> = emptyList()
+)
+
+/** What one MPC meal SMB run saw: meal chances in % (0..100), carbs still to come in grams. */
+data class MpcPoint(
+    val timestamp: Long,
+    val mealChance: Double,
+    val weightedMealChance: Double,
+    val carbsIfMeal: Double,
+    val carbsIfNoMeal: Double,
+    val carbsExpected: Double
+)
+
+/** The AutoISF factors of one loop run. 1.0 is no change, above 1.0 is a stronger ISF. */
+data class AutoIsfFactorPoint(
+    val timestamp: Long,
+    val acce: Double,
+    val bg: Double,
+    val pp: Double,
+    val dura: Double,
+    val applied: Double
 )
 
 /**
@@ -414,7 +501,9 @@ enum class TbrState {
 data class TbrDisplayData(
     val state: TbrState,
     val timestamp: Long,                 // When TBR started (0 if none)
-    val duration: Long                   // TBR duration in ms (0 if none)
+    val duration: Long,                  // TBR duration in ms (0 if none)
+    val rate: Double? = null,            // Basal rate delivered now, U/h (the temp rate while one runs)
+    val baseBasal: Double? = null        // Profile basal rate now, U/h
 )
 
 // ============================================================================

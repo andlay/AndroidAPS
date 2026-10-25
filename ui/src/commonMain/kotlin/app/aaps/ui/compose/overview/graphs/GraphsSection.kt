@@ -18,6 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -61,6 +63,7 @@ import app.aaps.core.interfaces.overview.graph.SecondaryGraph
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.keys.interfaces.TextRef
 import app.aaps.core.ui.CoreUiStrings
+import app.aaps.core.ui.compose.LocalConfig
 import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.LocalDecimalFormatter
 import app.aaps.core.ui.compose.LocalProfileUtil
@@ -86,7 +89,8 @@ import kotlin.math.abs
  * Pattern: Observe Primary + Sync to Secondary
  * - Each graph has its OWN VicoScrollState and VicoZoomState
  * - BG graph: Interactive - user can scroll/zoom
- * - Secondary graphs: Non-interactive - scroll/zoom disabled
+ * - Secondary graphs: scroll/zoom disabled on the chart; a sideways drag on them scrolls BG
+ *   (see scrollsBgGraph) and a pinch zooms BG (see rememberPinchZoomsBg)
  * - One LaunchedEffect observes BG graph's state changes and syncs to secondary
  *
  * Synchronization Implementation:
@@ -201,7 +205,10 @@ private val PREDICTION_SPOKEN_ORDER = listOf(
     BgType.IOB_PREDICTION to UiStrings.a11y_prediction_name_iob,
     BgType.A_COB_PREDICTION to UiStrings.a11y_prediction_name_acob,
     BgType.UAM_PREDICTION to UiStrings.a11y_prediction_name_uam,
-    BgType.ZT_PREDICTION to UiStrings.a11y_prediction_name_zt
+    BgType.ZT_PREDICTION to UiStrings.a11y_prediction_name_zt,
+    BgType.MPC_EXPECTED_PREDICTION to UiStrings.a11y_prediction_name_mpc_expected,
+    BgType.MPC_MEAL_PREDICTION to UiStrings.a11y_prediction_name_mpc_meal,
+    BgType.MPC_FALSE_START_PREDICTION to UiStrings.a11y_prediction_name_mpc_false_start
 )
 
 /** Series types available as BG graph overlays */
@@ -285,6 +292,9 @@ fun GraphsSection(
     }
     // A sideways drag on a graph below BG scrolls BG, and they all follow it
     val bgScrollForwarder = rememberBgScrollForwarder(bgScrollState)
+    // One x layout for all graphs, reported by the fixed IOB graph. A pinch on a graph other than BG
+    // uses it to zoom BG around the fingers.
+    val graphGeometry = remember { GraphGeometryHolder() }
 
     // Pre-allocate secondary graph scroll/zoom states (up to MAX_SECONDARY_GRAPHS)
     // These are always created to keep Compose's remember slots stable
@@ -465,8 +475,10 @@ fun GraphsSection(
         nudgedResetTrigger = bgViewportResetTrigger
     }
 
-    // Set by the BG graph, read by every graph
+    // Set by the graph that is held, read by every graph
     val inspect = remember { GraphInspectState() }
+    // The series of the IOB graph, for its values in the pop-up
+    val iobGraphSeries = remember(graphConfig.iobOverlays) { listOf(SeriesType.IOB) + graphConfig.iobOverlays }
 
     Column(
         modifier = modifier
@@ -482,7 +494,9 @@ fun GraphsSection(
             zoomState = beltZoomState,
             derivedTimeRange = derivedTimeRange,
             nowTimestamp = nowTimestamp,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .inspectSource(inspect, emptyList())
         )
         // BG Graph - primary interactive graph
         var editingBgOverlays by remember { mutableStateOf(false) }
@@ -530,7 +544,7 @@ fun GraphsSection(
         val predictionExtremes = remember(predictions, currentValue, predictionsVisible) {
             if (!predictionsVisible || currentValue == null) emptyList()
             else PREDICTION_SPOKEN_ORDER.mapNotNull { (type, name) ->
-                predictionExtreme(predictions.filter { it.type == type }.map { it.value }, currentValue)
+                predictionExtreme(predictions.filter { it.type == type && !it.afterDose }.map { it.value }, currentValue)
                     ?.let { (value, direction) -> Triple(name, value, direction) }
             }
         }
@@ -556,6 +570,7 @@ fun GraphsSection(
         Box(
             modifier = Modifier
                 .offset(y = (-16).dp)
+                .inspectSource(inspect, emptyList())
                 .graphInspectTouch(inspect)
         ) {
             BgGraphCompose(
@@ -639,8 +654,10 @@ fun GraphsSection(
         Box(
             modifier = Modifier
                 .pullUp(IOB_GRAPH_PULL_UP)
+                .inspectSource(inspect, iobGraphSeries)
                 .graphInspectTouch(inspect)
                 .scrollsBgGraph(bgScrollForwarder, inspect, graphViewModel::onGraphInteraction)
+                .then(rememberPinchZoomsBg(graphGeometry, bgZoomState, graphViewModel::onGraphInteraction))
         ) {
             SecondaryGraphCompose(
                 viewModel = graphViewModel,
@@ -650,8 +667,11 @@ fun GraphsSection(
                 derivedTimeRange = derivedTimeRange,
                 nowTimestamp = nowTimestamp,
                 activityOverlay = SeriesType.ACTIVITY in graphConfig.iobOverlays,
+                // Alpha build: the shadow loop's IOB, SMBs and basal in amber and yellow over the real ones
+                shadowOverlay = LocalConfig.current.ALPHA,
                 onVisibleRangeChanged = { iobVisibleRange = it },
                 inspect = inspect,
+                geometryHolder = graphGeometry,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(graphConfig.iobHeight.dp - REMOVED_TIME_LABELS_HEIGHT)
@@ -690,8 +710,10 @@ fun GraphsSection(
             Box(
                 modifier = Modifier
                     .pullUp(GRAPH_OVERLAP)
+                    .inspectSource(inspect, secondary.series)
                     .graphInspectTouch(inspect)
                     .scrollsBgGraph(bgScrollForwarder, inspect, graphViewModel::onGraphInteraction)
+                    .then(rememberPinchZoomsBg(graphGeometry, bgZoomState, graphViewModel::onGraphInteraction))
             ) {
                 SecondaryGraphCompose(
                     viewModel = graphViewModel,
@@ -754,6 +776,13 @@ fun GraphsSection(
                     graphs.removeAt(index)
                     editingGraphIndex = -1
                     graphViewModel.updateGraphConfig(graphConfig.copy(secondaryGraphs = graphs))
+                },
+                // The sheet stays open on the graph it moved
+                onMoveUp = movedSecondaryGraph(graphConfig, index, index - 1)?.let { moved ->
+                    { editingGraphIndex = index - 1; graphViewModel.updateGraphConfig(moved) }
+                },
+                onMoveDown = movedSecondaryGraph(graphConfig, index, index + 1)?.let { moved ->
+                    { editingGraphIndex = index + 1; graphViewModel.updateGraphConfig(moved) }
                 },
                 onDismiss = { editingGraphIndex = -1 }
             )
@@ -836,6 +865,15 @@ internal fun withSecondaryGraphHeight(config: GraphConfig, index: Int, expectedS
     return config.copy(secondaryGraphs = graphs)
 }
 
+/** [config] with the graph below BG at [from] moved to [to], or null when either is not a graph. */
+internal fun movedSecondaryGraph(config: GraphConfig, from: Int, to: Int): GraphConfig? {
+    val graphs = config.secondaryGraphs
+    if (from !in graphs.indices || to !in graphs.indices || from == to) return null
+    val moved = graphs.toMutableList()
+    moved.add(to, moved.removeAt(from))
+    return config.copy(secondaryGraphs = moved)
+}
+
 // =========================================================================
 // Graph label generation
 // =========================================================================
@@ -848,7 +886,7 @@ private fun seriesListLabel(seriesList: List<SeriesType>): String {
 }
 
 /** String resource ID for the short name of a series type */
-private fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
+internal fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
     SeriesType.IOB             -> CoreUiStrings.iob
     SeriesType.ABS_IOB         -> CoreUiStrings.abs_insulin_shortname
     SeriesType.COB             -> CoreUiStrings.cob
@@ -856,7 +894,11 @@ private fun seriesShortNameId(type: SeriesType): TextRef = when (type) {
     SeriesType.DEVIATIONS      -> CoreUiStrings.deviation_shortname
     SeriesType.SENSITIVITY     -> CoreUiStrings.sensitivity_shortname
     SeriesType.VAR_SENSITIVITY -> CoreUiStrings.variable_sensitivity_shortname
+    SeriesType.AUTOISF         -> CoreUiStrings.autoisf_shortname
+    SeriesType.MEAL_CHANCE     -> UiStrings.meal_chance_shortname
+    SeriesType.MEAL_CARBS      -> UiStrings.meal_carbs_shortname
     SeriesType.DEV_SLOPE       -> CoreUiStrings.devslope_shortname
+    SeriesType.DEV_CARBS       -> CoreUiStrings.dev_carbs_shortname
     SeriesType.HEART_RATE      -> CoreUiStrings.heartRate_shortname
     SeriesType.STEPS           -> CoreUiStrings.steps_shortname
     SeriesType.ACTIVITY        -> CoreUiStrings.activity_shortname
@@ -926,7 +968,11 @@ private fun GraphSeriesBottomSheet(
     onHeightChange: (Int) -> Unit,
     onToggle: (SeriesType) -> Unit,
     onDismiss: () -> Unit,
-    onRemoveGraph: (() -> Unit)? = null
+    onRemoveGraph: (() -> Unit)? = null,
+    /** Moves the graph one place up; null when it is the first or cannot move. */
+    onMoveUp: (() -> Unit)? = null,
+    /** Moves the graph one place down; null when it is the last or cannot move. */
+    onMoveDown: (() -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(
@@ -947,6 +993,15 @@ private fun GraphSeriesBottomSheet(
                     text = title,
                     style = MaterialTheme.typography.titleMedium
                 )
+                Spacer(Modifier.weight(1f))
+                if (onMoveUp != null || onMoveDown != null) {
+                    IconButton(onClick = { onMoveUp?.invoke() }, enabled = onMoveUp != null) {
+                        Icon(Icons.Filled.KeyboardArrowUp, contentDescription = stringResource(CoreUiStrings.graph_move_up))
+                    }
+                    IconButton(onClick = { onMoveDown?.invoke() }, enabled = onMoveDown != null) {
+                        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(CoreUiStrings.graph_move_down))
+                    }
+                }
                 if (onRemoveGraph != null) {
                     TextButton(onClick = onRemoveGraph) {
                         Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.size(16.dp))

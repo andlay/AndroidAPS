@@ -299,6 +299,9 @@ enum class IntKey(
         visibility = ElementVisibility.stringNotEmpty { StringKey.ProtectionMasterPassword }
     ),
     SafetyMaxCarbs(key = "treatmentssafety_maxcarbs", defaultValue = 48, min = 1, max = 200, title = KeysStrings.pref_title_max_carbs, unitType = UnitType.GRAMS, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
+    /** No SMB while the current BG is below this % of the loop's current target. 0 = off. The key
+     *  string is the one of the first version, so a value stored then is used again. */
+    ApsSmbMinPercentOfTarget(key = "safety_smb_min_percent_of_target", defaultValue = 0, min = 0, max = 300, title = KeysStrings.pref_title_smb_min_percent_of_target, summary = KeysStrings.pref_summary_smb_min_percent_of_target, unitType = UnitType.PERCENT, dependency = BooleanKey.ApsUseSmb, sync = SyncSpec(SyncChannel.Cold, SyncDirection.Bidirectional)),
     LoopOpenModeMinChange(
         key = "loop_openmode_min_change",
         defaultValue = 30,

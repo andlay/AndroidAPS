@@ -79,6 +79,11 @@ android {
             dimension = "standard"
             resValue("string", "watchface_name", "Pumpcontrol")
         }
+        create("alpha") {
+            applicationId = "info.nightscout.aapsalpha"
+            dimension = "standard"
+            resValue("string", "watchface_name", "AAPS Alpha")
+        }
         create("aapsclient") {
             applicationId = "info.nightscout.aapsclient"
             dimension = "standard"

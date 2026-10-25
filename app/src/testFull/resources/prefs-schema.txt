@@ -24,6 +24,9 @@ AAPS.Omnipod.suspend_delivery_button_enabled|ErosBooleanPreferenceKey|true
 AAPS.Omnipod.tbr_beeps_enabled|OmnipodBooleanPreferenceKey|true
 AAPS.Omnipod.tbrs_set|ErosLongNonPreferenceKey|true
 AAPS.Omnipod.time_change_enabled|ErosBooleanPreferenceKey|true
+AAPS.Omnipod5.out_of_reach_alert_pod_id|O5LongNonPreferenceKey|false
+AAPS.Omnipod5.out_of_reach_beep_enabled|O5BooleanPreferenceKey|true
+AAPS.Omnipod5.out_of_reach_beep_minutes|O5IntPreferenceKey|true
 AAPS.Omnipod5.pod_state|O5StringNonPreferenceKey|true
 AAPS.Omnipod5.registration_data_encrypted|O5StringNonPreferenceKey|false
 AAPS.OmnipodDash.pod_state|DashStringNonPreferenceKey|true
@@ -89,6 +92,10 @@ application_protection|IntKey|true
 appwidget_%d|IntComposedKey|true
 aps_incarnation_no|DiaconnIntNonKey|true
 aps_link_to_docs|ApsIntentKey|false
+aps_mpc_meal_smb|MpcBooleanKey|true
+aps_mpc_rise_length|MpcDoubleKey|true
+aps_mpc_smb_even_target|MpcBooleanKey|true
+aps_mpc_typical_meal|MpcDoubleKey|true
 autoISF_max|DoubleKey|true
 autoISF_min|DoubleKey|true
 autosens_adjust_targets|BooleanKey|true
@@ -425,6 +432,8 @@ resistance_lowers_target|BooleanKey|true
 rs_last_clear_key_request|DanaLongKey|true
 rs_logcanulachange|DanaBooleanKey|true
 rs_loginsulinchange|DanaBooleanKey|true
+safety_smb_min_bg|UnitDoubleKey|true
+safety_smb_min_percent_of_target|IntKey|true
 scan_on_connection_error|MedtrumBooleanKey|true
 scene_definitions|StringNonKey|true
 sensitivity_raises_target|BooleanKey|true
@@ -437,6 +446,7 @@ show_carbs_button|BooleanKey|true
 show_cgm_button|BooleanKey|true
 show_insulin_button|BooleanKey|true
 show_notes_entry_dialogs|BooleanKey|true
+show_smb_status_icon|BooleanKey|true
 show_treatment_button|BooleanKey|true
 show_wizard_button|BooleanKey|true
 simple_mode|BooleanKey|true

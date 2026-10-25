@@ -20,11 +20,16 @@ internal sealed interface AxisRule {
 
     /** No fixed point: only the values decide the range (variable sensitivity, heart rate). */
     data object Free : AxisRule
+
+    /** At least [min]..[max], wider when the values go past it (the meal chance, 0..100 %). [min] is kept as the reference. */
+    data class AtLeast(val min: Double, val max: Double) : AxisRule
 }
 
 internal fun axisRuleOf(type: SeriesType): AxisRule = when (type) {
     SeriesType.SENSITIVITY                            -> AxisRule.Pivot(100.0, SENS_MIN_DEVIATION)
     SeriesType.DEV_SLOPE                              -> AxisRule.Pivot(0.0)
+    SeriesType.AUTOISF                                -> AxisRule.Pivot(1.0, AUTOISF_MIN_DEVIATION)
+    SeriesType.MEAL_CHANCE                            -> AxisRule.AtLeast(0.0, 100.0)
     SeriesType.VAR_SENSITIVITY, SeriesType.HEART_RATE -> AxisRule.Free
     else                                              -> AxisRule.ZeroFloor
 }
@@ -71,6 +76,7 @@ internal fun axisRange(rule: AxisRule, values: List<Double>): AxisRange? {
         AxisRule.ZeroFloor -> zeroFloorNiceRange(low, high.coerceAtLeast(0.0)).let { AxisRange(it.min, it.max, 0.0) }
         is AxisRule.Pivot  -> niceScaleAroundPivot(low, high, rule.pivot, rule.minDeviation).let { AxisRange(it.min, it.max, rule.pivot) }
         AxisRule.Free      -> niceScale(low, high).let { AxisRange(it.min, it.max, null) }
+        is AxisRule.AtLeast -> niceScale(minOf(rule.min, low), maxOf(rule.max, high)).let { AxisRange(it.min, it.max, rule.min) }
     }
 }
 

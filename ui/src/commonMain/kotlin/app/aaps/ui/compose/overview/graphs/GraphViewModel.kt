@@ -9,6 +9,7 @@ import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.overview.graph.BgDataPoint
 import app.aaps.core.interfaces.overview.graph.GraphConfig
 import app.aaps.core.interfaces.overview.graph.GraphConfigRepository
+import app.aaps.core.interfaces.overview.graph.HeldLoopRun
 import app.aaps.core.interfaces.overview.graph.OverviewDataCache
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.resources.TextResolver
@@ -19,6 +20,7 @@ import app.aaps.core.keys.interfaces.Preferences
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -32,6 +34,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlin.concurrent.Volatile
+import kotlinx.coroutines.launch
 
 /**
  * ViewModel for Overview graphs (Compose/Vico version).
@@ -48,7 +51,7 @@ import kotlin.concurrent.Volatile
 @Stable
 @AssistedInject
 class GraphViewModel(
-    @Assisted cache: OverviewDataCache,
+    @Assisted private val cache: OverviewDataCache,
     @Assisted private val fullWindow: Boolean,
     private val graphConfigRepository: GraphConfigRepository,
     private val aapsLogger: AAPSLogger,
@@ -109,6 +112,26 @@ class GraphViewModel(
     val activityGraphFlow = cache.activityGraphFlow
     val bgiGraphFlow = cache.bgiGraphFlow
     val deviationsGraphFlow = cache.deviationsGraphFlow
+    val predictedDeviationsFlow = cache.predictedDeviationsFlow
+
+    // Press and hold: the loop run at the held reading. The DEV graph draws its expected
+    // deviations instead of the newest ones while it is set, and the pill shows its values.
+    private val _heldLoopRun = MutableStateFlow<HeldLoopRun?>(null)
+    val heldLoopRunFlow: StateFlow<HeldLoopRun?> = _heldLoopRun.asStateFlow()
+    private var heldAt: Long? = null
+    private var heldJob: Job? = null
+
+    /** Shows the loop run for the reading at [timestamp], or the newest curves again when null. */
+    fun holdAt(timestamp: Long?) {
+        if (timestamp == heldAt) return
+        heldAt = timestamp
+        heldJob?.cancel()
+        if (timestamp == null) {
+            _heldLoopRun.value = null
+            return
+        }
+        heldJob = viewModelScope.launch { _heldLoopRun.value = cache.loopRunAt(timestamp) }
+    }
     val ratioGraphFlow = cache.ratioGraphFlow
     val devSlopeGraphFlow = cache.devSlopeGraphFlow
     val varSensGraphFlow = cache.varSensGraphFlow
@@ -117,6 +140,7 @@ class GraphViewModel(
     val treatmentGraphFlow = cache.treatmentGraphFlow
     val epsGraphFlow = cache.epsGraphFlow
     val basalGraphFlow = cache.basalGraphFlow
+    val shadowDosingFlow = cache.shadowDosingFlow
     val targetLineFlow = cache.targetLineFlow
     val runningModeGraphFlow = cache.runningModeGraphFlow
 

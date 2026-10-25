@@ -72,14 +72,37 @@ private const val SERIES_PRED_COB = "pred_cob"
 private const val SERIES_PRED_ACOB = "pred_acob"
 private const val SERIES_PRED_UAM = "pred_uam"
 private const val SERIES_PRED_ZT = "pred_zt"
+private const val SERIES_PRED_MPC_MEAL = "pred_mpc_meal"
+private const val SERIES_PRED_MPC_FALSE_START = "pred_mpc_false_start"
+private const val SERIES_PRED_MPC_EXPECTED = "pred_mpc_expected"
 
-/** All prediction series identifiers, each with the type of prediction it draws */
+// The same curves with the dose of the loop run added, see BgDataPoint.afterDose
+private const val SERIES_PRED_IOB_AFTER = "pred_iob_after"
+private const val SERIES_PRED_COB_AFTER = "pred_cob_after"
+private const val SERIES_PRED_ACOB_AFTER = "pred_acob_after"
+private const val SERIES_PRED_UAM_AFTER = "pred_uam_after"
+private const val SERIES_PRED_ZT_AFTER = "pred_zt_after"
+
+private val AFTER_DOSE_POINT_SIZE = 2.dp
+
+/** One prediction series: its identifier, the type of prediction it draws, and whether it is the curve after the dose. */
+private data class PredictionSeries(val key: String, val type: BgType, val afterDose: Boolean = false)
+
+/** All prediction series, in the order of their lines */
 private val PREDICTION_SERIES = listOf(
-    SERIES_PRED_IOB to BgType.IOB_PREDICTION,
-    SERIES_PRED_COB to BgType.COB_PREDICTION,
-    SERIES_PRED_ACOB to BgType.A_COB_PREDICTION,
-    SERIES_PRED_UAM to BgType.UAM_PREDICTION,
-    SERIES_PRED_ZT to BgType.ZT_PREDICTION
+    PredictionSeries(SERIES_PRED_IOB, BgType.IOB_PREDICTION),
+    PredictionSeries(SERIES_PRED_COB, BgType.COB_PREDICTION),
+    PredictionSeries(SERIES_PRED_ACOB, BgType.A_COB_PREDICTION),
+    PredictionSeries(SERIES_PRED_UAM, BgType.UAM_PREDICTION),
+    PredictionSeries(SERIES_PRED_ZT, BgType.ZT_PREDICTION),
+    PredictionSeries(SERIES_PRED_MPC_MEAL, BgType.MPC_MEAL_PREDICTION),
+    PredictionSeries(SERIES_PRED_MPC_FALSE_START, BgType.MPC_FALSE_START_PREDICTION),
+    PredictionSeries(SERIES_PRED_MPC_EXPECTED, BgType.MPC_EXPECTED_PREDICTION),
+    PredictionSeries(SERIES_PRED_IOB_AFTER, BgType.IOB_PREDICTION, afterDose = true),
+    PredictionSeries(SERIES_PRED_COB_AFTER, BgType.COB_PREDICTION, afterDose = true),
+    PredictionSeries(SERIES_PRED_ACOB_AFTER, BgType.A_COB_PREDICTION, afterDose = true),
+    PredictionSeries(SERIES_PRED_UAM_AFTER, BgType.UAM_PREDICTION, afterDose = true),
+    PredictionSeries(SERIES_PRED_ZT_AFTER, BgType.ZT_PREDICTION, afterDose = true)
 )
 
 /**
@@ -110,6 +133,40 @@ private val MARKER_EMPTY_Y = listOf(-10_000.0, -10_000.0)
  * transaction instead of silently dropping it. Same mechanism as SecondaryGraphCompose.kt.
  */
 private val BG_VISIBLE_RANGE_KEY = ExtraStore.Key<Pair<Long?, Long?>>()
+
+/**
+ * The BG axis range: the readings, predictions and [measured] values (timestamp to value) in the
+ * visible window (all of them when the window has none), rounded to clean numbers.
+ *
+ * At the default zoom or wider the range is widened to at least the low and high marks, so the
+ * target range is always in view. When the user zooms in further, the range fits the visible
+ * readings instead, so small changes can be seen. It is never smaller than a quarter of the target range
+ * (1.5 mmol/L or 27 mg/dL for 4-10), so noise of a few tenths does not fill the whole graph.
+ */
+internal fun bgAxisScale(
+    points: List<BgDataPoint>,
+    window: Pair<Long, Long>?,
+    lowMark: Double,
+    highMark: Double,
+    measured: List<Pair<Long, Double>> = emptyList()
+): NiceScale {
+    val all = points.map { it.timestamp to it.value } + measured
+    val windowed = all.filter { window == null || it.first in window.first..window.second }.ifEmpty { all }.map { it.second }
+    val zoomedIn = window != null && window.second - window.first < ZOOMED_IN_WINDOW_MS
+    if (zoomedIn && windowed.isNotEmpty()) {
+        val dataMin = windowed.min()
+        val dataMax = windowed.max()
+        val halfSpan = maxOf(dataMax - dataMin, (highMark - lowMark) / 4.0) / 2.0
+        val middle = (dataMin + dataMax) / 2.0
+        return niceScale((middle - halfSpan).coerceAtLeast(0.0), middle + halfSpan)
+    }
+    val dataMax = maxOf(windowed.maxOrNull() ?: highMark, highMark)
+    val dataMin = minOf(windowed.minOrNull() ?: lowMark, lowMark)
+    return niceScale(dataMin, dataMax)
+}
+
+/** A visible window shorter than this is zoomed in past the default (with a small margin for rounding). */
+private const val ZOOMED_IN_WINDOW_MS = (DEFAULT_GRAPH_ZOOM_MINUTES * 0.95 * 60_000).toLong()
 
 /**
  * A [CartesianLayerRangeProvider] backed by plain mutable fields instead of an immutable value
@@ -212,6 +269,9 @@ fun BgGraphCompose(
     val aCobPredColor = AapsTheme.generalColors.aCobPrediction
     val uamPredColor = AapsTheme.generalColors.uamPrediction
     val ztPredColor = AapsTheme.generalColors.ztPrediction
+    val mpcMealPredColor = AapsTheme.generalColors.mpcMealPrediction
+    val mpcFalseStartPredColor = AapsTheme.generalColors.mpcFalseStartPrediction
+    val mpcExpectedPredColor = AapsTheme.generalColors.mpcExpectedPrediction
 
     // Calculate x-axis range (must match COB graph for alignment)
     val maxX = remember(minTimestamp, maxTimestamp) {
@@ -297,10 +357,24 @@ fun BgGraphCompose(
     val aCobPredLine = remember(aCobPredColor) { createPredictionLine(aCobPredColor) }
     val uamPredLine = remember(uamPredColor) { createPredictionLine(uamPredColor) }
     val ztPredLine = remember(ztPredColor) { createPredictionLine(ztPredColor) }
+    val mpcMealPredLine = remember(mpcMealPredColor) { createPredictionLine(mpcMealPredColor) }
+    val mpcFalseStartPredLine = remember(mpcFalseStartPredColor) { createPredictionLine(mpcFalseStartPredColor) }
+    val mpcExpectedPredLine = remember(mpcExpectedPredColor) { createPredictionLine(mpcExpectedPredColor) }
+    // After the dose of the run: smaller dots in the same colours
+    val afterDoseLines = remember(iobPredColor, cobPredColor, aCobPredColor, uamPredColor, ztPredColor) {
+        mapOf(
+            SERIES_PRED_IOB_AFTER to createPredictionLine(iobPredColor, AFTER_DOSE_POINT_SIZE),
+            SERIES_PRED_COB_AFTER to createPredictionLine(cobPredColor, AFTER_DOSE_POINT_SIZE),
+            SERIES_PRED_ACOB_AFTER to createPredictionLine(aCobPredColor, AFTER_DOSE_POINT_SIZE),
+            SERIES_PRED_UAM_AFTER to createPredictionLine(uamPredColor, AFTER_DOSE_POINT_SIZE),
+            SERIES_PRED_ZT_AFTER to createPredictionLine(ztPredColor, AFTER_DOSE_POINT_SIZE)
+        )
+    }
 
     val activeSeries by activeSeriesState
-    val bgLines = remember(activeSeries, regularLine, bucketedLine, iobPredLine, cobPredLine, aCobPredLine, uamPredLine, ztPredLine, normalizerLine) {
+    val bgLines = remember(activeSeries, regularLine, bucketedLine, iobPredLine, cobPredLine, aCobPredLine, uamPredLine, ztPredLine, mpcMealPredLine, mpcFalseStartPredLine, mpcExpectedPredLine, afterDoseLines, normalizerLine) {
         buildList {
+            // Same order as the series in submitBgModel
             if (SERIES_REGULAR in activeSeries) add(regularLine)
             if (SERIES_BUCKETED in activeSeries) add(bucketedLine)
             if (SERIES_PRED_IOB in activeSeries) add(iobPredLine)
@@ -308,6 +382,10 @@ fun BgGraphCompose(
             if (SERIES_PRED_ACOB in activeSeries) add(aCobPredLine)
             if (SERIES_PRED_UAM in activeSeries) add(uamPredLine)
             if (SERIES_PRED_ZT in activeSeries) add(ztPredLine)
+            if (SERIES_PRED_MPC_MEAL in activeSeries) add(mpcMealPredLine)
+            if (SERIES_PRED_MPC_FALSE_START in activeSeries) add(mpcFalseStartPredLine)
+            if (SERIES_PRED_MPC_EXPECTED in activeSeries) add(mpcExpectedPredLine)
+            for ((key, line) in afterDoseLines) if (key in activeSeries) add(line)
             add(normalizerLine)
         }
     }
@@ -464,7 +542,11 @@ fun BgGraphCompose(
     val defaultMarkerController = CartesianMarkerController.rememberShowOnPress()
     val inspectLine = rememberInspectLine(inspect, dotOnReading = true)
 
-    val decorations = remember(inRangeBox, nowLine, inspectLine) { listOfNotNull(inRangeBox, nowLine, inspectLine) }
+    // Where insulin activity will peak, while that is still ahead
+    val activityPeak = remember(showActivity, activityData, nowTimestamp) { if (showActivity) futureActivityPeak(activityData.activityPrediction, nowTimestamp) else null }
+    val activityPeakLine = rememberActivityPeakLine(minTimestamp, activityPeak, activityColor)
+
+    val decorations = remember(inRangeBox, nowLine, activityPeakLine, inspectLine) { listOfNotNull(inRangeBox, nowLine, activityPeakLine, inspectLine) }
 
     // =========================================================================
     // Range providers — hoisted out of rememberCartesianChart so keys are re-evaluated on recomposition
@@ -524,7 +606,8 @@ fun BgGraphCompose(
                     style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
                     minWidth = TextComponent.MinWidth.fixed(30.dp)
                 ),
-                guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+                guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))),
+                size = GRAPH_AXIS_SIZE
             ),
             bottomAxis = HorizontalAxis.rememberBottom(
                 valueFormatter = timeFormatter,
@@ -611,14 +694,10 @@ private suspend fun submitBgModel(
     // well off the curve, so it widens the axis like a reading — otherwise it would be clamped
     // to the edge and lie about what the meter said.
     val measuredPoints = measuredGlucosePoints(treatmentData.calibrations, treatmentData.therapyEvents)
-    val bgAndPredictions = input.bgReadings + input.bucketedData + input.predictions
-    val allBgAndPredictionValues = bgAndPredictions.map { it.value } + measuredPoints.map { it.second }
-    val windowedValues = bgAndPredictions.filter { inWindow(it.timestamp) }.map { it.value } +
-        measuredPoints.filter { inWindow(it.first) }.map { it.second }
-    val windowedOrFull = windowedValues.ifEmpty { allBgAndPredictionValues }
-    val dataMax = maxOf(windowedOrFull.maxOrNull() ?: chartConfig.highMark, chartConfig.highMark)
-    val dataMin = minOf(windowedOrFull.minOrNull() ?: chartConfig.lowMark, chartConfig.lowMark)
-    val niceBgScale = niceScale(dataMin, dataMax)
+    // Zoomed in past the default, the axis fits the visible readings instead (see bgAxisScale).
+    val niceBgScale = bgAxisScale(
+        input.bgReadings + input.bucketedData + input.predictions, visibleTimeRange, chartConfig.lowMark, chartConfig.highMark, measuredPoints
+    )
     startAxisRangeProvider.maxX = input.maxX
     startAxisRangeProvider.minY = niceBgScale.min
     startAxisRangeProvider.maxY = niceBgScale.max
@@ -683,8 +762,8 @@ private suspend fun submitBgModel(
             }
 
             // Prediction series - each type as a separate line
-            for ((predSeries, type) in PREDICTION_SERIES) {
-                val predPoints = input.predictions.filter { it.type == type }
+            for ((predSeries, type, afterDose) in PREDICTION_SERIES) {
+                val predPoints = input.predictions.filter { it.type == type && it.afterDose == afterDose }
                 if (predPoints.isNotEmpty()) {
                     val dataPoints = predPoints
                         .map { timestampToX(it.timestamp, minTimestamp) to it.value }

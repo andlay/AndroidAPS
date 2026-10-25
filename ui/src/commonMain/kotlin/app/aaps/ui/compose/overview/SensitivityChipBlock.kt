@@ -17,7 +17,7 @@ fun SensitivityChipBlock(
     state: SensitivityUiState,
     modifier: Modifier = Modifier
 ) {
-    if (state.asText.isEmpty() && state.isfFrom.isEmpty()) return
+    if (state.asText.isEmpty() && state.isfFrom.isEmpty() && state.factorText.isEmpty()) return
 
     var showSensitivityDialog by remember { mutableStateOf(false) }
     SensitivityChip(

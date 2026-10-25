@@ -2,6 +2,8 @@ package app.aaps.database
 
 import androidx.room.Transactor.SQLiteTransactionType
 import androidx.room.useWriterConnection
+import app.aaps.database.daos.ApsResultAutoIsfFactors
+import app.aaps.database.daos.ApsResultMpcValues
 import app.aaps.database.daos.ApsResultVariableSens
 import app.aaps.database.entities.APSResult
 import app.aaps.database.entities.Bolus
@@ -994,6 +996,12 @@ class AppRepository internal constructor(
 
     suspend fun getApsResultVariableSens(start: Long, end: Long): List<ApsResultVariableSens> =
         database.apsResultDao.getVariableSens(start, end)
+
+    suspend fun getApsResultAutoIsfFactors(start: Long, end: Long): List<ApsResultAutoIsfFactors> =
+        database.apsResultDao.getAutoIsfFactors(start, end)
+
+    suspend fun getApsResultMpcValues(start: Long, end: Long): List<ApsResultMpcValues> =
+        database.apsResultDao.getMpcValues(start, end)
 
     suspend fun getGlucoseValueByPumpIdAndSource(source: String, pumpId: Long): GlucoseValue? =
         database.glucoseValueDao.getGlucoseValueByPumpIdAndSource(source, pumpId)

@@ -2648,6 +2648,22 @@ class PersistenceLayerImpl(
         repository.getApsResultVariableSens(start, end).mapNotNull { row -> row.variableSens?.let { PersistenceLayer.VariableSensitivity(row.timestamp, it) } }
     }
 
+    override suspend fun getAutoIsfFactors(start: Long, end: Long): List<PersistenceLayer.AutoIsfFactorsAt> = withContext(aapsIoDispatcher) {
+        repository.getApsResultAutoIsfFactors(start, end).mapNotNull { row ->
+            val applied = row.applied ?: return@mapNotNull null
+            PersistenceLayer.AutoIsfFactorsAt(row.timestamp, row.acce ?: 1.0, row.bg ?: 1.0, row.pp ?: 1.0, row.dura ?: 1.0, applied)
+        }
+    }
+
+    override suspend fun getMpcValues(start: Long, end: Long): List<PersistenceLayer.MpcValuesAt> = withContext(aapsIoDispatcher) {
+        repository.getApsResultMpcValues(start, end).mapNotNull { row ->
+            val weighted = row.weightedMealChance ?: return@mapNotNull null
+            PersistenceLayer.MpcValuesAt(
+                row.timestamp, row.mealChance ?: weighted, weighted, row.carbsIfMeal ?: 0.0, row.carbsIfNoMeal ?: 0.0, row.carbsExpected ?: 0.0
+            )
+        }
+    }
+
     private val nonFiniteFieldRegex = Regex("(\\w+)=(NaN|Infinity|-Infinity)\\b")
 
     // Diagnostic only — must never let a reporting failure block persistence of the APSResult, so the whole

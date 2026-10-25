@@ -15,7 +15,9 @@ class OpenAPSComposeContent(
     private val apsPlugin: APS,
     private val rxBus: RxBus,
     private val rh: TextResolver,
-    private val dateUtil: DateUtil
+    private val dateUtil: DateUtil,
+    /** Extra cards above the result, e.g. MPC meal SMBs */
+    private val header: (@Composable () -> Unit)? = null
 ) : ComposablePluginContent {
 
     @Composable
@@ -39,7 +41,8 @@ class OpenAPSComposeContent(
 
         OpenAPSScreen(
             state = state.value,
-            onRefresh = viewModel::onRefresh
+            onRefresh = viewModel::onRefresh,
+            header = header
         )
     }
 }

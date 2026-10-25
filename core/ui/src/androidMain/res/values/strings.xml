@@ -778,6 +778,7 @@
     <string name="isf_profile">Profile ISF: %1$.1f</string>
     <string name="isf_variable">Variable ISF: %1$.1f</string>
     <string name="isf_effective">Effective ISF: %1$.1f</string>
+    <string name="isf_insulin_factor" comment="%1$s=profile ISF divided by the ISF in use, as a number with 2 decimals. Above 1 means more insulin than the profile gives. Example: Insulin factor: 1.50 (more than 1 = more insulin)">Insulin factor: %1$s (more than 1 = more insulin)</string>
     <string name="autosens_long">Autosens Value: %.0f%%</string>
     <string name="autosens_short">%.0f%%</string>
     <string name="algorithm_long">Autosens in algorithm: %.0f%%</string>
@@ -1197,6 +1198,20 @@
     <string name="graph_number">Graph %1$d</string>
     <string name="graph_bg">BG graph</string>
     <string name="graph_height">Graph height [dp]</string>
+    <string name="graph_move_up">Move graph up</string>
+    <string name="graph_move_down">Move graph down</string>
+    <string name="loop_decision">Last loop decision</string>
+    <string name="loop_decision_time" comment="%1$s = time of the loop run, for example 14:05">Loop run at %1$s</string>
+    <string name="loop_decision_temp" comment="Temp basal the loop asked for. %1$s = rate with unit, %2$d = minutes. Example: 0.50 U/h for 30 min">%1$s for %2$d min</string>
+    <string name="loop_decision_keep_temp">No change</string>
+    <string name="loop_decision_cancel_temp">Cancel temp basal</string>
+    <string name="loop_decision_no_smb">None</string>
+    <string name="basal_now">Basal now</string>
+    <string name="temp_basal_details">Temp basal details</string>
+    <string name="carbs_required_value" comment="Carbs the loop asks for, under COB. %1$d = grams. Example: 16 g req">%1$d g req</string>
+    <string name="smb_on">SMB on</string>
+    <string name="smb_off">SMB off</string>
+    <string name="dosing_state_description" comment="Spoken state of the basal and SMB widget. %1$s = temp basal state, %2$s = SMB on or off. Example: Temp basal below profile, SMB on">%1$s, %2$s</string>
     <string name="predictions_shortname" comment="Short label for Predictions graph series">PRED</string>
     <string name="basal_shortname" comment="Short label for Basal, used in graph labels">BAS</string>
     <!-- Graph series short names (used as graph labels, keep very short) -->
@@ -1205,10 +1220,23 @@
     <string name="bgi_shortname" comment="Short label for Blood Glucose Impact graph series">-BGI</string>
     <string name="abs_insulin_shortname" comment="Short label for Absolute Insulin graph series">ABS</string>
     <string name="devslope_shortname" comment="Short label for Deviation Slope graph series">DEVSLOPE</string>
+    <string name="dev_carbs_shortname" comment="Short label for the graph series that adds up deviations as grams of carbs">DEV CARBS</string>
     <string name="heartRate_shortname" comment="Short label for Heart Rate graph series">HR</string>
     <string name="sensitivity_shortname" comment="Short label for Sensitivity/Autosens graph series">SENS%</string>
     <string name="variable_sensitivity_shortname" comment="Short label for Variable Sensitivity graph series">VSENS</string>
+    <string name="autoisf_shortname" comment="Short label for the graph series with the AutoISF factors">AUTOISF</string>
     <string name="steps_shortname" comment="Short label for Steps graph series">STEPS</string>
+    <!-- Short names in the press and hold pop-up of the graphs -->
+    <string name="devslope_max_shortname" comment="Short label for the rising deviation slope in the graph pop-up">DS+</string>
+    <string name="devslope_min_shortname" comment="Short label for the falling deviation slope in the graph pop-up">DS-</string>
+    <string name="autoisf_acce_shortname" comment="Short label in the graph pop-up: AutoISF factor from how fast BG speeds up or slows down">BG accel</string>
+    <string name="autoisf_bg_shortname" comment="Short label in the graph pop-up: AutoISF factor from how far BG is from the target">BG level</string>
+    <string name="autoisf_pp_shortname" comment="Short label in the graph pop-up: AutoISF factor for the rise after a meal">After meal</string>
+    <string name="autoisf_dura_shortname" comment="Short label in the graph pop-up: AutoISF factor for BG that stays high">Stuck high</string>
+    <string name="autoisf_applied_shortname" comment="Short label in the graph pop-up: the AutoISF factor that was used">Used</string>
+    <string name="eventual_bg_shortname" comment="Short label in the graph pop-up: the eventual BG of a loop run">Eventual</string>
+    <string name="min_pred_bg_shortname" comment="Short label in the graph pop-up: the lowest predicted BG of a loop run">Min pred</string>
+    <string name="insulin_req_shortname" comment="Short label in the graph pop-up: the insulin a loop run asked for">Req</string>
 
 
     <string name="units_days">days</string>

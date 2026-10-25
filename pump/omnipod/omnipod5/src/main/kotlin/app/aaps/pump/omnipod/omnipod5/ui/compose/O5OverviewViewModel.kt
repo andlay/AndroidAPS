@@ -431,7 +431,10 @@ class O5OverviewViewModel @Inject constructor(
             AlertType.USER_SET_EXPIRATION -> CommonR.string.omnipod_common_alert_expiration_advisory
             AlertType.AUTO_OFF            -> CommonR.string.omnipod_common_alert_shutdown_imminent
             AlertType.SUSPEND_IN_PROGRESS -> CommonR.string.omnipod_common_alert_delivery_suspended
-            AlertType.SUSPEND_ENDED       -> CommonR.string.omnipod_common_alert_delivery_suspended
+            // While insulin runs this slot holds the out-of-reach beep, not a suspend reminder
+            AlertType.SUSPEND_ENDED       ->
+                if (podStateManager.deliveryStatus?.suspended() == true) CommonR.string.omnipod_common_alert_delivery_suspended
+                else CommonR.string.omnipod_5_alert_out_of_reach
             else                          -> CommonR.string.omnipod_common_alert_unknown_alert
         }
         return rh.gs(id)

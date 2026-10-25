@@ -1776,6 +1776,38 @@ interface PersistenceLayer {
     )
 
     /**
+     * Get the AutoISF factors of every APSResult in an interval that has them, oldest first.
+     * Read like [getVariableSensitivities]. Only AutoISF runs with the weights on have factors.
+     */
+    suspend fun getAutoIsfFactors(start: Long, end: Long): List<AutoIsfFactorsAt> = emptyList()
+
+    /**
+     * Get the MPC meal values of every APSResult in an interval that has them, oldest first.
+     * Read like [getVariableSensitivities]. Only runs with MPC meal SMBs on have them.
+     */
+    suspend fun getMpcValues(start: Long, end: Long): List<MpcValuesAt> = emptyList()
+
+    /** The MPC meal values of one loop run: meal chances 0..1, carbs still to come in grams. See `MpcRunValues`. */
+    data class MpcValuesAt(
+        val timestamp: Long,
+        val mealChance: Double,
+        val weightedMealChance: Double,
+        val carbsIfMeal: Double,
+        val carbsIfNoMeal: Double,
+        val carbsExpected: Double
+    )
+
+    /** The AutoISF factors of one loop run. 1.0 is no change; see `AutoIsfFactors`. */
+    data class AutoIsfFactorsAt(
+        val timestamp: Long,
+        val acce: Double,
+        val bg: Double,
+        val pp: Double,
+        val dura: Double,
+        val applied: Double
+    )
+
+    /**
      * Insert or update ApsResult record
      *
      * @param apsResult record

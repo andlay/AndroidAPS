@@ -97,7 +97,8 @@ class NsIncomingDataProcessor(
      * phone that does not take BG from Nightscout cannot lose its readings to a delete made there.
      */
     fun acceptsGlucose(doFullSync: Boolean): Boolean =
-        nsClientSource.isEnabled() || preferences.get(BooleanKey.NsClientAcceptCgmData) || doFullSync
+        // The alpha build takes BG from Nightscout too, so BG and treatments arrive together
+        config.ALPHA || nsClientSource.isEnabled() || preferences.get(BooleanKey.NsClientAcceptCgmData) || doFullSync
 
     /**
      * Preprocess list of SGVs
@@ -150,7 +151,7 @@ class NsIncomingDataProcessor(
      * @return true if there was an accepted calibration entry
      */
     fun processCalibrations(mbgs: List<NSMbgV3>, doFullSync: Boolean): Boolean {
-        if (!config.AAPSCLIENT && !preferences.get(BooleanKey.NsClientAcceptCgmData) && !doFullSync) return false
+        if (!config.AAPSCLIENT && !config.ALPHA && !preferences.get(BooleanKey.NsClientAcceptCgmData) && !doFullSync) return false
         if (mbgs.isEmpty()) return false
         val calibrationEntries = mbgs.map { it.toCAL() }
         aapsLogger.debug(LTag.NSCLIENT, "Received NS calibrations: ${calibrationEntries.size}")
@@ -172,22 +173,25 @@ class NsIncomingDataProcessor(
     fun processTreatments(treatments: List<NSTreatment>, doFullSync: Boolean, advanceInitialLoadCursor: Boolean = false): Boolean {
         try {
             var latestDateInReceivedData: Long = 0
+            var skipped = 0
             for (treatment in treatments) {
                 aapsLogger.debug(LTag.NSCLIENT, "Received NS treatment: $treatment")
                 val date = treatment.date ?: continue
                 if (date > latestDateInReceivedData) latestDateInReceivedData = date
 
+                // One bad record must not stop the whole page: skip it and go on with the rest
+                try {
                 when (treatment) {
                     is NSBolus                  ->
-                        if (preferences.get(BooleanKey.NsClientAcceptInsulin) || config.AAPSCLIENT || doFullSync)
+                        if (preferences.get(BooleanKey.NsClientAcceptInsulin) || config.AAPSCLIENT || config.ALPHA || doFullSync)
                             storeDataForDb.addToBoluses(treatment.toBolus(fallbackICfg()))
 
                     is NSCarbs                  ->
-                        if (preferences.get(BooleanKey.NsClientAcceptCarbs) || config.AAPSCLIENT || doFullSync)
+                        if (preferences.get(BooleanKey.NsClientAcceptCarbs) || config.AAPSCLIENT || config.ALPHA || doFullSync)
                             storeDataForDb.addToCarbs(treatment.toCarbs())
 
                     is NSTemporaryTarget        ->
-                        if (preferences.get(BooleanKey.NsClientAcceptTempTarget) || config.AAPSCLIENT || doFullSync) {
+                        if (preferences.get(BooleanKey.NsClientAcceptTempTarget) || config.AAPSCLIENT || config.ALPHA || doFullSync) {
                             if (treatment.duration > 0L) {
                                 // not ending event
                                 if (treatment.targetBottomAsMgdl() !in Constants.TT_RANGE_MGDL
@@ -202,18 +206,26 @@ class NsIncomingDataProcessor(
                         }
 
                     is NSTemporaryBasal         ->
-                        if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT || doFullSync)
+                        if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT || config.ALPHA || doFullSync) {
+                            // A temp basal of 0 min is how other uploaders write "cancel temp". AAPS ends a temp by
+                            // shortening it instead, and TB requires a duration, so such a record is skipped.
+                            if (treatment.duration <= 0L) {
+                                aapsLogger.debug(LTag.NSCLIENT, "Ignored TemporaryBasal with no duration $treatment")
+                                skipped++
+                                continue
+                            }
                             storeDataForDb.addToTemporaryBasals(treatment.toTemporaryBasal())
+                        }
 
                     is NSEffectiveProfileSwitch ->
-                        if (preferences.get(BooleanKey.NsClientAcceptProfileSwitch) || config.AAPSCLIENT || doFullSync) {
+                        if (preferences.get(BooleanKey.NsClientAcceptProfileSwitch) || config.AAPSCLIENT || config.ALPHA || doFullSync) {
                             treatment.toEffectiveProfileSwitch(dateUtil, fallbackICfg())?.let { effectiveProfileSwitch ->
                                 storeDataForDb.addToEffectiveProfileSwitches(effectiveProfileSwitch)
                             }
                         }
 
                     is NSProfileSwitch          ->
-                        if (preferences.get(BooleanKey.NsClientAcceptProfileSwitch) || config.AAPSCLIENT || doFullSync) {
+                        if (preferences.get(BooleanKey.NsClientAcceptProfileSwitch) || config.AAPSCLIENT || config.ALPHA || doFullSync) {
                             treatment.toProfileSwitch(profileRepository, dateUtil, fallbackICfg())?.let { profileSwitch ->
                                 storeDataForDb.addToProfileSwitches(profileSwitch)
                             }
@@ -227,7 +239,7 @@ class NsIncomingDataProcessor(
                             }
 
                     is NSTherapyEvent           ->
-                        if (preferences.get(BooleanKey.NsClientAcceptTherapyEvent) || config.AAPSCLIENT || doFullSync)
+                        if (preferences.get(BooleanKey.NsClientAcceptTherapyEvent) || config.AAPSCLIENT || config.ALPHA || doFullSync)
                             treatment.toTherapyEvent().let { therapyEvent ->
                                 storeDataForDb.addToTherapyEvents(therapyEvent)
                                 if (therapyEvent.type == TE.Type.ANNOUNCEMENT &&
@@ -250,12 +262,23 @@ class NsIncomingDataProcessor(
                             }
 
                     is NSExtendedBolus          ->
-                        if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT || doFullSync)
+                        if (preferences.get(BooleanKey.NsClientAcceptTbrEb) || config.AAPSCLIENT || config.ALPHA || doFullSync) {
+                            if (treatment.duration <= 0L) {
+                                aapsLogger.debug(LTag.NSCLIENT, "Ignored ExtendedBolus with no duration $treatment")
+                                skipped++
+                                continue
+                            }
                             treatment.toExtendedBolus().let { extendedBolus ->
                                 storeDataForDb.addToExtendedBoluses(extendedBolus)
                             }
+                        }
+                }
+                } catch (error: Exception) {
+                    aapsLogger.error(LTag.NSCLIENT, "Ignored NS treatment $treatment", error)
+                    skipped++
                 }
             }
+            if (skipped > 0) nsClientRepository.addLog("◄ SKIP", "$skipped of ${treatments.size} TRs could not be used")
             if (advanceInitialLoadCursor && latestDateInReceivedData > 0)
                 nsClient.updateLatestTreatmentReceivedIfNewer(latestDateInReceivedData)
             return latestDateInReceivedData > 0
@@ -294,13 +317,14 @@ class NsIncomingDataProcessor(
     suspend fun processProfile(profileJson: JsonObject, doFullSync: Boolean) {
         val accept =
             if (config.AAPSCLIENT) !nsClient.masterOrPairedClientFlow.value
-            else preferences.get(BooleanKey.NsClientAcceptProfileStore) || doFullSync
+            else preferences.get(BooleanKey.NsClientAcceptProfileStore) || config.ALPHA || doFullSync
         if (accept) {
             val store = profileStoreProvider().with(profileJson)
             val createdAt = store.getStartDate()
             val lastLocalChange = preferences.get(LongNonKey.LocalProfileLastChange)
             aapsLogger.debug(LTag.PROFILE, "Received profileStore: createdAt: $createdAt Local last modification: $lastLocalChange")
-            if (createdAt > lastLocalChange || createdAt % 1000 == 0L) { // whole second means edited in NS
+            // The alpha build never edits profiles: the store in NS, written by the app that doses, always wins
+            if (config.ALPHA || createdAt > lastLocalChange || createdAt % 1000 == 0L) { // whole second means edited in NS
                 // Only acknowledge the profile to NS after a successful import. If the import
                 // fails (storage exception), leave NS believing the profile wasn't synced so it
                 // re-pushes on the next sync round.

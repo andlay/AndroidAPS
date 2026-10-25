@@ -33,7 +33,9 @@ fun String.toNSTreatment(): NSTreatment? =
 internal fun RemoteTreatment.toTreatment(): NSTreatment? {
     val treatmentTimestamp = timestamp()
     when {
-        insulin != null && insulin > 0                                     ->
+        // Some servers (Nocturne) add the insulin a temp basal gave as "insulin". It is still a temp basal,
+        // not a bolus: read as a bolus it would count that basal insulin twice.
+        insulin != null && insulin > 0 && eventType != EventType.TEMPORARY_BASAL ->
             return NSBolus(
                 date = treatmentTimestamp,
                 device = this.device,

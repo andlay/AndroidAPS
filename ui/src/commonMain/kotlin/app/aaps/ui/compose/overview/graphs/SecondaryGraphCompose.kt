@@ -23,12 +23,16 @@ import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.ui.MarkerTier
 import app.aaps.core.graph.vico.AdaptiveStep
 import app.aaps.core.graph.vico.Square
+import app.aaps.core.interfaces.overview.graph.AutoIsfFactorPoint
 import app.aaps.core.interfaces.overview.graph.BolusType
 import app.aaps.core.interfaces.overview.graph.DeviationType
 import app.aaps.core.interfaces.overview.graph.GraphDataPoint
+import app.aaps.core.interfaces.overview.graph.MpcPoint
 import app.aaps.core.interfaces.overview.graph.SeriesType
 import app.aaps.core.interfaces.overview.graph.TreatmentGraphData
 import app.aaps.core.interfaces.utils.DecimalFormatter
+import app.aaps.core.keys.interfaces.TextRef
+import app.aaps.core.ui.CoreUiStrings
 import app.aaps.core.ui.compose.AapsTheme
 import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.LocalDecimalFormatter
@@ -54,6 +58,7 @@ import com.patrykandpatrick.vico.compose.common.component.TextComponent
 import com.patrykandpatrick.vico.compose.common.component.rememberTextComponent
 import com.patrykandpatrick.vico.compose.common.data.ExtraStore
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 /**
  * CartesianChartModelProducer.update() skips notifying receivers (and thus skips recomputing axis
@@ -83,6 +88,8 @@ private data class ModelInput(
     val rightSpecs: List<SeriesSpec>,
     val basalProfile: List<Pair<Double, Double>>,
     val basalActual: List<Pair<Double, Double>>,
+    /** Alpha build: the basal of the shadow loop, a third series of the basal layer when it has two points or more */
+    val basalShadow: List<Pair<Double, Double>>,
     val hasBasalLayer: Boolean,
     val hasRightAxis: Boolean,
     val rightFirst: Boolean,
@@ -116,6 +123,10 @@ fun SecondaryGraphCompose(
     onVisibleRangeChanged: ((Pair<Double, Double>?) -> Unit)? = null,
     /** While holding the BG graph, a line at the inspected time. Null turns it off. */
     inspect: GraphInspectState? = null,
+    /** Gets this graph's x layout on every draw, for a pinch on another graph (see GraphForwardToBg.kt). */
+    geometryHolder: GraphGeometryHolder? = null,
+    /** Alpha build: also draw the IOB, SMBs and basal of the shadow loop over the real ones (IOB graph only) */
+    shadowOverlay: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val dateUtil = LocalDateUtil.current
@@ -154,15 +165,31 @@ fun SecondaryGraphCompose(
     val absIobData = if (SeriesType.ABS_IOB in seriesTypes) viewModel.absIobGraphFlow.collectAsStateWithLifecycle().value else null
     val bgiData = if (SeriesType.BGI in seriesTypes) viewModel.bgiGraphFlow.collectAsStateWithLifecycle().value else null
     val deviationsData = if (SeriesType.DEVIATIONS in seriesTypes) viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value else null
+    // While the user holds a point: the deviations the loop run there expected, drawn over what came
+    val heldRun = if (SeriesType.DEVIATIONS in seriesTypes) viewModel.heldLoopRunFlow.collectAsStateWithLifecycle().value else null
+    val predictedDeviationsData =
+        if (SeriesType.DEVIATIONS in seriesTypes) heldRun?.deviations ?: viewModel.predictedDeviationsFlow.collectAsStateWithLifecycle().value else null
     val ratioData = if (SeriesType.SENSITIVITY in seriesTypes) viewModel.ratioGraphFlow.collectAsStateWithLifecycle().value else null
     val varSensData = if (SeriesType.VAR_SENSITIVITY in seriesTypes) viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value else null
     val devSlopeData = if (SeriesType.DEV_SLOPE in seriesTypes) viewModel.devSlopeGraphFlow.collectAsStateWithLifecycle().value else null
     val hrData = if (SeriesType.HEART_RATE in seriesTypes) viewModel.heartRateGraphFlow.collectAsStateWithLifecycle().value else null
     val stepsData = if (SeriesType.STEPS in seriesTypes) viewModel.stepsGraphFlow.collectAsStateWithLifecycle().value else null
+    // DEV carbs: one list per run, each drawn on its own
+    val devCarbsRuns = if (SeriesType.DEV_CARBS in seriesTypes) viewModel.deviationsGraphFlow.collectAsStateWithLifecycle().value.devCarbs else null
+    // AutoISF factors and MPC meal values are stored with the loop runs, read with the variable sensitivity
+    val loopRunValues =
+        if (SeriesType.AUTOISF in seriesTypes || SeriesType.MEAL_CHANCE in seriesTypes || SeriesType.MEAL_CARBS in seriesTypes || SeriesType.VAR_SENSITIVITY in seriesTypes)
+            viewModel.varSensGraphFlow.collectAsStateWithLifecycle().value else null
+    val autoIsfData = if (SeriesType.AUTOISF in seriesTypes) loopRunValues?.autoIsf else null
+    val mpcData = if (SeriesType.MEAL_CHANCE in seriesTypes || SeriesType.MEAL_CARBS in seriesTypes) loopRunValues?.mpc else null
+    // Profile ISF, drawn as a dashed line wherever variable sensitivity is drawn
+    val profileIsf = if (SeriesType.VAR_SENSITIVITY in seriesTypes) loopRunValues?.profileIsf else null
     // Activity data: either as a series OR as the overlay on the IOB graph
     val needsActivity = SeriesType.ACTIVITY in seriesTypes || (activityOverlay && hasIob)
     val activityData = if (needsActivity) viewModel.activityGraphFlow.collectAsStateWithLifecycle().value else null
     val basalData = if (hasBasalLayer) viewModel.basalGraphFlow.collectAsStateWithLifecycle().value else null
+    // Alpha build: what the shadow loop would have given, drawn over the real IOB and basal
+    val shadowData = if (shadowOverlay && hasBasalLayer) viewModel.shadowDosingFlow.collectAsStateWithLifecycle().value else null
 
     // Cache last non-empty treatment data to survive reset() cycles
     val lastTreatmentData = remember { mutableStateOf(treatmentData ?: TreatmentGraphData(emptyList(), emptyList(), emptyList(), emptyList(), emptyList())) }
@@ -176,7 +203,7 @@ fun SecondaryGraphCompose(
 
     // Simple line series processing (excludes BASAL — it's a fixed flipped overlay on IOB)
     val processedSimpleSeries = remember(
-        seriesTypes, stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, activityData
+        seriesTypes, stableTimeRange, absIobData, bgiData, ratioData, varSensData, devSlopeData, hrData, stepsData, devCarbsRuns, activityData
     ) {
         if (!hasRealTimeRange) return@remember emptyList()
         buildList {
@@ -193,8 +220,9 @@ fun SecondaryGraphCompose(
                 val shifted = pts.map { GraphDataPoint(it.timestamp, it.value + 100.0) }
                 add(SeriesType.SENSITIVITY to processPoints(shifted, minTimestamp, minX, maxX))
             }
+            // Drawn negated, so a lower ISF (more insulin per mmol/L) is lower on the graph; the labels negate it back
             varSensData?.varSens?.takeIf { it.isNotEmpty() }?.let {
-                add(SeriesType.VAR_SENSITIVITY to processPoints(it, minTimestamp, minX, maxX))
+                add(SeriesType.VAR_SENSITIVITY to processPoints(invertIsf(it), minTimestamp, minX, maxX))
             }
             devSlopeData?.let {
                 if (it.dsMax.isNotEmpty()) add(SeriesType.DEV_SLOPE to processPoints(it.dsMax, minTimestamp, minX, maxX))
@@ -205,6 +233,9 @@ fun SecondaryGraphCompose(
             }
             stepsData?.steps?.takeIf { it.isNotEmpty() }?.let {
                 add(SeriesType.STEPS to processPoints(it, minTimestamp, minX, maxX))
+            }
+            devCarbsRuns?.forEach { run ->
+                processPoints(run, minTimestamp, minX, maxX).takeIf { it.isNotEmpty() }?.let { add(SeriesType.DEV_CARBS to it) }
             }
             // Not when activity is only the overlay of the IOB graph: that one is scaled into IOB units below
             if (SeriesType.ACTIVITY in seriesTypes) {
@@ -220,6 +251,35 @@ fun SecondaryGraphCompose(
     val processedDevSlopeMin = remember(devSlopeData, stableTimeRange) {
         if (!hasRealTimeRange || devSlopeData == null || devSlopeData.dsMin.isEmpty()) return@remember emptyList()
         processPoints(devSlopeData.dsMin, minTimestamp, minX, maxX)
+    }
+
+    // AutoISF: one line per factor. The applied factor first, so the factors and their dots stay
+    // visible where they run along it.
+    val processedAutoIsf = remember(autoIsfData, stableTimeRange) {
+        if (!hasRealTimeRange || autoIsfData.isNullOrEmpty()) return@remember emptyList()
+        AutoIsfLine.entries.sortedBy { it != AutoIsfLine.APPLIED }.map { line ->
+            line to processPoints(autoIsfData.map { GraphDataPoint(it.timestamp, line.valueAt(it)) }, minTimestamp, minX, maxX)
+        }.filter { it.second.isNotEmpty() }
+    }
+
+    // MPC meal values: one line per value, the main one of each kind last so it is drawn on top
+    val processedMpc = remember(mpcData, stableTimeRange) {
+        if (!hasRealTimeRange || mpcData.isNullOrEmpty()) return@remember emptyList()
+        MpcLine.entries.sortedBy { it.main }.map { line ->
+            line to processPoints(mpcData.map { GraphDataPoint(it.timestamp, line.valueAt(it)) }, minTimestamp, minX, maxX)
+        }.filter { it.second.isNotEmpty() }
+    }
+
+    // Deviations the newest loop run expects, as bars after now: one series per curve, the UAM curve
+    // (usually the longest) first so the shorter ones are drawn on top of it
+    val processedPredictedDeviations = remember(predictedDeviationsData, stableTimeRange) {
+        if (!hasRealTimeRange || predictedDeviationsData == null) return@remember emptyList()
+        listOf(
+            PredictedDeviationCurve.UAM to predictedDeviationsData.uam,
+            PredictedDeviationCurve.COB to predictedDeviationsData.cob,
+            PredictedDeviationCurve.IOB to predictedDeviationsData.iob
+        ).map { (curve, points) -> curve to processPoints(points, minTimestamp, minX, maxX) }
+            .filter { it.second.isNotEmpty() }
     }
 
     // Deviation line data — split by DeviationType for per-type colored lines with gradient fill.
@@ -288,15 +348,34 @@ fun SecondaryGraphCompose(
         pts.map { (x, y) -> x to -y }
     }
 
+    // Shadow overlay: its IOB line, its SMBs (as markers on the zero line, like the real ones) and its basal (flipped)
+    val processedShadowIob = remember(shadowData, stableTimeRange) {
+        if (!hasRealTimeRange || shadowData == null) return@remember emptyList()
+        processPoints(shadowData.iob.iob, minTimestamp, minX, maxX)
+    }
+    val processedShadowSmbs = remember(shadowData, stableTimeRange) {
+        if (!hasRealTimeRange || shadowData == null) return@remember emptyList()
+        filterToRange(shadowData.treatments.boluses.filter { it.bolusType == BolusType.SMB }.map { timestampToX(it.timestamp, minTimestamp) to 0.0 }, minX, maxX)
+    }
+    val processedShadowBasal = remember(shadowData, stableTimeRange) {
+        if (!hasRealTimeRange || shadowData == null) return@remember emptyList()
+        processStepPoints(shadowData.basal.actualBasal, minTimestamp, minX, maxX).map { (x, y) -> x to -y }
+    }
+
     // What each series draws: its line and its markers, the same on either axis
     val seriesSpecs = remember(
-        seriesTypes, processedDeviationLines, processedIob, processedIobTreatments, processedCob, processedCarbs, processedSimpleSeries, processedDevSlopeMin
+        seriesTypes, processedDeviationLines, processedIob, processedIobTreatments, processedCob, processedCarbs, processedSimpleSeries, processedDevSlopeMin,
+        processedPredictedDeviations, processedShadowIob, processedShadowSmbs, processedAutoIsf, processedMpc
     ) {
         seriesTypes.associateWith { type ->
             buildList {
                 when (type) {
-                    SeriesType.DEVIATIONS -> processedDeviationLines?.series?.forEach { (deviationType, yValues) ->
-                        add(SeriesSpec(processedDeviationLines.allX, yValues, SeriesSlot.DeviationLine(deviationType)))
+                    SeriesType.DEVIATIONS -> {
+                        processedDeviationLines?.series?.forEach { (deviationType, yValues) ->
+                            add(SeriesSpec(processedDeviationLines.allX, yValues, SeriesSlot.DeviationLine(deviationType)))
+                        }
+                        // Expected deviations after now, drawn as bars like the deviations before it
+                        processedPredictedDeviations.forEach { (curve, points) -> addPoints(points, SeriesSlot.PredictedDeviation(curve)) }
                     }
 
                     SeriesType.IOB        -> {
@@ -308,6 +387,9 @@ fun SecondaryGraphCompose(
                         processedIobTreatments.extBoluses.forEach { (start, end, amount) ->
                             add(SeriesSpec(listOf(start, end), listOf(amount, amount), SeriesSlot.ExtBolus))
                         }
+                        // Shadow IOB line and SMBs, over the real ones
+                        addPoints(processedShadowIob, SeriesSlot.ShadowIobLine)
+                        addPoints(processedShadowSmbs, SeriesSlot.ShadowSmb)
                     }
 
                     SeriesType.COB        -> {
@@ -316,8 +398,20 @@ fun SecondaryGraphCompose(
                         addPoints(processedCarbs, SeriesSlot.CarbsMarker)
                     }
 
+                    SeriesType.AUTOISF    -> processedAutoIsf.forEach { (line, points) -> addPoints(points, SeriesSlot.AutoIsfFactor(line)) }
+
+                    SeriesType.MEAL_CHANCE, SeriesType.MEAL_CARBS ->
+                        processedMpc.filter { it.first.type == type }.forEach { (line, points) -> addPoints(points, SeriesSlot.MpcValue(line)) }
+
                     else                  -> {
-                        processedSimpleSeries.filter { it.first == type }.forEach { (_, points) -> addPoints(points, SeriesSlot.SimpleLine(type)) }
+                        // Steps as bars, heart rate as a line broken where readings are missing, DEV carbs as
+                        // one green or red area per run
+                        processedSimpleSeries.filter { it.first == type }.forEach { (_, points) ->
+                            for (run in shapedRuns(type, points)) {
+                                val slot = if (type == SeriesType.DEV_CARBS) SeriesSlot.DevCarbsRun(isPositiveRun(run)) else SeriesSlot.SimpleLine(type)
+                                addPoints(run, slot)
+                            }
+                        }
                         if (type == SeriesType.DEV_SLOPE) addPoints(processedDevSlopeMin, SeriesSlot.DevSlopeMin)
                     }
                 }
@@ -364,11 +458,15 @@ fun SecondaryGraphCompose(
     // Each axis by the rule of its series, from what the visible window shows. Carb markers count:
     // carbs come straight from the database while COB waits for the calculation, and an axis sized
     // without them drew a COB curve of 148 straight through an axis of 0..44 after a restart.
-    val leftRange = remember(sides, leftBaseSpecs, visibleMinX, visibleMaxX) {
-        sides.left.firstOrNull()?.let { axisRange(axisRuleOf(it), windowedValues(leftBaseSpecs, visibleMinX, visibleMaxX)) }
+    // The profile ISF line is part of the range of the axis variable sensitivity is drawn on, so it is always in view
+    val profileIsfY = profileIsf?.let { -it }
+    fun withProfileIsf(side: List<SeriesType>, values: List<Double>): List<Double> =
+        if (profileIsfY != null && SeriesType.VAR_SENSITIVITY in side && values.isNotEmpty()) values + profileIsfY else values
+    val leftRange = remember(sides, leftBaseSpecs, profileIsfY, visibleMinX, visibleMaxX) {
+        sides.left.firstOrNull()?.let { axisRange(axisRuleOf(it), withProfileIsf(sides.left, windowedValues(leftBaseSpecs, visibleMinX, visibleMaxX))) }
     }
-    val rightRange = remember(sides, rightSpecs, visibleMinX, visibleMaxX) {
-        sides.right.firstOrNull()?.let { axisRange(axisRuleOf(it), windowedValues(rightSpecs, visibleMinX, visibleMaxX)) }
+    val rightRange = remember(sides, rightSpecs, profileIsfY, visibleMinX, visibleMaxX) {
+        sides.right.firstOrNull()?.let { axisRange(axisRuleOf(it), withProfileIsf(sides.right, windowedValues(rightSpecs, visibleMinX, visibleMaxX))) }
     }
 
     // Activity overlay — mapped into the IOB axis' own units, zero activity on IOB zero. The IOB
@@ -420,17 +518,18 @@ fun SecondaryGraphCompose(
     val iobLineStyle = rememberIobLineStyles()
     val cobLineStyle = rememberCobLineStyles()
     val normalizerLine = remember { createNormalizerLine() }
+    val extraStyles = rememberExtraLineStyles()
 
     // The normalizer comes first, here and in the model below. Vico pairs lines and series by index,
     // and when the series of this graph change, it draws the new lines with the old model until the
     // new model is built. With the normalizer at index 0 it is still paired with itself then, so the
     // point spacing stays the same as in the other graphs. When it came last, the spacing shrank for
     // that moment, Vico cut the scroll down to the new end, and the graph stayed shifted sideways.
-    val leftLines = remember(leftSpecs, seriesColors, iobLineStyle, cobLineStyle, normalizerLine) {
-        listOf(normalizerLine) + leftSpecs.map { lineFor(it.slot, seriesColors, iobLineStyle, cobLineStyle) }
+    val leftLines = remember(leftSpecs, seriesColors, iobLineStyle, cobLineStyle, extraStyles, normalizerLine) {
+        listOf(normalizerLine) + leftSpecs.map { lineFor(it.slot, seriesColors, iobLineStyle, cobLineStyle, extraStyles) }
     }
-    val rightLines = remember(rightSpecs, seriesColors, iobLineStyle, cobLineStyle, normalizerLine) {
-        listOf(normalizerLine) + rightSpecs.map { lineFor(it.slot, seriesColors, iobLineStyle, cobLineStyle) }
+    val rightLines = remember(rightSpecs, seriesColors, iobLineStyle, cobLineStyle, extraStyles, normalizerLine) {
+        listOf(normalizerLine) + rightSpecs.map { lineFor(it.slot, seriesColors, iobLineStyle, cobLineStyle, extraStyles) }
     }
 
     // Basal layer line styles — same as BG graph (profile dashed, actual solid with fill)
@@ -456,8 +555,9 @@ fun SecondaryGraphCompose(
             interpolator = Square
         )
     }
-    val basalLines = remember(basalActualLine, basalProfileLine) {
-        listOf(basalActualLine, basalProfileLine)
+    val hasShadowBasal = processedShadowBasal.size >= 2
+    val basalLines = remember(basalActualLine, basalProfileLine, extraStyles, hasShadowBasal) {
+        if (hasShadowBasal) listOf(basalActualLine, basalProfileLine, extraStyles.shadowBasalLine) else listOf(basalActualLine, basalProfileLine)
     }
 
     // =========================================================================
@@ -468,7 +568,25 @@ fun SecondaryGraphCompose(
     val nowLineColor = MaterialTheme.colorScheme.onSurface
     val nowLine = rememberNowLine(minTimestamp, nowTimestamp, nowLineColor)
     val inspectLine = rememberInspectLine(inspect)
-    val decorations = remember(nowLine, visibleRangeReporter, inspectLine) { listOfNotNull(nowLine, visibleRangeReporter, inspectLine) }
+    val geometryReporter = remember(geometryHolder) { geometryHolder?.let { GraphGeometryReporter(it) } }
+    // Where insulin activity will peak, while that is still ahead (only where activity is drawn)
+    val activityPeak = remember(activityData, nowTimestamp) { activityData?.let { futureActivityPeak(it.activityPrediction, nowTimestamp) } }
+    val activityPeakLine = rememberActivityPeakLine(minTimestamp, activityPeak, AapsTheme.elementColors.activity)
+    // The profile ISF, before any change by autosens, dynamic ISF or AutoISF (negated like the line)
+    val varSensColor = seriesColors.colorFor(SeriesType.VAR_SENSITIVITY)
+    val varSensOnRight = SeriesType.VAR_SENSITIVITY in sides.right
+    val profileIsfLine = remember(profileIsfY, varSensOnRight, varSensColor) {
+        profileIsfY?.let {
+            HorizontalDashedLine(
+                y = it,
+                color = varSensColor.copy(alpha = 0.7f),
+                axisPosition = if (varSensOnRight) Axis.Position.Vertical.End else Axis.Position.Vertical.Start
+            )
+        }
+    }
+    val decorations = remember(nowLine, activityPeakLine, profileIsfLine, visibleRangeReporter, inspectLine, geometryReporter) {
+        listOfNotNull(nowLine, activityPeakLine, profileIsfLine, visibleRangeReporter, inspectLine, geometryReporter)
+    }
 
     val leftRangeProvider = remember(maxX, axes.left) {
         CartesianLayerRangeProvider.fixed(minX = 0.0, maxX = maxX, minY = axes.left.min, maxY = axes.left.max)
@@ -480,7 +598,7 @@ fun SecondaryGraphCompose(
     // Basal range: 0 at top, -basalMaxY at bottom → basal occupies the top BASAL_HEIGHT_FRACTION of the height.
     // Windowed to the visible scroll/zoom range, like the IOB scale above, so basal doesn't
     // stay flattened/clipped when scrolled away from the loaded range's peak.
-    val basalMaxY = remember(basalData, processedBasalProfile, processedBasalActual, visibleMinX, visibleMaxX) {
+    val basalMaxY = remember(basalData, processedBasalProfile, processedBasalActual, processedShadowBasal, visibleMinX, visibleMaxX) {
         if (basalData == null || basalData.maxBasal <= 0.0) return@remember 1.0
         // Profile/actual are stored sparsely (only at rate changes — see rebuildBasalGraph), so a
         // zoom window entirely inside one constant segment (e.g. an extended zero-temp) can contain
@@ -495,10 +613,12 @@ fun SecondaryGraphCompose(
         // the true max) — reflects just this window's real level instead of the whole day's range.
         fun inWindow(x: Double) = visibleMinX == null || visibleMaxX == null || x in visibleMinX..visibleMaxX
         val literalWindowed = processedBasalProfile.filter { inWindow(it.first) }.map { it.second } +
-            processedBasalActual.filter { inWindow(it.first) }.map { it.second }
+            processedBasalActual.filter { inWindow(it.first) }.map { it.second } +
+            processedShadowBasal.filter { inWindow(it.first) }.map { it.second }
         val hiddenValues = listOfNotNull(
             visibleMinX?.let { stepValueAt(processedBasalProfile, it) },
-            visibleMinX?.let { stepValueAt(processedBasalActual, it) }
+            visibleMinX?.let { stepValueAt(processedBasalActual, it) },
+            visibleMinX?.let { stepValueAt(processedShadowBasal, it) }
         )
         val windowedAbsMax = (literalWindowed + hiddenValues).map { -it }.maxOrNull()
         (windowedAbsMax?.takeIf { it > 0.0 } ?: hiddenValues.maxOfOrNull { -it } ?: basalData.maxBasal) / BASAL_HEIGHT_FRACTION
@@ -537,7 +657,7 @@ fun SecondaryGraphCompose(
     // Rebuilt only when the data or the axes change, not on every scroll step
     val axisScale = AxisScale(leftRangeProvider, rightRangeProvider, basalRangeProvider, startAxisItemPlacer, endAxisItemPlacer)
     val modelInput = ModelInput(
-        leftSpecs, rightSpecs, processedBasalProfile, processedBasalActual, hasBasalLayer, hasRightAxis, rightFirst, maxX, axisScale,
+        leftSpecs, rightSpecs, processedBasalProfile, processedBasalActual, processedShadowBasal, hasBasalLayer, hasRightAxis, rightFirst, maxX, axisScale,
         maxManualBolus = processedIobTreatments.maxManualBolus,
         maxCarbs = processedCarbs.maxOfOrNull { it.second }
     )
@@ -561,9 +681,11 @@ fun SecondaryGraphCompose(
             val normalizer = normalizerX(input.maxX) to NORMALIZER_Y
             val left = listOf(normalizer) + input.leftSpecs.map { it.x to it.y }
             val end = when {
-                input.hasBasalLayer -> listOf(
+                input.hasBasalLayer -> listOfNotNull(
                     if (input.basalActual.size >= 2) input.basalActual.map { it.first } to input.basalActual.map { it.second } else EMPTY_BASAL,
-                    if (input.basalProfile.size >= 2) input.basalProfile.map { it.first } to input.basalProfile.map { it.second } else EMPTY_BASAL
+                    if (input.basalProfile.size >= 2) input.basalProfile.map { it.first } to input.basalProfile.map { it.second } else EMPTY_BASAL,
+                    // the same condition as the third line style in basalLines
+                    if (input.basalShadow.size >= 2) input.basalShadow.map { it.first } to input.basalShadow.map { it.second } else null
                 )
 
                 input.hasRightAxis  -> listOf(normalizer) + input.rightSpecs.map { it.x to it.y }
@@ -587,24 +709,40 @@ fun SecondaryGraphCompose(
         }
     }
 
-    val startAxis = VerticalAxis.rememberStart(
-        itemPlacer = startAxisItemPlacer,
-        label = rememberTextComponent(
-            style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
-            minWidth = TextComponent.MinWidth.fixed(30.dp)
-        ),
-        guideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+    // Variable sensitivity is drawn negated (see invertIsf), so the labels of its axis negate it back
+    val decimalFormatter = LocalDecimalFormatter.current
+    val isfFormatter = remember(decimalFormatter) { isfAxisFormatter(decimalFormatter) }
+    val startAxisLabel = rememberTextComponent(
+        style = TextStyle(color = MaterialTheme.colorScheme.onSurface),
+        minWidth = TextComponent.MinWidth.fixed(30.dp)
     )
+    val startAxisGuideline = LineComponent(fill = Fill(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)))
+    val startAxis =
+        if (SeriesType.VAR_SENSITIVITY in sides.left) VerticalAxis.rememberStart(
+            valueFormatter = isfFormatter, itemPlacer = startAxisItemPlacer, label = startAxisLabel, guideline = startAxisGuideline, size = GRAPH_AXIS_SIZE
+        )
+        else VerticalAxis.rememberStart(itemPlacer = startAxisItemPlacer, label = startAxisLabel, guideline = startAxisGuideline, size = GRAPH_AXIS_SIZE)
     // The right axis has its labels inside the plot, in the color of its series, and no line, tick or
     // grid of its own. So it takes no width, and the hour lines stay under those of the BG graph.
-    val endAxis = VerticalAxis.rememberEnd(
-        line = null,
-        label = rememberTextComponent(style = TextStyle(color = seriesColors.colorFor(sides.right.firstOrNull() ?: SeriesType.COB))),
-        horizontalLabelPosition = VerticalAxis.HorizontalLabelPosition.Inside,
-        tick = null,
-        guideline = null,
-        itemPlacer = endAxisItemPlacer
-    )
+    val endAxisLabel = rememberTextComponent(style = TextStyle(color = seriesColors.colorFor(sides.right.firstOrNull() ?: SeriesType.COB)))
+    val endAxis =
+        if (varSensOnRight) VerticalAxis.rememberEnd(
+            valueFormatter = isfFormatter,
+            line = null,
+            label = endAxisLabel,
+            horizontalLabelPosition = VerticalAxis.HorizontalLabelPosition.Inside,
+            tick = null,
+            guideline = null,
+            itemPlacer = endAxisItemPlacer
+        )
+        else VerticalAxis.rememberEnd(
+            line = null,
+            label = endAxisLabel,
+            horizontalLabelPosition = VerticalAxis.HorizontalLabelPosition.Inside,
+            tick = null,
+            guideline = null,
+            itemPlacer = endAxisItemPlacer
+        )
     // No time labels: the BG graph above shows them, and the hour lines stay aligned with it.
     // This keeps the graphs below BG compact.
     val bottomAxis = HorizontalAxis.rememberBottom(
@@ -644,7 +782,7 @@ fun SecondaryGraphCompose(
 private val EMPTY_BASAL = listOf(0.0, 1.0) to listOf(0.0, 0.0)
 
 /** The line style of one series. */
-private fun lineFor(slot: SeriesSlot, colors: SeriesColors, iobStyles: IobLineStyles, cobStyles: CobLineStyles): LineCartesianLayer.Line = when (slot) {
+private fun lineFor(slot: SeriesSlot, colors: SeriesColors, iobStyles: IobLineStyles, cobStyles: CobLineStyles, extra: ExtraLineStyles): LineCartesianLayer.Line = when (slot) {
     is SeriesSlot.DeviationLine -> createDeviationLine(slot.type)
     SeriesSlot.IobLine          -> iobStyles.iobLine
     SeriesSlot.SmallSmb         -> iobStyles.smallSmbLine
@@ -658,6 +796,79 @@ private fun lineFor(slot: SeriesSlot, colors: SeriesColors, iobStyles: IobLineSt
     SeriesSlot.DevSlopeMin      -> createDevSlopeMinLine()
     SeriesSlot.ActivityOverlay  -> createSeriesLine(SeriesType.ACTIVITY, colors)
     is SeriesSlot.SimpleLine    -> createSeriesLine(slot.type, colors)
+    SeriesSlot.ShadowIobLine    -> extra.shadowIobLine
+    SeriesSlot.ShadowSmb        -> extra.shadowSmbLine
+    is SeriesSlot.DevCarbsRun   -> createDevCarbsLine(slot.positive)
+    is SeriesSlot.AutoIsfFactor -> createAutoIsfLine(slot.line, extra.autoIsfAppliedColor)
+    is SeriesSlot.MpcValue      -> createMpcLine(slot.line, extra.mpcColors)
+    is SeriesSlot.PredictedDeviation -> createPredictedDeviationLine(
+        when (slot.curve) {
+            PredictedDeviationCurve.IOB -> extra.iobPredictionColor
+            PredictedDeviationCurve.COB -> extra.cobPredictionColor
+            PredictedDeviationCurve.UAM -> extra.uamPredictionColor
+        }
+    )
+}
+
+/** The line styles of the series this fork adds: the shadow loop, AutoISF, MPC and the expected deviations. */
+internal data class ExtraLineStyles(
+    val shadowIobLine: LineCartesianLayer.Line,
+    val shadowSmbLine: LineCartesianLayer.Line,
+    val shadowBasalLine: LineCartesianLayer.Line,
+    /** The applied AutoISF factor: white on the dark theme, as the text it is drawn over */
+    val autoIsfAppliedColor: Color,
+    val mpcColors: MpcColors,
+    /** Expected deviations: the colour of their prediction line on the BG graph */
+    val iobPredictionColor: Color,
+    val cobPredictionColor: Color,
+    val uamPredictionColor: Color
+)
+
+@Composable
+private fun rememberExtraLineStyles(): ExtraLineStyles {
+    val shadowIobColor = AapsTheme.generalColors.shadowIob
+    val shadowBasalColor = AapsTheme.generalColors.shadowBasal
+    val autoIsfAppliedColor = MaterialTheme.colorScheme.onSurface
+    // MPC meal values: in the colours of the MPC prediction lines on the BG graph
+    val mpcColors = MpcColors(AapsTheme.generalColors.mpcMealPrediction, AapsTheme.generalColors.mpcFalseStartPrediction, AapsTheme.generalColors.mpcExpectedPrediction)
+    val iobPredictionColor = AapsTheme.generalColors.iobPrediction
+    val cobPredictionColor = AapsTheme.generalColors.cobPrediction
+    val uamPredictionColor = AapsTheme.generalColors.uamPrediction
+    return remember(shadowIobColor, shadowBasalColor, autoIsfAppliedColor, mpcColors, iobPredictionColor, cobPredictionColor, uamPredictionColor) {
+        ExtraLineStyles(
+            shadowIobLine = LineCartesianLayer.Line(
+                fill = LineCartesianLayer.LineFill.single(Fill(shadowIobColor)),
+                stroke = LineCartesianLayer.LineStroke.Continuous(thickness = 2.dp),
+                areaFill = null,
+                interpolator = Square
+            ),
+            shadowSmbLine = LineCartesianLayer.Line(
+                fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
+                areaFill = null,
+                pointProvider = LineCartesianLayer.PointProvider.single(
+                    LineCartesianLayer.Point(component = ShapeComponent(fill = Fill(shadowIobColor), shape = TriangleShape), size = 10.dp)
+                )
+            ),
+            shadowBasalLine = LineCartesianLayer.Line(
+                fill = LineCartesianLayer.LineFill.single(Fill(shadowBasalColor)),
+                stroke = LineCartesianLayer.LineStroke.Continuous(thickness = 2.dp),
+                areaFill = null,
+                interpolator = Square
+            ),
+            autoIsfAppliedColor = autoIsfAppliedColor,
+            mpcColors = mpcColors,
+            iobPredictionColor = iobPredictionColor,
+            cobPredictionColor = cobPredictionColor,
+            uamPredictionColor = uamPredictionColor
+        )
+    }
+}
+
+/** Axis labels for variable sensitivity, which is drawn negated: the label negates the value back. */
+private fun isfAxisFormatter(decimalFormatter: DecimalFormatter): CartesianValueFormatter = CartesianValueFormatter { _, value, _ ->
+    val isf = if (value == 0.0) 0.0 else -value
+    // mg/dL ISFs are tens, mmol/L ones a few units
+    if (abs(isf) >= 10.0) decimalFormatter.to0Decimal(isf) else decimalFormatter.to1Decimal(isf)
 }
 
 // =========================================================================
@@ -689,6 +900,12 @@ internal sealed class SeriesSlot {
     data class SimpleLine(val type: SeriesType) : SeriesSlot()
     data object DevSlopeMin : SeriesSlot()
     data object ActivityOverlay : SeriesSlot()
+    data object ShadowIobLine : SeriesSlot()
+    data object ShadowSmb : SeriesSlot()
+    data class DevCarbsRun(val positive: Boolean) : SeriesSlot()
+    data class AutoIsfFactor(val line: AutoIsfLine) : SeriesSlot()
+    data class MpcValue(val line: MpcLine) : SeriesSlot()
+    data class PredictedDeviation(val curve: PredictedDeviationCurve) : SeriesSlot()
 }
 
 // =========================================================================
@@ -834,7 +1051,8 @@ data class SeriesColors(
     val devSlope: Color,
     val heartRate: Color,
     val steps: Color,
-    val activity: Color
+    val activity: Color,
+    val mpc: Color
 ) {
 
     fun colorFor(type: SeriesType): Color = when (type) {
@@ -846,6 +1064,10 @@ data class SeriesColors(
         SeriesType.SENSITIVITY     -> sensitivity
         SeriesType.VAR_SENSITIVITY -> varSensitivity
         SeriesType.DEV_SLOPE       -> devSlope
+        SeriesType.DEV_CARBS       -> deviations
+        SeriesType.AUTOISF         -> varSensitivity
+        SeriesType.MEAL_CHANCE     -> mpc
+        SeriesType.MEAL_CARBS      -> mpc
         SeriesType.HEART_RATE      -> heartRate
         SeriesType.STEPS           -> steps
         SeriesType.ACTIVITY        -> activity
@@ -858,7 +1080,8 @@ fun rememberSeriesColors(): SeriesColors {
     val iobColor = AapsTheme.generalColors.iobPrediction
     val cobColor = AapsTheme.generalColors.cobPrediction
     val onSurface = MaterialTheme.colorScheme.onSurface
-    return remember(iobColor, cobColor, onSurface) {
+    val mpcColor = AapsTheme.generalColors.mpcExpectedPrediction
+    return remember(iobColor, cobColor, onSurface, mpcColor) {
         SeriesColors(
             iob = iobColor,                         // #1e88e5 blue (matches @color/iob)
             absIob = iobColor,                      // same blue as IOB
@@ -870,7 +1093,8 @@ fun rememberSeriesColors(): SeriesColors {
             devSlope = Color(0xFFFFFF00),            // yellow (matches @color/devSlopePos)
             heartRate = Color(0xFFFFFF66),           // pale yellow (matches @color/heartRate #FFFFFF66)
             steps = Color(0xFF66FFB8),              // mint green (matches @color/steps)
-            activity = Color(0xFFD3F166)            // lime green (matches @color/activity)
+            activity = Color(0xFFD3F166),           // lime green (matches @color/activity)
+            mpc = mpcColor                          // the expected MPC prediction line: near black light / near white dark
         )
     }
 }
@@ -878,10 +1102,149 @@ fun rememberSeriesColors(): SeriesColors {
 /** DevSlope min line — magenta, no fill (matches @color/devSlopeNeg #FF00FF) */
 private fun createDevSlopeMinLine(): LineCartesianLayer.Line {
     return LineCartesianLayer.Line(
-        fill = LineCartesianLayer.LineFill.single(Fill(Color(0xFFFF00FF))),
+        fill = LineCartesianLayer.LineFill.single(Fill(devSlopeMinColor())),
         areaFill = null
     )
 }
+/** The falling DEVSLOPE line (magenta), also used for its value in the pop-up. */
+internal fun devSlopeMinColor(): Color = Color(0xFFFF00FF)
+
+/** The colours of the DEV carbs runs, also used for their value in the pop-up. */
+internal fun devCarbsPositiveColor(): Color = DEVIATION_COLOR_POSITIVE
+internal fun devCarbsNegativeColor(): Color = DEVIATION_COLOR_NEGATIVE
+
+/**
+ * The points of [type] as the runs to draw: steps as bars ([barPoints]), heart rate as a line broken
+ * where readings are missing ([splitAtGaps]), every other series as one run. DEV carbs come as runs
+ * already.
+ */
+internal fun shapedRuns(type: SeriesType, points: List<Pair<Double, Double>>): List<List<Pair<Double, Double>>> =
+    when (type) {
+        SeriesType.STEPS      -> listOf(barPoints(points))
+        SeriesType.HEART_RATE -> splitAtGaps(points)
+        else                  -> listOf(points)
+    }
+
+/**
+ * A DEV carbs run is positive (carbs that explain a rise) when its point furthest from zero is above
+ * zero. A run can go a little past zero for one reading, when a move back is not a turn yet.
+ */
+internal fun isPositiveRun(run: List<Pair<Double, Double>>): Boolean = (run.maxByOrNull { abs(it.second) }?.second ?: 0.0) > 0.0
+
+/**
+ * A DEV carbs run: the running total as a line, filled down (or up) to zero. Green for a rise the
+ * insulin does not explain, red for a drop, the same colours as the DEV bars.
+ */
+private fun createDevCarbsLine(positive: Boolean): LineCartesianLayer.Line {
+    val color = if (positive) DEVIATION_COLOR_POSITIVE else DEVIATION_COLOR_NEGATIVE
+    return LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(color)),
+        areaFill = LineCartesianLayer.AreaFill.single(Fill(color.copy(alpha = 0.3f))),
+        // Straight lines between the points: a curve could cross zero between two points of one run
+        interpolator = LineCartesianLayer.Interpolator.Sharp
+    )
+}
+
+/** The AutoISF axis shows at least 0.9 to 1.1. */
+internal const val AUTOISF_MIN_DEVIATION = 0.1
+
+/**
+ * One line of the AutoISF graph: each factor in its own colour with a small dot at each loop run, and
+ * the factor that was applied in bold in the text colour, under the others. The labels are used in the
+ * values pop-up.
+ */
+internal enum class AutoIsfLine(val color: Color?, val label: TextRef) {
+    ACCE(Color(0xFFFFA726), CoreUiStrings.autoisf_acce_shortname),     // acceleration of BG: speeding up or braking
+    BG(Color(0xFF29B6F6), CoreUiStrings.autoisf_bg_shortname),         // how far BG is from the target
+    PP(Color(0xFF66BB6A), CoreUiStrings.autoisf_pp_shortname),         // rise after a meal
+    DURA(Color(0xFFEC407A), CoreUiStrings.autoisf_dura_shortname),     // stuck high
+    APPLIED(null, CoreUiStrings.autoisf_applied_shortname);            // the factor that was used
+
+    fun valueAt(point: AutoIsfFactorPoint): Double = when (this) {
+        ACCE    -> point.acce
+        BG      -> point.bg
+        PP      -> point.pp
+        DURA    -> point.dura
+        APPLIED -> point.applied
+    }
+}
+
+private fun createAutoIsfLine(line: AutoIsfLine, appliedColor: Color): LineCartesianLayer.Line {
+    val color = line.color ?: appliedColor
+    return LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(color)),
+        stroke = LineCartesianLayer.LineStroke.Continuous(thickness = if (line == AutoIsfLine.APPLIED) 3.dp else 1.5.dp),
+        areaFill = null,
+        // A small dot per loop run on the factors, so a factor that equals the applied one is still seen
+        pointProvider = if (line == AutoIsfLine.APPLIED) null else LineCartesianLayer.PointProvider.single(
+            LineCartesianLayer.Point(component = ShapeComponent(fill = Fill(color), shape = CircleShape), size = AUTOISF_DOT_SIZE)
+        )
+    )
+}
+
+/** The colours of the MPC meal lines: if a meal, if no meal, and the expected / weighted value. */
+internal data class MpcColors(val meal: Color, val noMeal: Color, val main: Color)
+
+/**
+ * One line of the MPC meal graphs. [MEAL_CHANCE][SeriesType.MEAL_CHANCE]: the chance from the rise alone and with the room
+ * above the target (the one the plan uses). [MEAL_CARBS][SeriesType.MEAL_CARBS]: carbs still to come if a meal, if no meal,
+ * and expected. The [main] line of each is bold.
+ */
+internal enum class MpcLine(val type: SeriesType, val main: Boolean) {
+    CHANCE_FROM_RISE(SeriesType.MEAL_CHANCE, false),
+    CHANCE_WITH_ROOM(SeriesType.MEAL_CHANCE, true),
+    CARBS_IF_MEAL(SeriesType.MEAL_CARBS, false),
+    CARBS_IF_NO_MEAL(SeriesType.MEAL_CARBS, false),
+    CARBS_EXPECTED(SeriesType.MEAL_CARBS, true);
+
+    fun valueAt(point: MpcPoint): Double = when (this) {
+        CHANCE_FROM_RISE -> point.mealChance
+        CHANCE_WITH_ROOM -> point.weightedMealChance
+        CARBS_IF_MEAL    -> point.carbsIfMeal
+        CARBS_IF_NO_MEAL -> point.carbsIfNoMeal
+        CARBS_EXPECTED   -> point.carbsExpected
+    }
+
+    fun color(colors: MpcColors): Color = when (this) {
+        CHANCE_FROM_RISE, CARBS_IF_MEAL -> colors.meal
+        CARBS_IF_NO_MEAL                -> colors.noMeal
+        CHANCE_WITH_ROOM, CARBS_EXPECTED -> colors.main
+    }
+}
+
+private fun createMpcLine(line: MpcLine, colors: MpcColors): LineCartesianLayer.Line {
+    val color = line.color(colors)
+    // Meal chance as dots (one per loop run), so it is not mixed up with the carb lines on a shared graph
+    if (line.type == SeriesType.MEAL_CHANCE) return LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
+        areaFill = null,
+        pointProvider = LineCartesianLayer.PointProvider.single(
+            LineCartesianLayer.Point(component = ShapeComponent(fill = Fill(color), shape = CircleShape), size = if (line.main) MPC_DOT_SIZE_MAIN else MPC_DOT_SIZE)
+        )
+    )
+    return LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(color)),
+        stroke = LineCartesianLayer.LineStroke.Continuous(thickness = if (line.main) 3.dp else 1.5.dp),
+        areaFill = null,
+        // Each loop run is one value: no curve between them
+        interpolator = Square
+    )
+}
+
+/** The meal chance dots: the chance the plan used larger than the chance from the rise alone. */
+private val MPC_DOT_SIZE_MAIN = 6.dp
+private val MPC_DOT_SIZE = 4.dp
+
+/** The dots on the AutoISF factor lines. */
+private val AUTOISF_DOT_SIZE = 4.dp
+
+/** Bars: a [Square] step line with a solid fill down to zero. */
+private fun createBarLine(color: Color): LineCartesianLayer.Line = LineCartesianLayer.Line(
+    fill = LineCartesianLayer.LineFill.single(Fill(color)),
+    areaFill = LineCartesianLayer.AreaFill.single(Fill(color.copy(alpha = 0.5f))),
+    interpolator = Square
+)
+
 
 /** Create a line style for a given series type, matching legacy rendering */
 fun createSeriesLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer.Line {
@@ -900,17 +1263,13 @@ fun createSeriesLine(type: SeriesType, colors: SeriesColors): LineCartesianLayer
             fill = LineCartesianLayer.LineFill.single(Fill(color)),
             areaFill = null
         )
-        // Points/dots only — no connecting line
-        SeriesType.HEART_RATE, SeriesType.STEPS                                  -> LineCartesianLayer.Line(
-            fill = LineCartesianLayer.LineFill.single(Fill(Color.Transparent)),
-            areaFill = null,
-            pointProvider = LineCartesianLayer.PointProvider.single(
-                LineCartesianLayer.Point(
-                    component = ShapeComponent(fill = Fill(color), shape = CircleShape),
-                    size = 4.dp
-                )
-            )
+        // A line, no fill; broken where readings are missing (see shapedRuns)
+        SeriesType.HEART_RATE                                                    -> LineCartesianLayer.Line(
+            fill = LineCartesianLayer.LineFill.single(Fill(color)),
+            areaFill = null
         )
+        // A bar per period, like the DEV bars (see barPoints)
+        SeriesType.STEPS                                                         -> createBarLine(color)
         // Default: smooth line with gradient area fill
         else                                                                     -> LineCartesianLayer.Line(
             fill = LineCartesianLayer.LineFill.single(Fill(color)),
@@ -1110,6 +1469,18 @@ private fun createDeviationLine(type: DeviationType): LineCartesianLayer.Line {
         interpolator = Square
     )
 }
+
+/** The prediction curve an expected deviation belongs to, see `PredictedDeviationsGraphData`. */
+internal enum class PredictedDeviationCurve { IOB, COB, UAM }
+
+/** A bar per 5 minutes like [createDeviationLine], lighter, as it is expected and not measured. */
+private fun createPredictedDeviationLine(color: Color): LineCartesianLayer.Line =
+    LineCartesianLayer.Line(
+        fill = LineCartesianLayer.LineFill.single(Fill(color)),
+        stroke = LineCartesianLayer.LineStroke.Continuous(thickness = 0.dp),
+        areaFill = LineCartesianLayer.AreaFill.single(Fill(color.copy(alpha = 0.35f))),
+        interpolator = Square
+    )
 
 /** Processed deviation data split by type for multi-series line rendering */
 internal data class ProcessedDeviationLines(

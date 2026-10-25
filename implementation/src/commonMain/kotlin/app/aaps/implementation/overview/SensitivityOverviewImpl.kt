@@ -95,7 +95,16 @@ class SensitivityOverviewImpl(
         var isfFrom = ""
         var isfTo = ""
         var isfStep = IsfStep.SAME
+        var factorText = ""
+        var factorStep = IsfStep.SAME
         val lines = ArrayList<String>()
+
+        // How much more insulin the ISF in use gives than the profile ISF: profile ISF / ISF in use
+        fun setFactor(factor: Double) {
+            factorText = decimalFormatter.to2Decimal(factor)
+            factorStep = isfStep(decimalFormatter.to2Decimal(1.0), factorText, 1.0, factor)
+            lines.add(rh.gs(CoreUiStrings.isf_insulin_factor, factorText))
+        }
 
         if (variableSens != isfMgdl && variableSens != 0.0 && isfMgdl != null) {
             // Variable ISF branch — hide "AS: 100%" from overview when ratio is exactly 100%
@@ -111,6 +120,7 @@ class SensitivityOverviewImpl(
             isfStep = isfStep(isfFrom, isfTo, profileIsfDisplayed, variableIsfDisplayed)
             lines.add(rh.gs(CoreUiStrings.isf_profile, profileIsfDisplayed))
             lines.add(rh.gs(CoreUiStrings.isf_variable, variableIsfDisplayed))
+            setFactor(isfMgdl / variableSens)
             if (namesOwnRatio)
                 lines.add(rh.gs(CoreUiStrings.algorithm_long, ratioUsed * 100))
             val isfForCarbs = profile.getIsfMgdlForCarbs(dateUtil.now(), "Overview", config, processedDeviceStatusData)
@@ -142,6 +152,8 @@ class SensitivityOverviewImpl(
                     isfTo = decimalFormatter.to1Decimal(effectiveIsfDisplayed)
                     isfStep = isfStep(isfFrom, isfTo, profileIsfDisplayed, effectiveIsfDisplayed)
                     lines.add(rh.gs(CoreUiStrings.isf_effective, effectiveIsfDisplayed))
+                    // profile ISF / (profile ISF / ratio)
+                    setFactor(ratioUsed)
                 }
             }
             // A client computes its own autosens, and a temp target can take sensitivity over from
@@ -156,6 +168,8 @@ class SensitivityOverviewImpl(
             isfFrom = isfFrom,
             isfTo = isfTo,
             isfStep = isfStep,
+            factorText = factorText,
+            factorStep = factorStep,
             lines = lines,
             ratio = lastAutosensRatio ?: 1.0,
             isEnabled = isEnabled,

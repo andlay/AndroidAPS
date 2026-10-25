@@ -159,6 +159,18 @@ internal class NightscoutApi(
         }
     }
 
+    /**
+     * The treatments changed after [from], as a search instead of the history call. For servers whose history
+     * call fails: Nocturne answers it with HTTP 500. Unlike history, a search does not return deleted documents.
+     */
+    suspend fun searchTreatmentsModifiedSince(from: Long, limit: Int) = call(HttpMethod.Get, treatmentListSerializer) {
+        nsUrl("v3", "treatments") {
+            encodedParameters.append("sort", "srvModified")
+            encodedParameters.append("srvModified\$gt", from.toString())
+            encodedParameters.append("limit", limit.toString())
+        }
+    }
+
     suspend fun createTreatment(remoteTreatment: RemoteTreatment) =
         call(HttpMethod.Post, RemoteCreateUpdateResponse.serializer()) {
             nsUrl("v3", "treatments"); jsonBody(remoteTreatment)

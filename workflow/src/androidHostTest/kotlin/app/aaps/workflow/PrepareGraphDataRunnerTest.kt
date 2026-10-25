@@ -1,6 +1,8 @@
 package app.aaps.workflow
 
+import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.CA
+import app.aaps.core.data.model.GlucoseUnit
 import app.aaps.core.data.time.T
 import app.aaps.core.interfaces.aps.AutosensData
 import app.aaps.core.interfaces.aps.AutosensDataStore
@@ -19,6 +21,7 @@ import app.aaps.core.interfaces.rx.bus.RxBus
 import app.aaps.core.interfaces.rx.events.EventBucketedDataCreated
 import app.aaps.core.interfaces.workflow.CalculationSignalsEmitter
 import app.aaps.core.interfaces.workflow.CalculationWorkflow.ProgressData
+import app.aaps.core.keys.StringKey
 import app.aaps.core.objects.workflow.WorkOutcome
 import app.aaps.shared.tests.TestBaseWithProfile
 import com.google.common.truth.Truth.assertThat
@@ -98,12 +101,34 @@ class PrepareGraphDataRunnerTest : TestBaseWithProfile() {
         whenever(dataAds.getLastAutosensData(any(), any(), any())).thenReturn(null)
         whenever(persistenceLayer.getBgReadingsDataFromTimeToTime(any(), any(), any())).thenReturn(emptyList())
         whenever(persistenceLayer.getVariableSensitivities(any(), any())).thenReturn(emptyList())
+        whenever(persistenceLayer.getAutoIsfFactors(any(), any())).thenReturn(emptyList())
+        whenever(persistenceLayer.getMpcValues(any(), any())).thenReturn(emptyList())
         whenever(persistenceLayer.getTemporaryTargetActiveAt(any())).thenReturn(null)
         whenever(dataIobCob.calculateIobArrayForSMB(any(), any(), any(), any())).thenReturn(emptyArray())
         whenever(dataIobCob.iobArrayToString(any())).thenReturn("")
     }
 
     private fun carbsAt(vararg timestamps: Long) = timestamps.map { CA(timestamp = it, amount = 10.0, duration = 0) }
+
+    @Test
+    fun `graph BG changes are shown in mmol per L for mmol users`() {
+        // BGI, deviations and deviation slopes are mg/dL per 5 minutes inside oref. The graph prints its
+        // axis from these numbers, so an mmol/L user must get them converted, with the same factor as BG.
+        whenever(preferences.get(StringKey.GeneralUnits)).thenReturn(GlucoseUnit.MMOL.asText)
+
+        assertThat(runner().glucoseChangeInUnits(18.0)).isWithin(1e-9).of(18.0 * Constants.MGDL_TO_MMOLL)
+        assertThat(runner().glucoseChangeInUnits(18.0)).isWithin(0.01).of(1.0)
+        assertThat(runner().glucoseChangeInUnits(-9.0)).isWithin(0.01).of(-0.5)
+        assertThat(runner().glucoseChangeInUnits(0.0)).isEqualTo(0.0)
+    }
+
+    @Test
+    fun `graph BG changes stay in mg per dL for mg per dL users`() {
+        whenever(preferences.get(StringKey.GeneralUnits)).thenReturn(GlucoseUnit.MGDL.asText)
+
+        assertThat(runner().glucoseChangeInUnits(18.0)).isEqualTo(18.0)
+        assertThat(runner().glucoseChangeInUnits(-9.0)).isEqualTo(-9.0)
+    }
 
     @Test
     fun `a bucket takes the carbs of its own five minutes`() {
@@ -196,6 +221,27 @@ class PrepareGraphDataRunnerTest : TestBaseWithProfile() {
         verify(cache).updateActivityGraph(activity.capture())
         assertThat(activity.lastValue.activityPrediction.last().timestamp).isGreaterThan(toTime)
         assertThat(activity.lastValue.activityPrediction.last().timestamp).isAtMost(horizon)
+    }
+
+    @Test
+    fun `the future activity starts at the last point of the past, so the lines join`() = runTest {
+        stubSuspendCalls()
+        val toTime = now + T.mins(30).msecs()
+        val horizon = toTime + T.hours(4).msecs()
+        whenever(overviewData.toTime).thenReturn(toTime)
+        val timeRange = MutableStateFlow<TimeRange?>(TimeRange(fromTime = toTime - T.hours(24).msecs(), toTime = toTime, endTime = horizon))
+        whenever(cache.timeRangeFlow).thenReturn(timeRange)
+        whenever(profileFunction.getProfile(any<Long>())).thenReturn(effectiveProfile)
+        whenever(dataIobCob.calculateFromTreatmentsAndTemps(any(), any())).thenAnswer { IobTotal(it.arguments[0] as Long, activity = 0.01) }
+        whenever(dataIobCob.calculateAbsoluteIobFromBaseBasals(any())).thenAnswer { IobTotal(it.arguments[0] as Long) }
+        whenever(workflowChainData.prepareFor(anyOrNull(), any())).thenReturn(buildData(bgDataReload = false, emitFinalProgress = false))
+
+        run()
+
+        val activity = argumentCaptor<ActivityGraphData>()
+        verify(cache).updateActivityGraph(activity.capture())
+        assertThat(activity.lastValue.activity).isNotEmpty()
+        assertThat(activity.lastValue.activityPrediction.first()).isEqualTo(activity.lastValue.activity.last())
     }
 
     @Test

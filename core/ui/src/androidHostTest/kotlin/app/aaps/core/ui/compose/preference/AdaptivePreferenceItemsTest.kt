@@ -4,7 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import app.aaps.core.data.model.GlucoseUnit
+import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.keys.BooleanKey
 import app.aaps.core.keys.DoubleKey
 import app.aaps.core.keys.IntKey
@@ -12,9 +15,13 @@ import app.aaps.core.keys.StringKey
 import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.ui.compose.LocalConfig
 import app.aaps.core.ui.compose.LocalPreferences
+import app.aaps.core.ui.compose.LocalProfileUtil
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.kotlin.any
+import org.mockito.kotlin.anyOrNull
+import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.mock
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -59,6 +66,22 @@ class AdaptivePreferenceItemsTest {
     fun intItemRenders() {
         render { AdaptiveIntPreferenceItem(intKey = IntKey.OverviewCarbsButtonIncrement1) }
         compose.onRoot().assertIsDisplayed()
+    }
+
+    @Test
+    fun mgdlIntItemShowsMmolForMmolUsers() {
+        // The half basal exercise target is stored as whole mg/dL. PreviewTheme gives the default,
+        // 160 mg/dL, which is 8.9 mmol/L.
+        val profileUtil: ProfileUtil = mock {
+            on { units } doAnswer { GlucoseUnit.MMOL }
+            on { fromMgdlToUnits(any(), anyOrNull()) } doAnswer { it.getArgument<Double>(0) / 18.0 }
+        }
+        compose.setContent {
+            CompositionLocalProvider(LocalPreferences provides prefs, LocalConfig provides config, LocalProfileUtil provides profileUtil) {
+                PreviewTheme { AdaptiveIntPreferenceItem(intKey = IntKey.ApsAutoIsfHalfBasalExerciseTarget) }
+            }
+        }
+        compose.onNodeWithText("8.9 mmol/L").assertIsDisplayed()
     }
 
     @Test

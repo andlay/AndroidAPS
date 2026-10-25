@@ -363,8 +363,18 @@ class NSAndroidClientImpl(
             )
         } else if (response.code in 400..499)
             throw InvalidParameterNightscoutException(response.errorBody() ?: response.message())
-        else
-            throw UnsuccessfulNightscoutException("Unsuccessful")
+        else {
+            // Some servers fail the history call (Nocturne: HTTP 500) but can search by modification time
+            val search = api.searchTreatmentsModifiedSince(from, limit)
+            if (!search.isSuccessful) throw UnsuccessfulNightscoutException("Unsuccessful")
+            val remote = search.body()?.result.orEmpty()
+            return@callWrapper NSAndroidClient.ReadResponse(
+                code = search.code,
+                // no ETag here: the newest modification time read is the next cursor
+                lastServerModified = remote.maxOfOrNull { it.srvModified ?: 0L }?.takeIf { it > 0 } ?: from,
+                values = remote.map(RemoteTreatment::toTreatment).toNotNull()
+            )
+        }
     }
 
     override suspend fun getDeviceStatusModifiedSince(from: Long): List<NSDeviceStatus> = callWrapper(dispatcher) {

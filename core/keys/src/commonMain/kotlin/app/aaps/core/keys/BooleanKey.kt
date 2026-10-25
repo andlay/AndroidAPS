@@ -46,6 +46,11 @@ enum class BooleanKey(
         key = "keep_screen_on", defaultValue = false, title = KeysStrings.pref_title_keep_screen_on, summary = KeysStrings.pref_summary_keep_screen_on,
         calculatedDefaultValue = true, platforms = setOf(AppPlatform.Android, AppPlatform.Ios)
     ),
+    // A second, small notification whose status bar icon shows whether SMBs are switched on. Android only.
+    OverviewShowSmbStatusIcon(
+        key = "show_smb_status_icon", defaultValue = true, title = KeysStrings.pref_title_show_smb_status_icon, summary = KeysStrings.pref_summary_show_smb_status_icon,
+        showInNsClientMode = false, platforms = AppPlatform.ANDROID_ONLY
+    ),
     OverviewShowTreatmentButton(key = "show_treatment_button", defaultValue = false, title = KeysStrings.pref_title_show_treatment_button, defaultedBySM = true),
     OverviewShowWizardButton(key = "show_wizard_button", defaultValue = true, title = KeysStrings.pref_title_show_wizard_button, defaultedBySM = true),
     OverviewShowInsulinButton(key = "show_insulin_button", defaultValue = true, title = KeysStrings.pref_title_show_insulin_button, defaultedBySM = true),

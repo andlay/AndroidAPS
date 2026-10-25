@@ -97,7 +97,11 @@ import app.aaps.pump.omnipod.common.queue.command.CommandResumeDelivery
 import app.aaps.pump.omnipod.common.queue.command.CommandSilenceAlerts
 import app.aaps.pump.omnipod.common.queue.command.CommandSuspendDelivery
 import app.aaps.pump.omnipod.common.queue.command.CommandUpdateAlertConfiguration
+import app.aaps.pump.omnipod.omnipod5.keys.O5BooleanPreferenceKey
+import app.aaps.pump.omnipod.omnipod5.keys.O5IntPreferenceKey
 import app.aaps.pump.omnipod.omnipod5.keys.O5IntentKey
+import app.aaps.pump.omnipod.omnipod5.keys.O5LongNonPreferenceKey
+import app.aaps.pump.omnipod.omnipod5.queue.command.CommandUpdateOutOfReachAlert
 import app.aaps.pump.omnipod.omnipod5.ui.O5CertificateStoreScreen
 import app.aaps.pump.omnipod.omnipod5.ui.compose.OmnipodO5ComposeContent
 import app.aaps.pump.omnipod.common.util.mapProfileToBasalProgram
@@ -118,6 +122,7 @@ import kotlinx.coroutines.rx3.rxCompletable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.Date
+import java.util.EnumSet
 import java.util.concurrent.CountDownLatch
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesIntoMap
@@ -191,7 +196,7 @@ class O5PumpPlugin @Inject constructor(
         .pluginName(TextRef.AndroidRes(R.string.omnipod_5_name))
         .description(TextRef.AndroidRes(R.string.omnipod_5_pump_description)),
     ownPreferences = OmnipodBooleanPreferenceKey.entries + OmnipodIntPreferenceKey.entries +
-        DashBooleanPreferenceKey.entries + O5IntentKey.ConfigEnabledEntries(config),
+        DashBooleanPreferenceKey.entries + O5IntentKey.ConfigEnabledEntries(config) + O5BooleanPreferenceKey.entries + O5IntPreferenceKey.entries,
     aapsLogger, rh, preferences, commandQueue, notificationManager
 ), Pump {
 
@@ -214,6 +219,10 @@ class O5PumpPlugin @Inject constructor(
         private const val BOLUS_RETRIES = 5
         private const val STATUS_CHECK_INTERVAL_MS = 60L * 1000
         private const val POD_WARNING_INTERVAL_MS = 15L * 60 * 1000
+
+        /** How often the out-of-reach alert is set again while the pod can be reached (at half the
+         *  beep time for a setting below 10 minutes). */
+        private const val OUT_OF_REACH_REARM_MS = 5L * 60 * 1000
         private const val RESERVOIR_OVER_50_UNITS_DEFAULT = 75.0
 
         /** Serial reported before any pod is paired, and used for the zero "no delivery" temp
@@ -238,6 +247,7 @@ class O5PumpPlugin @Inject constructor(
         }
         housekeepingChecker = Runnable {
             updatePodWarnings()
+            queueOutOfReachAlertIfDue()
             scope?.launch {
                 try {
                     createFakeTBRWhenNoActivePod()
@@ -487,6 +497,7 @@ class O5PumpPlugin @Inject constructor(
                     checkPodKaput()
                 }
                 updateAlertConfiguration()
+                updateOutOfReachAlert()
             }
         } catch (e: Exception) {
             aapsLogger.error(LTag.PUMP, "Error in O5 getPumpStatus", e)
@@ -1311,6 +1322,7 @@ class O5PumpPlugin @Inject constructor(
             reconcilePendingDoseLocked()
             if (!accepted || podStateManager.pendingDoseCommand != null) return unresolvedDoseResult()
             queueBasalCorrectionIfNeeded()
+            updateOutOfReachAlert()
             pumpEnactResultProvider.get().success(true).enacted(true).isPercent(false).absolute(absoluteRate).duration(durationInMinutes)
         } catch (e: Exception) {
             historyId?.let { history.markSendingFailure(it).andThen(history.markFailure(it)).blockingAwait() }
@@ -1406,6 +1418,7 @@ class O5PumpPlugin @Inject constructor(
             is CommandUpdateAlertConfiguration -> updateAlertConfiguration()
             is CommandDisableSuspendAlerts     -> disableSuspendAlerts()
             is CommandDeliverBasalCorrection   -> deliverBasalCorrection()
+            is CommandUpdateOutOfReachAlert    -> updateOutOfReachAlert()
             else                      -> {
                 aapsLogger.warn(LTag.PUMP, "Unsupported custom command: " + customCommand.javaClass.name)
                 pumpEnactResultProvider.get().success(false).enacted(false).comment(
@@ -1582,6 +1595,12 @@ class O5PumpPlugin @Inject constructor(
         if (!podStateManager.suspendAlertsEnabled) {
             return pumpEnactResultProvider.get().success(true).enacted(false)
         }
+        // The out-of-reach beep uses the same slot: setting it replaces the suspend alert
+        if (preferences.get(O5BooleanPreferenceKey.OutOfReachBeep)) {
+            outOfReachArmedAt = 0L
+            val result = updateOutOfReachAlert()
+            if (!podStateManager.suspendAlertsEnabled) return result
+        }
         return try {
             val cmd = ProgramAlertsCommand.Builder()
                 .setUniqueId(requirePodId())
@@ -1604,6 +1623,145 @@ class O5PumpPlugin @Inject constructor(
             aapsLogger.error(LTag.PUMP, "Error disabling O5 suspend alerts", e)
             handleCommandFailure(R.string.omnipod_5_error_failed_to_update_alert_configuration)
         }
+    }
+
+    /** When the out-of-reach alert was last set, and for how many minutes ahead. In memory only:
+     *  after an app restart it is simply set again at the first contact. */
+    @Volatile private var outOfReachArmedAt: Long = 0L
+    @Volatile private var outOfReachArmedMinutes: Int = 0
+
+    /** When the timer last queued an update, so a pod out of reach is not tried again every minute. */
+    @Volatile private var outOfReachQueuedAt: Long = 0L
+
+    private fun outOfReachMinutes(): Int = preferences.get(O5IntPreferenceKey.OutOfReachBeepMinutes).coerceIn(1, 120)
+
+    /** Set again every 5 minutes, or at half the beep time when that is shorter. */
+    private fun outOfReachRearmMs(minutes: Int): Long = minOf(OUT_OF_REACH_REARM_MS, minutes * 60_000L / 2)
+
+    /** While delivery is suspended, the SUSPEND_ENDED slot holds the pod's own "still suspended" reminder. */
+    private fun deliveryIsSuspended(): Boolean =
+        podStateManager.deliverySuspended || podStateManager.deliveryStatus?.suspended() == true
+
+    /** Whether the out-of-reach alert has to be sent to the pod now: set, set again, or cleared. */
+    private fun outOfReachAlertDue(now: Long): Boolean {
+        if (podStateManager.activationProgress != ActivationProgress.COMPLETED || !podStateManager.isPodRunning) return false
+        if (deliveryIsSuspended()) return false
+        val podId = podStateManager.podId ?: return false
+        val enabled = preferences.get(O5BooleanPreferenceKey.OutOfReachBeep)
+        val armedPodId = preferences.get(O5LongNonPreferenceKey.OutOfReachAlertPodId)
+        // Off, and nothing of ours on this pod (0 = none): the slot is left alone
+        if (!enabled) return armedPodId != 0L && armedPodId == podId
+        if (podStateManager.activeAlerts?.contains(AlertType.SUSPEND_ENDED) == true) return true
+        val minutes = outOfReachMinutes()
+        return armedPodId != podId || minutes != outOfReachArmedMinutes || now - outOfReachArmedAt >= outOfReachRearmMs(minutes)
+    }
+
+    /**
+     * Experimental "phone out of reach" beep ([O5BooleanPreferenceKey.OutOfReachBeep]).
+     *
+     * The pod cannot tell when the phone is gone, so AAPS keeps a timer alert set to go off N
+     * minutes from now ([O5IntPreferenceKey.OutOfReachBeepMinutes]) and sets it again every 5
+     * minutes while it can reach the pod. When the phone is gone, nothing sets it again, and the
+     * pod beeps.
+     *
+     * It uses the SUSPEND_ENDED slot, because that slot is known to beep on O5 pods (a timer left
+     * there after a resume beeps while insulin runs). The first version used the spare MULTI_COMMAND
+     * slot, and that did not work on a pod. While delivery is suspended the slot is left to the suspend
+     * reminder, which [SuspendDeliveryCommand] sets; after a resume, [disableSuspendAlerts] hands
+     * it back. Never the AUTO_OFF slot: that one ends in a pod shutdown.
+     *
+     * When the alert has gone off, it is silenced, the user is told, and it is set again. Turning
+     * the feature off clears it on the pod. Errors are only logged: this must never stop a status
+     * read or a temp basal. Called after a status read, after a temp basal, and from the queue when
+     * [queueOutOfReachAlertIfDue] asks for it. Sends nothing when the alert is not due.
+     */
+    internal fun updateOutOfReachAlert(): PumpEnactResult {
+        val now = System.currentTimeMillis()
+        if (!outOfReachAlertDue(now)) return pumpEnactResultProvider.get().success(true).enacted(false)
+        val podId = podStateManager.podId ?: return pumpEnactResultProvider.get().success(true).enacted(false)
+        val enabled = preferences.get(O5BooleanPreferenceKey.OutOfReachBeep)
+        val fired = podStateManager.activeAlerts?.contains(AlertType.SUSPEND_ENDED) == true
+        return try {
+            if (fired) {
+                sendSilenceAlert(AlertType.SUSPEND_ENDED)
+                if (podStateManager.suspendAlertsEnabled) {
+                    // Left over from a suspend that has ended, not a lost phone
+                    aapsLogger.info(LTag.PUMP, "O5 suspend alert had gone off after the resume; silenced")
+                } else {
+                    notificationManager.post(NotificationId.OMNIPOD_POD_ALERTS, rh.gs(R.string.omnipod_5_out_of_reach_beeped))
+                    aapsLogger.info(LTag.PUMP, "O5 out-of-reach alert had gone off; silenced")
+                }
+            }
+            if (enabled) {
+                val minutes = outOfReachMinutes()
+                sendSuspendEndedAlert(enabled = true, minutes = minutes)
+                preferences.put(O5LongNonPreferenceKey.OutOfReachAlertPodId, podId)
+                outOfReachArmedAt = now
+                outOfReachArmedMinutes = minutes
+                aapsLogger.info(LTag.PUMP, "O5 out-of-reach alert set to $minutes min")
+            } else {
+                sendSuspendEndedAlert(enabled = false, minutes = 0)
+                preferences.put(O5LongNonPreferenceKey.OutOfReachAlertPodId, 0L)
+                outOfReachArmedAt = 0L
+                aapsLogger.info(LTag.PUMP, "O5 out-of-reach alert cleared")
+            }
+            // Either way the slot no longer holds a suspend reminder
+            podStateManager.suspendAlertsEnabled = false
+            pumpEnactResultProvider.get().success(true).enacted(true)
+        } catch (e: Exception) {
+            aapsLogger.error(LTag.PUMP, "O5 could not update the out-of-reach alert", e)
+            pumpEnactResultProvider.get().success(false).enacted(false)
+        }
+    }
+
+    /**
+     * Called every minute by the housekeeping timer. The loop only reaches the pod when it changes
+     * something, so without this the alert would not be set again while the loop keeps the running
+     * temp basal, and the pod would beep with the phone next to it. Queues an update only when one
+     * is due and the queue is idle (a queued pod command updates it anyway), and at most once per
+     * update interval, so a pod out of reach is not tried every minute. Returns whether an update
+     * was queued.
+     */
+    internal fun queueOutOfReachAlertIfDue(): Boolean {
+        val now = System.currentTimeMillis()
+        if (!outOfReachAlertDue(now)) return false
+        if (now - outOfReachQueuedAt < outOfReachRearmMs(outOfReachMinutes())) return false
+        if (commandQueue.size() > 0 || commandQueue.performing() != null) return false
+        if (commandQueue.isCustomCommandInQueue(CommandUpdateOutOfReachAlert::class)) return false
+        outOfReachQueuedAt = now
+        scope?.launch { commandQueue.customCommand(CommandUpdateOutOfReachAlert()) }
+        return true
+    }
+
+    /** Same alert as the suspend reminder of [SuspendDeliveryCommand], with our time. */
+    private fun sendSuspendEndedAlert(enabled: Boolean, minutes: Int) {
+        val cmd = ProgramAlertsCommand.Builder()
+            .setUniqueId(requirePodId())
+            .setSequenceNumber(podStateManager.msgSequenceNumber.toShort())
+            .setNonce(FIXED_NONCE)
+            .setAlertConfigurations(
+                listOf(
+                    AlertConfiguration(
+                        AlertType.SUSPEND_ENDED, enabled = enabled, durationInMinutes = 0, autoOff = false,
+                        AlertTrigger.TimerTrigger(minutes.toShort()), BeepType.FOUR_TIMES_BIP_BEEP,
+                        BeepRepetitionType.EVERY_MINUTE_AND_EVERY_15_MIN
+                    )
+                )
+            )
+            .build()
+        bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+        history.recordSuccess(OmnipodCommandType.CONFIGURE_ALERTS)
+    }
+
+    private fun sendSilenceAlert(type: AlertType) {
+        val cmd = SilenceAlertsCommand.Builder()
+            .setUniqueId(requirePodId())
+            .setSequenceNumber(podStateManager.msgSequenceNumber.toShort())
+            .setNonce(FIXED_NONCE)
+            .setAlertTypes(EnumSet.of(type))
+            .build()
+        bleManager.sendCommand(cmd, DefaultStatusResponse::class).ignoreElements().blockingAwait()
+        history.recordSuccess(OmnipodCommandType.ACKNOWLEDGE_ALERTS)
     }
 
 
@@ -1775,7 +1933,9 @@ class O5PumpPlugin @Inject constructor(
                     OmnipodBooleanPreferenceKey.ExpirationAlarm,
                     OmnipodIntPreferenceKey.ExpirationAlarmHours,
                     OmnipodBooleanPreferenceKey.LowReservoirAlert,
-                    OmnipodIntPreferenceKey.LowReservoirAlertUnits
+                    OmnipodIntPreferenceKey.LowReservoirAlertUnits,
+                    O5BooleanPreferenceKey.OutOfReachBeep,
+                    O5IntPreferenceKey.OutOfReachBeepMinutes
                 )
             ),
             PreferenceSubScreenDef(

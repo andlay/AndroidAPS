@@ -51,6 +51,24 @@ class RealNightscoutTreatmentTest {
     }
 
     @Test
+    fun `a temp basal that carries its insulin is still a temp basal`() {
+        // As Nocturne stores it: "insulin" is what the temp gave, there is no pump data
+        val json = """
+            {"identifier":"01a16e72ef4b756c86093b62","srvModified":1792854387650,"srvCreated":1792854387650,
+             "eventType":"Temp Basal","carbs":null,"insulin":0.14221774999999998,"mills":1792854387650,
+             "created_at":"2026-10-24T15:06:27.650Z","duration":5,"absolute":1.7,"enteredBy":null,
+             "date":1792854387650,"utcOffset":660,"rate":1.7,"relative":1.7,"temp":"absolute","basalOrigin":"Manual"}
+        """.trimIndent()
+
+        val treatment = json.toNSTreatment()
+        assertThat(treatment).isInstanceOf(NSTemporaryBasal::class.java)
+        treatment as NSTemporaryBasal
+        assertThat(treatment.rate).isEqualTo(1.7)
+        assertThat(treatment.isAbsolute).isTrue()
+        assertThat(treatment.duration).isEqualTo(5 * 60_000L)
+    }
+
+    @Test
     fun `parses a real temp basal`() {
         val json = """
             {"_id":"6a740f444d1ba8c2e419e301","absolute":2,"app":"AAPS","date":1785990980390,

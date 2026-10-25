@@ -627,6 +627,15 @@ class LoopPlugin(
                 lastRun.lastSMBEnact = 0
                 lastRun.lastSMBRequest = 0
                 scheduleBuildAndStoreDeviceStatus("APS result")
+                // The new result is in lastRun now: lets the loop screen and the SMB status icon show it
+                rxBus.send(EventLoopUpdateGui())
+
+                // Alpha build: shadow mode. The decision is stored and shown, but it is never enacted
+                // and never offered as a suggestion. Another app instance doses for real.
+                if (config.ALPHA) {
+                    rxBus.send(EventLoopSetLastRunGui(rh.gs(ApsStrings.alpha_shadow_not_enacted)))
+                    return@withContext
+                }
 
                 if (runningMode().pausesLoopExecution()) {
                     aapsLogger.debug(LTag.APS, rh.gs(InterfacesStrings.loopsuspended))
@@ -816,6 +825,11 @@ class LoopPlugin(
         if (commandQueue.isHeld()) {
             aapsLogger.debug(LTag.APS, "acceptChangeRequest: queue is held (settings being applied), not enacting")
             return null
+        }
+        // Alpha build: shadow mode, nothing is ever enacted, also not by hand.
+        if (config.ALPHA) {
+            aapsLogger.debug(LTag.APS, "acceptChangeRequest: alpha shadow mode, not enacting")
+            return rh.gs(ApsStrings.alpha_shadow_not_enacted)
         }
         // Issue #5192. The same gate as `invoke` and `applySMBRequest`. Accepting is APS driven, so a
         // paused loop must refuse it too. The suggestion can wait on the watch long after the user
