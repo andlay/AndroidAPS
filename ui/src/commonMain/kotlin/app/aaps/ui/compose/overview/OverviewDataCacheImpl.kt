@@ -1246,7 +1246,7 @@ class OverviewDataCacheImpl(
         val profileBasal = _basalGraphFlow.value.profileBasal
         _shadowDosingFlow.value = ShadowDosingGraphData(
             iob = IobGraphData(iob, emptyList()),
-            treatments = TreatmentGraphData(markers, emptyList(), emptyList(), emptyList()),
+            treatments = TreatmentGraphData(markers, emptyList(), emptyList(), emptyList(), emptyList()),
             basal = BasalGraphData(profileBasal, actual, max(_basalGraphFlow.value.maxBasal, actual.maxOfOrNull { it.value } ?: 0.0))
         )
     }

@@ -147,7 +147,7 @@ data class ShadowDosingGraphData(
 
         val EMPTY = ShadowDosingGraphData(
             IobGraphData(emptyList(), emptyList()),
-            TreatmentGraphData(emptyList(), emptyList(), emptyList(), emptyList()),
+            TreatmentGraphData(emptyList(), emptyList(), emptyList(), emptyList(), emptyList()),
             BasalGraphData(emptyList(), emptyList(), 0.0)
         )
     }
