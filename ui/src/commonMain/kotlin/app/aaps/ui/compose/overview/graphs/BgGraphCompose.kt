@@ -713,12 +713,16 @@ private suspend fun submitBgModel(
         .filter { inWindow(it.timestamp) }
         .map { it.value }
         .ifEmpty { (activityData.activity + activityData.activityPrediction).map { it.value } }
+    // Zoomed in, the axis fits the readings and can end above the low mark (see bgAxisScale). Zero
+    // activity then sits on the axis floor: on the low mark below it, the curve was drawn from off
+    // the graph and jumped up and down each time the zoom crossed the default.
+    val activityZero = chartConfig.lowMark.coerceIn(niceBgScale.min, niceBgScale.max)
     val activityScale = activityOverlayScale(
         activityMin = windowedActivity.minOrNull() ?: 0.0,
         activityMax = windowedActivity.maxOrNull() ?: 0.0,
-        zeroLevel = chartConfig.lowMark,
-        roomAbove = niceBgScale.max - chartConfig.lowMark,
-        roomBelow = chartConfig.lowMark - niceBgScale.min
+        zeroLevel = activityZero,
+        roomAbove = niceBgScale.max - activityZero,
+        roomBelow = activityZero - niceBgScale.min
     )
 
     // Treatment markers: heights come from the curve itself, so they are rebuilt with the axis
