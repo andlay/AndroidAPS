@@ -1,6 +1,7 @@
 package app.aaps.pump.omnipod.omnipod5
 
 import app.aaps.core.data.model.BS
+import app.aaps.core.interfaces.overview.LastBgData
 import app.aaps.core.interfaces.protection.ProtectionCheck
 import app.aaps.core.interfaces.notifications.NotificationId
 import app.aaps.core.interfaces.pump.BlePreCheck
@@ -81,6 +82,7 @@ class O5DoseRecoveryTest : TestBaseWithProfile() {
     }
 
     @Mock lateinit var ble: O5BleManager
+    @Mock lateinit var lastBgData: LastBgData
     @Mock lateinit var history: O5History
     @Mock lateinit var sync: PumpSync
     @Mock lateinit var queue: CommandQueue
@@ -122,7 +124,7 @@ class O5DoseRecoveryTest : TestBaseWithProfile() {
 
     private fun newPlugin() = O5PumpPlugin(
             aapsLogger, rh, preferences, queue, ble, state, history, sync,
-            notificationManager, pumpEnactResultProvider, progress, protection, preCheck, config
+            notificationManager, pumpEnactResultProvider, progress, protection, preCheck, config, lastBgData
         )
 
     private fun status(sequence: Int, delivery: DeliveryStatus, remaining: Int = 0): DefaultStatusResponse {

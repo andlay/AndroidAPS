@@ -4,6 +4,7 @@ import app.aaps.pump.omnipod.common.R
 import app.aaps.core.data.pump.defs.ManufacturerType
 import app.aaps.core.data.model.BS
 import app.aaps.core.data.pump.defs.PumpType
+import app.aaps.core.interfaces.overview.LastBgData
 import app.aaps.core.interfaces.protection.ProtectionCheck
 import app.aaps.core.interfaces.pump.BlePreCheck
 import app.aaps.core.interfaces.pump.BolusProgressData
@@ -96,6 +97,7 @@ import java.util.EnumSet
 class O5PumpPluginTest : TestBaseWithProfile() {
 
     @Mock lateinit var bleManager: O5BleManager
+    @Mock lateinit var lastBgData: LastBgData
     @Mock lateinit var podStateManager: O5PodStateManager
     @Mock lateinit var pumpSync: PumpSync
     @Mock lateinit var commandQueue: CommandQueue
@@ -110,7 +112,7 @@ class O5PumpPluginTest : TestBaseWithProfile() {
     fun setup() {
         plugin = O5PumpPlugin(
             aapsLogger, rh, preferences, commandQueue, bleManager, podStateManager, history, pumpSync,
-            notificationManager, pumpEnactResultProvider, bolusProgressData, protectionCheck, blePreCheck, config
+            notificationManager, pumpEnactResultProvider, bolusProgressData, protectionCheck, blePreCheck, config, lastBgData
         )
         whenever(rh.gs(R.string.omnipod_5_error_not_enough_insulin)).thenReturn("Not enough insulin")
         whenever(rh.gs(R.string.omnipod_5_error_bolus_already_in_progress)).thenReturn("Bolus already in progress")

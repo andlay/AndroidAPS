@@ -18,6 +18,7 @@ import app.aaps.core.interfaces.notifications.AlarmSound
 import app.aaps.core.interfaces.notifications.NotificationId
 import app.aaps.core.interfaces.notifications.NotificationLevel
 import app.aaps.core.interfaces.notifications.NotificationManager
+import app.aaps.core.interfaces.overview.LastBgData
 import app.aaps.core.interfaces.di.PumpDriver
 import app.aaps.core.interfaces.plugin.PluginBase
 import app.aaps.core.interfaces.plugin.PluginDescription
@@ -180,7 +181,8 @@ class O5PumpPlugin @Inject constructor(
     private val bolusProgressData: BolusProgressData,
     private val protectionCheck: ProtectionCheck,
     private val blePreCheck: BlePreCheck,
-    private val config: Config
+    private val config: Config,
+    private val lastBgData: LastBgData
 ) : PumpPluginBase(
     pluginDescription = PluginDescription()
         .mainType(PluginType.PUMP)
@@ -1630,6 +1632,13 @@ class O5PumpPlugin @Inject constructor(
     @Volatile private var outOfReachArmedAt: Long = 0L
     @Volatile private var outOfReachArmedMinutes: Int = 0
 
+    /** The BG reading the alert was last set for, and whether it was set to go off when that BG goes stale. */
+    @Volatile private var outOfReachArmedForBg: Long = 0L
+    @Volatile private var outOfReachArmedForStale: Boolean = false
+
+    /** The BG reading the stale beep has already gone off for: it beeps once per missing stretch, not again and again. */
+    @Volatile private var staleBeepedForBg: Long = 0L
+
     /** When the timer last queued an update, so a pod out of reach is not tried again every minute. */
     @Volatile private var outOfReachQueuedAt: Long = 0L
 
@@ -1653,8 +1662,14 @@ class O5PumpPlugin @Inject constructor(
         if (!enabled) return armedPodId != 0L && armedPodId == podId
         if (podStateManager.activeAlerts?.contains(AlertType.SUSPEND_ENDED) == true) return true
         val minutes = outOfReachMinutes()
+        // A new BG reading moves the stale time later: set it again at once, before the old time comes
+        if (staleBgMinutes() > 0 && newestBgTime() != outOfReachArmedForBg) return true
         return armedPodId != podId || minutes != outOfReachArmedMinutes || now - outOfReachArmedAt >= outOfReachRearmMs(minutes)
     }
+
+    private fun staleBgMinutes(): Int = preferences.get(O5IntPreferenceKey.StaleBgBeepMinutes).coerceIn(0, 120)
+
+    private fun newestBgTime(): Long = lastBgData.lastBg()?.timestamp ?: 0L
 
     /**
      * Experimental "phone out of reach" beep ([O5BooleanPreferenceKey.OutOfReachBeep]).
@@ -1687,6 +1702,10 @@ class O5PumpPlugin @Inject constructor(
                 if (podStateManager.suspendAlertsEnabled) {
                     // Left over from a suspend that has ended, not a lost phone
                     aapsLogger.info(LTag.PUMP, "O5 suspend alert had gone off after the resume; silenced")
+                } else if (outOfReachArmedForStale) {
+                    staleBeepedForBg = outOfReachArmedForBg
+                    notificationManager.post(NotificationId.OMNIPOD_POD_ALERTS, rh.gs(R.string.omnipod_5_stale_bg_beeped))
+                    aapsLogger.info(LTag.PUMP, "O5 stale BG alert had gone off; silenced")
                 } else {
                     notificationManager.post(NotificationId.OMNIPOD_POD_ALERTS, rh.gs(R.string.omnipod_5_out_of_reach_beeped))
                     aapsLogger.info(LTag.PUMP, "O5 out-of-reach alert had gone off; silenced")
@@ -1694,11 +1713,15 @@ class O5PumpPlugin @Inject constructor(
             }
             if (enabled) {
                 val minutes = outOfReachMinutes()
-                sendSuspendEndedAlert(enabled = true, minutes = minutes)
+                val bgTime = newestBgTime()
+                val arm = outOfReachArmMinutes(now, minutes, staleBgMinutes(), bgTime, staleBeepedForBg)
+                sendSuspendEndedAlert(enabled = true, minutes = arm.minutes)
                 preferences.put(O5LongNonPreferenceKey.OutOfReachAlertPodId, podId)
                 outOfReachArmedAt = now
                 outOfReachArmedMinutes = minutes
-                aapsLogger.info(LTag.PUMP, "O5 out-of-reach alert set to $minutes min")
+                outOfReachArmedForBg = bgTime
+                outOfReachArmedForStale = arm.forStaleBg
+                aapsLogger.info(LTag.PUMP, "O5 out-of-reach alert set to ${arm.minutes} min" + if (arm.forStaleBg) " (stale BG)" else "")
             } else {
                 sendSuspendEndedAlert(enabled = false, minutes = 0)
                 preferences.put(O5LongNonPreferenceKey.OutOfReachAlertPodId, 0L)
@@ -1935,7 +1958,8 @@ class O5PumpPlugin @Inject constructor(
                     OmnipodBooleanPreferenceKey.LowReservoirAlert,
                     OmnipodIntPreferenceKey.LowReservoirAlertUnits,
                     O5BooleanPreferenceKey.OutOfReachBeep,
-                    O5IntPreferenceKey.OutOfReachBeepMinutes
+                    O5IntPreferenceKey.OutOfReachBeepMinutes,
+                    O5IntPreferenceKey.StaleBgBeepMinutes
                 )
             ),
             PreferenceSubScreenDef(
@@ -1964,4 +1988,22 @@ class O5PumpPlugin @Inject constructor(
         icon = pluginDescription.icon
     )
 
+}
+
+/** How far ahead the out-of-reach alert is set, and whether that time is the one where the BG goes stale. */
+internal data class OutOfReachArm(val minutes: Int, val forStaleBg: Boolean)
+
+/**
+ * The out-of-reach alert goes off [reachMinutes] from [now], or earlier, when the newest BG
+ * ([bgTime]) gets older than [staleMinutes] (0 = off). A BG that is stale already gives 1 minute, so
+ * the pod beeps soon. After the beep for that BG ([beepedForBg]) it does not beep again until a new
+ * BG arrives: only the normal out-of-reach time is used then. No BG at all is not counted as stale,
+ * so a new pod or a sensor warm-up does not beep.
+ */
+internal fun outOfReachArmMinutes(now: Long, reachMinutes: Int, staleMinutes: Int, bgTime: Long, beepedForBg: Long): OutOfReachArm {
+    if (staleMinutes <= 0 || bgTime <= 0L || bgTime == beepedForBg) return OutOfReachArm(reachMinutes, false)
+    val staleAt = bgTime + staleMinutes * 60_000L
+    // Rounded up, so the pod never beeps before the BG is really stale
+    val untilStale = ((staleAt - now + 59_999L) / 60_000L).toInt().coerceAtLeast(1)
+    return if (untilStale < reachMinutes) OutOfReachArm(untilStale, true) else OutOfReachArm(reachMinutes, false)
 }

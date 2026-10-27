@@ -25,6 +25,17 @@ enum class O5IntPreferenceKey(
         "AAPS.Omnipod5.out_of_reach_beep_minutes", min = 1, max = 120, defaultValue = 10,
         titleResId = R.string.omnipod_5_preferences_out_of_reach_beep_minutes,
         dependency = O5BooleanPreferenceKey.OutOfReachBeep
+    ),
+
+    /**
+     * Minutes without a new BG before the pod beeps, through the same alert. 0 = off. Works only
+     * with the out-of-reach beep on, because AAPS has to keep setting the alert.
+     */
+    StaleBgBeepMinutes(
+        "AAPS.Omnipod5.stale_bg_beep_minutes", min = 0, max = 120, defaultValue = 0,
+        titleResId = R.string.omnipod_5_preferences_stale_bg_beep_minutes,
+        summaryResId = R.string.omnipod_5_preferences_stale_bg_beep_minutes_summary,
+        dependency = O5BooleanPreferenceKey.OutOfReachBeep
     );
 
     override val preferenceType: PreferenceType = PreferenceType.TEXT_FIELD

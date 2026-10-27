@@ -236,6 +236,9 @@
     <string name="omnipod_5_preferences_out_of_reach_beep_minutes">Minutes without contact before the pod beeps (10 = one missed update; below 10 for testing)</string>
     <string name="omnipod_5_out_of_reach_beeped">The pod beeped because the phone could not reach it for some time. The beeping is stopped now.</string>
     <string name="omnipod_5_alert_out_of_reach">Phone out of reach</string>
+    <string name="omnipod_5_preferences_stale_bg_beep_minutes">Minutes without a new BG before the pod beeps (0 = off)</string>
+    <string name="omnipod_5_preferences_stale_bg_beep_minutes_summary">The pod also beeps when AAPS has had no new BG for this time, for example when the sensor or its app stops sending. It beeps once for each missing stretch and again only after a new BG has come. Needs the out-of-reach beep on.</string>
+    <string name="omnipod_5_stale_bg_beeped">The pod beeped because there was no new BG for some time. The beeping is stopped now.</string>
     <string name="omnipod_5_error_no_active_profile">No profile active</string>
     <string name="omnipod_5_pod_activation_wizard_start_pod_activation_text">Fill a new Pod
         with enough insulin for 3 days.\n\nListen for two beeps from the Pod during the filling process. These indicate that the minimum amount of 80U has been inserted. Be sure to completely empty the fill syringe, even after hearing the two beeps.\n\nAfter filling the Pod, please press <b>Next</b>.\n\n<b>Note:</b> do not remove the Pod\'s needle cap at this time.</string>
