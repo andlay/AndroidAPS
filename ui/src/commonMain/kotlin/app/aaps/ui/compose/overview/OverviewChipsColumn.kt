@@ -3,6 +3,7 @@ package app.aaps.ui.compose.overview
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
@@ -23,7 +24,6 @@ import app.aaps.ui.compose.overview.chips.CarbsChip
 import app.aaps.ui.compose.overview.chips.CobUiState
 import app.aaps.ui.compose.overview.chips.IobChip
 import app.aaps.ui.compose.overview.chips.IobUiState
-import app.aaps.ui.compose.overview.chips.DOSING_CHIP_HEIGHT
 import app.aaps.ui.compose.overview.chips.DosingChip
 import app.aaps.ui.compose.overview.chips.DosingUiState
 import app.aaps.ui.compose.overview.chips.ProfileChip
@@ -79,15 +79,13 @@ fun OverviewChipsColumn(
             onNavigate = onNavigate,
             commandsAllowed = commandsAllowed
         )
-        // The carbs and dosing widgets are two rows high, to the right of the temp target and IOB
+        // Top row: the temp target and the carbs. Insulin row: IOB, basal and SMB.
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(AapsSpacing.small)
+            horizontalArrangement = Arrangement.spacedBy(AapsSpacing.small),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
+            if (tempTargetText.isNotEmpty())
                 TempTargetRow(
                     tempTargetText = tempTargetText,
                     tempTargetState = tempTargetState,
@@ -95,23 +93,30 @@ fun OverviewChipsColumn(
                     tempTargetReason = tempTargetReason,
                     tempTargetSceneManaged = tempTargetSceneManaged,
                     onNavigate = onNavigate,
-                    commandsAllowed = commandsAllowed
+                    commandsAllowed = commandsAllowed,
+                    modifier = Modifier.weight(1f)
                 )
-                IobChip(
-                    state = iobUiState,
-                    onClick = onIobChipClick,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
+            else Spacer(Modifier.weight(1f))
             CarbsChip(
                 state = cobUiState,
-                modifier = Modifier.height(DOSING_CHIP_HEIGHT)
+                modifier = Modifier.height(AapsSpacing.chipHeight)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AapsSpacing.small),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IobChip(
+                state = iobUiState,
+                onClick = onIobChipClick,
+                modifier = Modifier.weight(1f)
             )
             DosingChip(
                 tbrState = tbrState,
                 state = dosingUiState,
                 onTempBasalDetails = onTbrChipClick,
-                modifier = Modifier.height(DOSING_CHIP_HEIGHT)
+                modifier = Modifier.height(AapsSpacing.chipHeight)
             )
         }
         SensitivityChipBlock(

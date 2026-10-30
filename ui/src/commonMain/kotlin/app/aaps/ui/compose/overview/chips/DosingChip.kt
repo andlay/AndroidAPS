@@ -46,11 +46,8 @@ import app.aaps.core.ui.compose.LocalDateUtil
 import app.aaps.core.ui.compose.navigation.color
 import app.aaps.core.ui.compose.stringResource
 
-/** Height of the two-line dosing widget: two chip rows and the gap between them. */
-internal val DOSING_CHIP_HEIGHT: Dp = AapsSpacing.chipHeight * 2 + 2.dp
-
 /**
- * Basal and SMB in one widget. Top: the temp basal icon and the basal delivered now. Bottom: an up
+ * Basal and SMB in one widget, on one row. First the temp basal icon and the basal delivered now, then an up
  * triangle, as on the IOB graph, filled when SMBs are on and empty when they are off, with the SMB
  * of the last loop run when it gave one. A tap shows what the last loop run asked for and why.
  */
@@ -80,8 +77,10 @@ fun DosingChip(
                 stateDescription = stateText
             }
         ) {
-            Column(
-                verticalArrangement = Arrangement.SpaceEvenly,
+            // Basal, then SMB, side by side on one row
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(AapsSpacing.large),
                 modifier = Modifier.padding(horizontal = AapsSpacing.medium, vertical = AapsSpacing.small)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AapsSpacing.small)) {

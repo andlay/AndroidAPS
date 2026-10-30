@@ -6,7 +6,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,8 +31,8 @@ import app.aaps.core.ui.compose.navigation.icon
 import app.aaps.core.ui.compose.stringResource
 
 /**
- * COB in a two row widget, beside the dosing widget. Top: the carbs icon and COB. Bottom: the carbs
- * the loop asks for, blinking, only when it asks for some.
+ * COB on one row, beside the temp target: the carbs icon and COB, then the carbs the loop asks for,
+ * blinking, only when it asks for some.
  */
 @Composable
 fun CarbsChip(
@@ -48,8 +47,10 @@ fun CarbsChip(
         // No onClick, so it does not merge on its own (see CobChip)
         modifier = modifier.semantics(mergeDescendants = true) { contentDescription = chipDescription }
     ) {
-        Column(
-            verticalArrangement = Arrangement.SpaceEvenly,
+        // The carbs needed, when there are any, follow on the same row
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AapsSpacing.medium),
             modifier = Modifier.padding(horizontal = AapsSpacing.medium, vertical = AapsSpacing.small)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AapsSpacing.small)) {
